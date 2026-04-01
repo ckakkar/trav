@@ -6,6 +6,8 @@ use tracing::error;
 
 use crate::error::Result;
 
+pub const DISK_QUEUE_CAPACITY: usize = 256;
+
 pub struct DiskTask {
     file: File,
     piece_length: u32,
@@ -33,7 +35,7 @@ impl DiskTask {
             .await
             .map_err(|e| crate::error::BitTorrentError::Engine(format!("Disk I/O Error: {}", e)))?;
 
-        let (sender, receiver) = mpsc::channel(128);
+        let (sender, receiver) = mpsc::channel(DISK_QUEUE_CAPACITY);
 
         let mut task = Self { file, piece_length, receiver };
 

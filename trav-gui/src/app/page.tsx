@@ -14,6 +14,12 @@ type PeerSnapshot = {
   peer_interested: boolean;
   download_hz: number;
   upload_hz: number;
+  penalty_score: number;
+  network_penalty: number;
+  data_penalty: number;
+  timeout_count: number;
+  bad_data_count: number;
+  hash_fail_count: number;
 };
 
 type TorrentSnapshot = {
@@ -176,6 +182,7 @@ export default function Home() {
                                         <div className="text-right text-xs text-slate-400 font-mono space-y-1">
                                             <div className="text-emerald-400">↓ {formatBytes(peer.download_hz)}/s</div>
                                             <div className="text-rose-400">↑ {formatBytes(peer.upload_hz)}/s</div>
+                                            <div className="text-amber-400">penalty {peer.penalty_score}</div>
                                         </div>
                                     </div>
                                 ))}

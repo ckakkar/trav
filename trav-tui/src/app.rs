@@ -3,7 +3,7 @@ use ratatui::{
     Terminal,
 };
 use crossterm::{
-    event::{self, Event as CEvent, KeyCode, EventStream},
+    event::{Event as CEvent, KeyCode, EventStream},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
@@ -70,7 +70,32 @@ impl TuiApp {
                         // Simply sync active torrents
                         self.state.torrents.clear();
                         self.state.torrents_map.clear();
+                        self.state.peer_health_map.clear();
                         for (idx, (hash, snapshot_torrent)) in snap.active_torrents.iter().enumerate() {
+                            let mut peer_health: Vec<crate::state::PeerHealthState> = snapshot_torrent
+                                .peers
+                                .iter()
+                                .map(|p| crate::state::PeerHealthState {
+                                    addr: p.addr.to_string(),
+                                    penalty_score: p.penalty_score,
+                                    network_penalty: p.network_penalty,
+                                    data_penalty: p.data_penalty,
+                                    timeout_count: p.timeout_count,
+                                    bad_data_count: p.bad_data_count,
+                                    hash_fail_count: p.hash_fail_count,
+                                })
+                                .collect();
+                            peer_health.sort_by_key(|p| p.penalty_score);
+
+                            let worst_penalty = peer_health.iter().map(|p| p.penalty_score).max().unwrap_or(0);
+                            let health_badge = if worst_penalty >= 8 {
+                                "BAD"
+                            } else if worst_penalty >= 3 {
+                                "WARN"
+                            } else {
+                                "GOOD"
+                            };
+
                             self.state.torrents_map.insert(*hash, idx);
                             self.state.torrents.push(crate::state::TorrentState {
                                 hash: snapshot_torrent.info_hash,
@@ -81,7 +106,9 @@ impl TuiApp {
                                 peers: snapshot_torrent.peers.len(),
                                 download_hz: snapshot_torrent.download_hz,
                                 upload_hz: snapshot_torrent.upload_hz,
+                                health_badge: health_badge.to_string(),
                             });
+                            self.state.peer_health_map.insert(*hash, peer_health);
                         }
                     }
                 }

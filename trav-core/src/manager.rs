@@ -1,6 +1,5 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use sha1::{Sha1, Digest};
-use crate::error::{BitTorrentError, Result};
 use tracing::info;
 
 pub struct PieceManager {
@@ -77,27 +76,55 @@ impl PieceManager {
 
     /// Verifies the SHA-1 hash of a fully assembled piece.
     pub fn verify_piece(&mut self, piece_index: u32, piece_data: &[u8]) -> bool {
+        let Some(expected_hash) = self.expected_hash(piece_index) else {
+            return false;
+        };
+        let verified = Self::verify_piece_data(&expected_hash, piece_data);
+        self.mark_piece_verification(piece_index, verified);
+        verified
+    }
+
+    pub fn expected_hash(&self, piece_index: u32) -> Option<[u8; 20]> {
         let offset = (piece_index * 20) as usize;
         if offset + 20 > self.pieces_hash.len() {
-            return false;
+            return None;
         }
+        let mut hash = [0u8; 20];
+        hash.copy_from_slice(&self.pieces_hash[offset..offset + 20]);
+        Some(hash)
+    }
 
-        let expected_hash = &self.pieces_hash[offset..offset + 20];
-        
+    pub fn mark_piece_verification(&mut self, piece_index: u32, verified: bool) {
+        self.in_progress.remove(&piece_index);
+        if verified {
+            self.downloaded.insert(piece_index);
+            info!("Piece {} verified successfully.", piece_index);
+        } else {
+            info!("Piece {} failed hash check.", piece_index);
+        }
+    }
+
+    pub fn mark_piece_timed_out(&mut self, piece_index: u32) {
+        self.in_progress.remove(&piece_index);
+    }
+
+    pub fn piece_size(&self, piece_index: u32) -> Option<u32> {
+        if piece_index >= self.num_pieces {
+            return None;
+        }
+        if piece_index + 1 == self.num_pieces {
+            let full_before_last = self.piece_length as u64 * (self.num_pieces.saturating_sub(1) as u64);
+            let remainder = self.total_length.saturating_sub(full_before_last);
+            return Some(remainder as u32);
+        }
+        Some(self.piece_length)
+    }
+
+    pub fn verify_piece_data(expected_hash: &[u8; 20], piece_data: &[u8]) -> bool {
         let mut hasher = Sha1::new();
         hasher.update(piece_data);
         let actual_hash = hasher.finalize();
-
-        if expected_hash == actual_hash.as_slice() {
-            self.downloaded.insert(piece_index);
-            self.in_progress.remove(&piece_index);
-            info!("Piece {} verified successfully.", piece_index);
-            true
-        } else {
-            self.in_progress.remove(&piece_index);
-            info!("Piece {} failed hash check.", piece_index);
-            false
-        }
+        expected_hash == actual_hash.as_slice()
     }
 
     pub fn is_complete(&self) -> bool {

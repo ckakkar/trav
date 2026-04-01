@@ -46,6 +46,16 @@ impl Engine {
                                     let piece_length = torrent.info.piece_length as u32;
                                     let total_length = torrent.info.length.unwrap_or(0); // Simplified for single-file
                                     let num_pieces = (torrent.info.pieces.len() / 20) as u32;
+
+                                    if let Some(files) = &torrent.info.files {
+                                        let paths: Vec<Vec<String>> = files.iter().map(|f| f.path.clone()).collect();
+                                        if let Err(e) = crate::path_safety::validate_multi_file_paths(&paths) {
+                                            tracing::error!("Rejected unsafe multi-file torrent paths: {}", e);
+                                            continue;
+                                        }
+                                        tracing::error!("Multi-file torrents are not yet supported safely by DiskTask");
+                                        continue;
+                                    }
                                     
                                     // 2. Register Torrent in Snapshot for UI
                                     {
@@ -65,9 +75,22 @@ impl Engine {
                                     }
 
                                     // 3. Initialize Disk I/O & Piece Manager
-                                    let download_path = download_dir.join(&torrent.info.name);
-                                    if let Err(e) = tokio::fs::create_dir_all(&download_dir).await {
-                                        tracing::error!("Failed to create downloads directory: {}", e);
+                                    let download_path = match crate::path_safety::build_jailed_single_file_path(
+                                        &download_dir,
+                                        &info_hash,
+                                        &torrent.info.name,
+                                    ) {
+                                        Ok(path) => path,
+                                        Err(e) => {
+                                            tracing::error!("Rejected unsafe torrent path: {}", e);
+                                            continue;
+                                        }
+                                    };
+                                    if let Some(parent) = download_path.parent() {
+                                        if let Err(e) = tokio::fs::create_dir_all(parent).await {
+                                            tracing::error!("Failed to create download jail directory: {}", e);
+                                            continue;
+                                        }
                                     }
                                     
                                     match crate::disk::DiskTask::spawn(download_path, piece_length).await {

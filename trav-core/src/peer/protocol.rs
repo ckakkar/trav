@@ -1,7 +1,6 @@
 use bytes::{Buf, BufMut, BytesMut};
 use tokio_util::codec::{Decoder, Encoder};
-use crate::error::{BitTorrentError, Result};
-use std::io;
+use crate::error::BitTorrentError;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum PeerMessage {
@@ -20,6 +19,7 @@ pub enum PeerMessage {
 }
 
 pub struct PeerCodec;
+const MAX_PEER_MESSAGE_LEN: usize = 2 * 1024 * 1024;
 
 impl Decoder for PeerCodec {
     type Item = PeerMessage;
@@ -33,6 +33,13 @@ impl Decoder for PeerCodec {
         let mut length_buf = [0u8; 4];
         length_buf.copy_from_slice(&src[..4]);
         let length = u32::from_be_bytes(length_buf) as usize;
+
+        if length > MAX_PEER_MESSAGE_LEN {
+            return Err(BitTorrentError::Engine(format!(
+                "Peer message too large: {} bytes",
+                length
+            )));
+        }
 
         if length == 0 {
             src.advance(4);

@@ -1,9 +1,8 @@
 use ratatui::{
-    backend::Backend,
-    layout::{Constraint, Direction, Layout, Rect},
-    style::{Color, Modifier, Style, Stylize},
-    text::{Line, Span},
-    widgets::{Block, Borders, Cell, Row, Table, Paragraph, Gauge},
+    layout::{Constraint, Direction, Layout},
+    style::{Color, Modifier, Style},
+    text::Line,
+    widgets::{Block, Borders, Cell, Row, Table, Paragraph},
     Frame,
 };
 use crate::state::{TuiState, Status};
@@ -15,7 +14,7 @@ pub fn draw_ui(f: &mut Frame, state: &mut TuiState) {
         .constraints([
             Constraint::Length(7),   // Sparklines Header
             Constraint::Min(10),     // Torrents Table
-            Constraint::Length(7),   // Logs
+            Constraint::Length(10),  // Logs + Peer Health
         ].as_ref())
         .split(f.size());
 
@@ -46,7 +45,7 @@ pub fn draw_ui(f: &mut Frame, state: &mut TuiState) {
     let selected_style = Style::default().add_modifier(Modifier::REVERSED);
     let normal_style = Style::default().bg(Color::DarkGray);
 
-    let header_cells = ["Name", "Size", "Progress", "Peers", "Down Speed", "Up Speed", "Status"]
+    let header_cells = ["Name", "Size", "Progress", "Peers", "Down Speed", "Up Speed", "Health", "Status"]
         .iter()
         .map(|h| Cell::from(*h).style(Style::default().fg(Color::Yellow)));
     let header_row = Row::new(header_cells)
@@ -69,6 +68,12 @@ pub fn draw_ui(f: &mut Frame, state: &mut TuiState) {
 
         let progress_str = format!("{:.1}%", torrent.progress);
 
+        let health_color = match torrent.health_badge.as_str() {
+            "BAD" => Color::Red,
+            "WARN" => Color::Yellow,
+            _ => Color::Green,
+        };
+
         Row::new(vec![
             Cell::from(torrent.name.clone()),
             Cell::from(size_str),
@@ -76,6 +81,7 @@ pub fn draw_ui(f: &mut Frame, state: &mut TuiState) {
             Cell::from(torrent.peers.to_string()),
             Cell::from(down_str),
             Cell::from(up_str),
+            Cell::from(torrent.health_badge.clone()).style(Style::default().fg(health_color)),
             Cell::from(status_str).style(Style::default().fg(status_color)),
         ])
         .height(1)
@@ -89,7 +95,8 @@ pub fn draw_ui(f: &mut Frame, state: &mut TuiState) {
         Constraint::Length(7),
         Constraint::Length(15),
         Constraint::Length(15),
-        Constraint::Min(10),
+        Constraint::Length(8),
+        Constraint::Min(8),
     ])
     .header(header_row)
     .block(Block::default().borders(Borders::ALL).title(format!("Active Torrents | Total Peers: {}", total_peers)))
@@ -98,14 +105,24 @@ pub fn draw_ui(f: &mut Frame, state: &mut TuiState) {
 
     f.render_stateful_widget(table, chunks[1], &mut state.table_state);
 
-    // 3. Render Logs
+    // 3. Render Logs + Peer Health details
+    let bottom_chunks = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(55), Constraint::Percentage(45)].as_ref())
+        .split(chunks[2]);
+
     let logs_text = state.logs.iter().map(|msg| Line::from(msg.as_str())).collect::<Vec<_>>();
     let logs_widget = Paragraph::new(logs_text)
         .block(Block::default().borders(Borders::ALL).title("Engine Event Logs"));
-    f.render_widget(logs_widget, chunks[2]);
+    f.render_widget(logs_widget, bottom_chunks[0]);
+
+    let peer_health_lines = selected_peer_lines(state);
+    let peers_widget = Paragraph::new(peer_health_lines)
+        .block(Block::default().borders(Borders::ALL).title("Selected Torrent Peer Health"));
+    f.render_widget(peers_widget, bottom_chunks[1]);
 }
 
-fn format_bytes(mut bytes: u64) -> String {
+fn format_bytes(bytes: u64) -> String {
     let units = ["B", "KB", "MB", "GB", "TB"];
     let mut unit_idx = 0;
     let mut val = bytes as f64;
@@ -118,4 +135,37 @@ fn format_bytes(mut bytes: u64) -> String {
 
 fn format_speed(hz: u64) -> String {
     format!("{}/s", format_bytes(hz))
+}
+
+fn selected_peer_lines(state: &TuiState) -> Vec<Line<'static>> {
+    let Some(selected_idx) = state.table_state.selected() else {
+        return vec![Line::from("No torrent selected")];
+    };
+    let Some(torrent) = state.torrents.get(selected_idx) else {
+        return vec![Line::from("No torrent selected")];
+    };
+    let Some(peers) = state.peer_health_map.get(&torrent.hash) else {
+        return vec![Line::from("No peer telemetry yet")];
+    };
+    if peers.is_empty() {
+        return vec![Line::from("No peers connected")];
+    }
+
+    peers
+        .iter()
+        .take(5)
+        .map(|p| {
+            let badge = if p.penalty_score >= 8 {
+                "BAD"
+            } else if p.penalty_score >= 3 {
+                "WARN"
+            } else {
+                "GOOD"
+            };
+            Line::from(format!(
+                "{} [{}] score={} net={} data={} t/o={} bad={} hash={}",
+                p.addr, badge, p.penalty_score, p.network_penalty, p.data_penalty, p.timeout_count, p.bad_data_count, p.hash_fail_count
+            ))
+        })
+        .collect()
 }

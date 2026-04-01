@@ -1,8 +1,12 @@
 use tokio::net::TcpStream;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use std::net::SocketAddr;
+use std::time::Duration;
 use crate::error::{BitTorrentError, Result};
 use tracing::debug;
+
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
+const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(15);
 
 pub struct PeerConnection {
     pub addr: SocketAddr,
@@ -14,7 +18,7 @@ impl PeerConnection {
     pub async fn connect(addr: SocketAddr) -> Result<Self> {
         debug!("Connecting to peer {}...", addr);
         let stream = tokio::time::timeout(
-            std::time::Duration::from_secs(5),
+            CONNECT_TIMEOUT,
             TcpStream::connect(addr),
         )
         .await
@@ -36,16 +40,18 @@ impl PeerConnection {
         handshake.extend_from_slice(peer_id.as_bytes());
 
         // Send Handshake
-        self.stream.write_all(&handshake).await.map_err(|e| BitTorrentError::Engine(e.to_string()))?;
+        tokio::time::timeout(HANDSHAKE_TIMEOUT, self.stream.write_all(&handshake))
+            .await
+            .map_err(|_| BitTorrentError::Engine(format!("Handshake write timeout with {}", self.addr)))?
+            .map_err(|e| BitTorrentError::Engine(e.to_string()))?;
 
         // Read Handshake Response
         let mut response = [0u8; 68];
-        let bytes_read = self.stream.read_exact(&mut response).await.map_err(|e| BitTorrentError::Engine(e.to_string()))?;
+        tokio::time::timeout(HANDSHAKE_TIMEOUT, self.stream.read_exact(&mut response))
+            .await
+            .map_err(|_| BitTorrentError::Engine(format!("Handshake read timeout with {}", self.addr)))?
+            .map_err(|e| BitTorrentError::Engine(e.to_string()))?;
         
-        if bytes_read != 68 {
-            return Err(BitTorrentError::Engine("Incomplete handshake received".to_string()));
-        }
-
         if &response[1..20] != b"BitTorrent protocol" {
             return Err(BitTorrentError::Engine("Invalid protocol identifier in handshake".to_string()));
         }

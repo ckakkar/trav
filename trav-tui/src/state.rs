@@ -19,11 +19,24 @@ pub struct TorrentState {
     pub peers: usize,
     pub download_hz: u64,
     pub upload_hz: u64,
+    pub health_badge: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct PeerHealthState {
+    pub addr: String,
+    pub penalty_score: u32,
+    pub network_penalty: u32,
+    pub data_penalty: u32,
+    pub timeout_count: u32,
+    pub bad_data_count: u32,
+    pub hash_fail_count: u32,
 }
 
 pub struct TuiState {
     pub torrents_map: HashMap<[u8; 20], usize>,
     pub torrents: Vec<TorrentState>,
+    pub peer_health_map: HashMap<[u8; 20], Vec<PeerHealthState>>,
     pub logs: VecDeque<String>,
     pub table_state: TableState,
     pub global_down_history: Vec<u64>,
@@ -35,6 +48,7 @@ impl TuiState {
         Self {
             torrents_map: HashMap::new(),
             torrents: Vec::new(),
+            peer_health_map: HashMap::new(),
             logs: VecDeque::with_capacity(100),
             table_state: TableState::default(),
             global_down_history: Vec::with_capacity(100),
@@ -62,6 +76,7 @@ impl TuiState {
                 peers: 0,
                 download_hz: 0,
                 upload_hz: 0,
+                health_badge: "GOOD".to_string(),
             });
             
             // Select the newly added row if none selected

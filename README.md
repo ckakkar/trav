@@ -1,77 +1,116 @@
-# Trav - Advanced Async BitTorrent Engine
+# Trav - Headless BitTorrent Engine with Premium Interfaces
 
-Trav is a high-performance, fully asynchronous BitTorrent client engineered entirely in Rust. It was built from the ground up prioritizing a highly decoupled, panic-free architecture powered by the `tokio` runtime, emphasizing stability, strict protocol implementation, and modularity.
+Trav is a Rust BitTorrent project built around a shared, headless engine (`trav-core`) with multiple frontends:
+- `trav-tui` (Quantum terminal dashboard)
+- `trav-gui` (Nova desktop app via Tauri + Next.js + TypeScript + Tailwind)
+- `trav-cli` (runtime bootstrap + TUI launcher)
 
-The project splits the BitTorrent protocol implementation (headless core) cleanly away from the presentation layers. This allows multiple user interfaces—like the provided modern Terminal User Interface (TUI)—to connect and control the engine through robust asynchronous message-passing channels.
+The design goal is one core engine, multiple interfaces, with non-blocking shared telemetry.
 
-## 🌟 Key Features
+## Workspace
 
-### Phase 1: Core Protocol & Engine
-- **Headless Async Engine**: All networking, peer communication, and disk I/O run securely inside dedicated `tokio` tasks using bounded `mpsc` channels and strict non-blocking models avoiding typical race conditions.
-- **Robust Bencode Serialization**: Strongly typed decoding/encoding of `.torrent` files leveraging `serde_bencode` and computing SHA-1 integrity checks.
-- **Peer Wire Protocol Integration**: Utilizes `tokio_util::codec` to apply length-prefixed streaming delimitation for peer networking handshakes, choked/unchoked messaging, and dynamic payload handling.
-- **Concurrent Piece Strategy**: An established Rarest-First piece-picker algorithm working dynamically alongside asynchronous disk operations.
-- **Panic-Free Architecture**: Strict adherence to idiomatic Rust abstractions running without `unwrap()` or `expect()`. Robust internal error propagation powered by `thiserror`.
+Cargo workspace members:
+- `trav-core`
+- `trav-tui`
+- `trav-cli`
+- `trav-gui/src-tauri`
 
-### Phase 2: Advanced Metadata & DHT Discoverability
-- **Tracker Diversification**: Extends classic HTTP Announcements (`reqwest`) with custom asynchronous binary UDP Tracker implementations (BEP 15) leveraging `tokio::net::UdpSocket`.
-- **Extension Protocols**: Compliant implementations of the Extended Handshake payload (BEP 10), explicitly supporting capabilities to stream `.torrent` metadata directly from remote peers (`ut_metadata` - BEP 9) and discovering active swarms via Peer Exchange (`ut_pex` - BEP 11).
-- **Kademlia DHT Scaffolding**: Built-in capabilities tracking XOR-distance metrics and Bencoded UDP Krpc requests to establish future Trackerless discoverability models.
-- **Magnet URIs**: Native URL interpreters converting arbitrary `xt=urn:btih:<hash>` magnet payloads rapidly into connected BitTorrent swarms.
+## Phase Status
 
-### Phase 3: The Dashboard (TUI)
-- **Multi-Pane Visualizer**: An extremely snappy, responsive `ratatui`-driven terminal interface dynamically bounded by `crossterm` terminal constraints.
-- **Live Statistics**: Translates cross-thread data channels instantly, parsing engine global download speeds (MB/s), live peer-counts, and concurrent hash progress seamlessly into dedicated `ratatui::widgets::Table` displays.
+### Phase 4 - Premium Interfaces
 
-## 🏗️ Workspace Architecture
+#### Objective
+Upgrade the terminal interface into a dense operator dashboard and introduce a modern desktop GUI, both powered by the same `trav-core`.
 
-The system is constructed as a Cargo Workspace separated logically into three main crates:
+#### Delivered
+- Added `trav-gui/src-tauri` to the Cargo workspace.
+- Introduced Nova GUI stack with:
+  - Next.js + TypeScript + Tailwind CSS
+  - Dark-themed dashboard style
+  - Live telemetry cards and charts
+  - Piece map visualization panel
+- Upgraded Quantum TUI with:
+  - Constraint-based, high-density layout
+  - Speed sparklines
+  - Torrent table and live logs
+- Established shared state exposure from `trav-core` using `Arc<RwLock<EngineSnapshot>>`.
 
-1. **`trav-core`**: The nucleus backend encapsulating every piece of the BitTorrent wire specification. Runs entirely headless.
-2. **`trav-tui`**: The visual presentation application running constraint-based terminal dashboard widgets querying state updates from `trav-core`.
-3. **`trav-cli`**: The universal binary entry point that spins up the multithreaded `tokio` runtime, spawns the core engine into the background loop, and binds the TUI gracefully over the main thread.
+#### Pending / Partial
+- Native OS drag-and-drop for `.torrent` files (not fully wired yet).
+- Full system tray behavior (not fully wired yet).
 
-## 🚀 Getting Started
+### Phase 5 - Live Engine Wiring
 
-### Prerequisites
+#### Objective
+Wire both interfaces to live engine state and event flow without UI-specific logic inside core networking paths.
 
-You need the standard Rust toolchain installed:
-```bash
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-```
+#### Delivered
+- `trav-core` emits and updates shared real-time snapshot state.
+- `trav-tui` reads snapshot on periodic ticks and renders live torrent/peer metrics.
+- `trav-gui` reads snapshot through Tauri IPC (`get_snapshot`) and updates UI continuously.
+- Swarm loop integrated with tracker-discovered peers and request pipeline.
 
-### Installation
+### Phase 6 - Security & Stability Audit
 
-Clone the repository and jump into the directory:
+#### Objective
+Harden core runtime against path traversal, async stalls, unbounded memory pressure, and abusive peers.
 
-```bash
-git clone https://github.com/yourusername/trav.git
-cd trav
-```
+#### Delivered
+- **Path traversal/jail hardening**
+  - Added strict metadata path sanitization.
+  - Enforced jailed output paths under per-torrent root (`download_dir/<info_hash>/...`).
+  - Rejects unsafe segments (`..`, absolute/prefix paths, separators, NUL, unsafe trailing characters).
+- **Tokio blocking mitigation**
+  - Piece SHA-1 verification moved to `tokio::task::spawn_blocking`.
+- **Backpressure**
+  - Disk queue remains bounded; explicit queue capacity constant introduced.
+- **Timeouts aligned for global swarms**
+  - Handshake timeout: 15s
+  - Idle/read timeout: 90s
+  - Piece request timeout: 30s
+  - Write operations wrapped with explicit timeout paths.
+- **Protocol and abuse safeguards**
+  - Peer codec max message length guard.
+  - Retry budget per piece.
+  - Adaptive peer penalty scoring with category split:
+    - network penalties (timeouts)
+    - data penalties (bad/mismatched/hash-failed payloads)
+  - Peer backoff and disconnect threshold logic.
+- **Observability**
+  - Peer health metrics exposed in snapshot and surfaced in GUI/TUI views.
 
-### Running the TUI Client
+## Run
 
-Currently, the primary way to interact with the async engine is via the robust dashboard interface:
-
+### TUI (CLI entrypoint)
 ```bash
 cargo run --release -p trav-cli
 ```
 
-### Navigation
+Optional startup torrent:
+```bash
+cargo run --release -p trav-cli -- /path/to/file.torrent /path/to/downloads
+```
 
-Within the TUI context:
-- Use **↑ ( Up Arrow )** or **k** to scroll up the Active Torrent table.
-- Use **↓ ( Down Arrow )** or **j** to scroll down the Active Torrent table.
-- Press **q** to gracefully emit shutdown signals dropping all async sockets and wiping the alternate terminal screen correctly.
+### GUI web layer (inside `trav-gui`)
+```bash
+npm install
+npm run dev
+```
 
-## 🔧 Logging
+### Tauri desktop app (inside `trav-gui/src-tauri`)
+Use Tauri dev workflow from the GUI project root (expects frontend dev server via `beforeDevCommand`).
 
-Internal `tracing` behaviors operate continuously beneath the TUI interface. To prevent complex asynchronous logs from physically corrupting constraint grids on the terminal screen, all diagnostic messages are redirected immediately either into standard log files (e.g. `trav.log`), or selectively piped directly to the TUI Event Logs bounded buffers.
+## TUI Controls
 
-## 🛡️ Stability Notice
+- `j` / Down Arrow: next torrent row
+- `k` / Up Arrow: previous torrent row
+- `q`: graceful shutdown
 
-The current version implements structural components of Phase 1, Phase 2, and Phase 3. The foundational parsing, protocol messaging capabilities, DHT structures, and UI dashboards compile completely, preparing for impending massive connection integrations to launch live asynchronous downloading swarms dynamically.
+## Notes
 
-## ⚖️ License
+- Logs are written to `trav.log` by the CLI runtime to avoid corrupting the terminal UI.
+- Current implementation is intentionally iterative; some advanced BitTorrent behaviors are still being expanded.
 
-Distributed under the MIT License.
+## License
+
+MIT

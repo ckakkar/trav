@@ -34,6 +34,12 @@ pub struct PeerSnapshot {
     pub peer_interested: bool,
     pub download_hz: u64,
     pub upload_hz: u64,
+    pub penalty_score: u32,
+    pub network_penalty: u32,
+    pub data_penalty: u32,
+    pub timeout_count: u32,
+    pub bad_data_count: u32,
+    pub hash_fail_count: u32,
 }
 
 impl EngineSnapshot {

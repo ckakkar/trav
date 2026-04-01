@@ -10,5 +10,6 @@ pub mod magnet;
 pub mod dht;
 pub mod snapshot;
 pub mod swarm;
+pub mod path_safety;
 
 pub use engine::Engine;
