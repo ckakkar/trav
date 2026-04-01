@@ -4,7 +4,7 @@ use std::path::PathBuf;
 #[derive(Debug, Clone)]
 pub enum Command {
     /// Add a new .torrent file for download.
-    AddTorrent { file_path: PathBuf },
+    AddTorrent { file_path: PathBuf, download_dir: PathBuf },
     /// Pause a specified torrent.
     Pause { torrent_hash: [u8; 20] },
     /// Resume a specified torrent.

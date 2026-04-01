@@ -22,12 +22,12 @@ pub struct TorrentState {
 }
 
 pub struct TuiState {
-    pub torrents_map: HashMap<[u8; 20], usize>, // Map hash to visual index
+    pub torrents_map: HashMap<[u8; 20], usize>,
     pub torrents: Vec<TorrentState>,
     pub logs: VecDeque<String>,
     pub table_state: TableState,
-    pub global_down_hz: u64,
-    pub global_up_hz: u64,
+    pub global_down_history: Vec<u64>,
+    pub global_up_history: Vec<u64>,
 }
 
 impl TuiState {
@@ -37,8 +37,8 @@ impl TuiState {
             torrents: Vec::new(),
             logs: VecDeque::with_capacity(100),
             table_state: TableState::default(),
-            global_down_hz: 0,
-            global_up_hz: 0,
+            global_down_history: Vec::with_capacity(100),
+            global_up_history: Vec::with_capacity(100),
         }
     }
 

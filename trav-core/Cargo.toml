@@ -18,3 +18,5 @@ tokio-util.workspace = true
 urlencoding.workspace = true
 serde_bytes.workspace = true
 url.workspace = true
+tokio-stream.workspace = true
+futures = "0.3"

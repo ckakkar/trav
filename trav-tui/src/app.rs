@@ -14,6 +14,8 @@ use std::io;
 use trav_core::message::{Command, Event as CoreEvent};
 use anyhow::Result;
 
+use std::sync::{Arc, RwLock};
+use trav_core::snapshot::EngineSnapshot;
 use crate::state::TuiState;
 use crate::widgets::table::draw_ui;
 
@@ -21,14 +23,16 @@ pub struct TuiApp {
     command_tx: mpsc::Sender<Command>,
     event_rx: broadcast::Receiver<CoreEvent>,
     state: TuiState,
+    snapshot: Arc<RwLock<EngineSnapshot>>,
 }
 
 impl TuiApp {
-    pub fn new(command_tx: mpsc::Sender<Command>, event_rx: broadcast::Receiver<CoreEvent>) -> Self {
+    pub fn new(command_tx: mpsc::Sender<Command>, event_rx: broadcast::Receiver<CoreEvent>, snapshot: Arc<RwLock<EngineSnapshot>>) -> Self {
         Self {
             command_tx,
             event_rx,
             state: TuiState::new(),
+            snapshot,
         }
     }
 
@@ -41,6 +45,7 @@ impl TuiApp {
         let mut terminal = Terminal::new(backend)?;
 
         let mut crossterm_events = EventStream::new();
+        let mut tick_interval = tokio::time::interval(std::time::Duration::from_millis(100)); // 10 FPS refresh
 
         self.state.log("Starting...".to_string());
 
@@ -50,7 +55,37 @@ impl TuiApp {
 
             // Handle Events Multi-plexing
             tokio::select! {
-                // Handle core engine events
+                _ = tick_interval.tick() => {
+                    // Lock the snapshot, copy exactly what we need for rendering fast
+                    if let Ok(snap) = self.snapshot.read() {
+                        self.state.global_down_history.push(snap.total_download_hz);
+                        self.state.global_up_history.push(snap.total_upload_hz);
+                        if self.state.global_down_history.len() > 100 {
+                            self.state.global_down_history.remove(0);
+                        }
+                        if self.state.global_up_history.len() > 100 {
+                            self.state.global_up_history.remove(0);
+                        }
+
+                        // Simply sync active torrents
+                        self.state.torrents.clear();
+                        self.state.torrents_map.clear();
+                        for (idx, (hash, snapshot_torrent)) in snap.active_torrents.iter().enumerate() {
+                            self.state.torrents_map.insert(*hash, idx);
+                            self.state.torrents.push(crate::state::TorrentState {
+                                hash: snapshot_torrent.info_hash,
+                                name: snapshot_torrent.name.clone(),
+                                size_bytes: snapshot_torrent.size_bytes,
+                                progress: snapshot_torrent.progress,
+                                status: crate::state::Status::Downloading, // Simplifying for Phase 4 mock
+                                peers: snapshot_torrent.peers.len(),
+                                download_hz: snapshot_torrent.download_hz,
+                                upload_hz: snapshot_torrent.upload_hz,
+                            });
+                        }
+                    }
+                }
+
                 core_event_result = self.event_rx.recv() => {
                     match core_event_result {
                         Ok(CoreEvent::EngineStarted) => {
@@ -59,50 +94,16 @@ impl TuiApp {
                         Ok(CoreEvent::Error(err)) => {
                             self.state.log(format!("=> ERROR: {}", err));
                         }
-                        Ok(CoreEvent::TorrentAdded { hash, name, size_bytes }) => {
-                            self.state.add_torrent(hash, name.clone(), size_bytes);
+                        Ok(CoreEvent::TorrentAdded { name, .. }) => {
                             self.state.log(format!("=> Added Torrent: {}", name));
                         }
-                        Ok(CoreEvent::TorrentProgress { hash, progress }) => {
-                            if let Some(&idx) = self.state.torrents_map.get(&hash) {
-                                self.state.torrents[idx].progress = progress;
-                            }
+                        Ok(CoreEvent::TorrentCompleted { .. }) => {
+                            self.state.log("=> A torrent completed downloading!".to_string());
                         }
-                        Ok(CoreEvent::PeerCountUpdated { hash, count }) => {
-                            if let Some(&idx) = self.state.torrents_map.get(&hash) {
-                                self.state.torrents[idx].peers = count;
-                            }
-                        }
-                        Ok(CoreEvent::SpeedUpdated { hash, download_hz, upload_hz }) => {
-                            if let Some(&idx) = self.state.torrents_map.get(&hash) {
-                                self.state.torrents[idx].download_hz = download_hz;
-                                self.state.torrents[idx].upload_hz = upload_hz;
-                            }
-                            // Calculate global naive speeds
-                            let mut d_hz = 0;
-                            let mut u_hz = 0;
-                            for t in &self.state.torrents {
-                                d_hz += t.download_hz;
-                                u_hz += t.upload_hz;
-                            }
-                            self.state.global_down_hz = d_hz;
-                            self.state.global_up_hz = u_hz;
-                        }
-                        Ok(CoreEvent::TorrentCompleted { hash }) => {
-                            if let Some(&idx) = self.state.torrents_map.get(&hash) {
-                                self.state.torrents[idx].progress = 100.0;
-                                self.state.torrents[idx].status = crate::state::Status::Seeding;
-                                self.state.log(format!("=> Completed: {}", self.state.torrents[idx].name));
-                            }
-                        }
-                        Err(_) => {
-                            // Engine dropped the channel. Engine died?
-                            self.state.log("=> Engine Disconnected!".to_string());
-                        }
+                        Err(_) | _ => {}
                     }
                 }
                 
-                // Handle terminal input events
                 crossterm_event = crossterm_events.next() => {
                     if let Some(Ok(CEvent::Key(key))) = crossterm_event {
                         match key.code {
@@ -116,7 +117,6 @@ impl TuiApp {
                             KeyCode::Up | KeyCode::Char('k') => {
                                 self.state.previous();
                             }
-                            // Future: Enter key to view detailed stats of a torrent
                             _ => {}
                         }
                     }

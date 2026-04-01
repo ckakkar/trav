@@ -13,22 +13,34 @@ pub fn draw_ui(f: &mut Frame, state: &mut TuiState) {
         .direction(Direction::Vertical)
         .margin(1)
         .constraints([
-            Constraint::Length(3),  // Header / Stats
-            Constraint::Min(10),    // Torrents Table
-            Constraint::Length(7),  // Logs
+            Constraint::Length(7),   // Sparklines Header
+            Constraint::Min(10),     // Torrents Table
+            Constraint::Length(7),   // Logs
         ].as_ref())
         .split(f.size());
 
-    // 1. Render Header/Stats
-    let total_down = format_speed(state.global_down_hz);
-    let total_up = format_speed(state.global_up_hz);
+    // 1. Render Header/Stats (incorporating Ratatui Sparkline)
+    let current_down = state.global_down_history.last().copied().unwrap_or(0);
+    let current_up = state.global_up_history.last().copied().unwrap_or(0);
     let total_peers: usize = state.torrents.iter().map(|t| t.peers).sum();
     
-    let stats_text = format!("Total Speeds: ↓ {} / ↑ {}  |  Total Peers: {}", total_down, total_up, total_peers);
-    let header = Paragraph::new(stats_text)
-        .style(Style::default().fg(Color::Cyan))
-        .block(Block::default().borders(Borders::ALL).title("Trav BitTorrent Client - Global Stats"));
-    f.render_widget(header, chunks[0]);
+    let spark_layout = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)].as_ref())
+        .split(chunks[0]);
+
+    let down_sparkline = ratatui::widgets::Sparkline::default()
+        .block(Block::default().borders(Borders::ALL).title(format!("Download {}/s", format_bytes(current_down))))
+        .data(&state.global_down_history)
+        .style(Style::default().fg(Color::Green));
+
+    let up_sparkline = ratatui::widgets::Sparkline::default()
+        .block(Block::default().borders(Borders::ALL).title(format!("Upload {}/s", format_bytes(current_up))))
+        .data(&state.global_up_history)
+        .style(Style::default().fg(Color::Red));
+
+    f.render_widget(down_sparkline, spark_layout[0]);
+    f.render_widget(up_sparkline, spark_layout[1]);
 
     // 2. Render Torrents Table
     let selected_style = Style::default().add_modifier(Modifier::REVERSED);
@@ -55,14 +67,12 @@ pub fn draw_ui(f: &mut Frame, state: &mut TuiState) {
         };
         let status_str = format!("{:?}", torrent.status);
 
-        // We can't render a fully interactive Gauge widget directly inside a Cell efficiently in ratatui,
-        // so we format the progress as a string text bar instead, or just text %
         let progress_str = format!("{:.1}%", torrent.progress);
 
         Row::new(vec![
             Cell::from(torrent.name.clone()),
             Cell::from(size_str),
-            Cell::from(progress_str), // Using text instead of Gauge widget for table cells
+            Cell::from(progress_str), 
             Cell::from(torrent.peers.to_string()),
             Cell::from(down_str),
             Cell::from(up_str),
@@ -82,7 +92,7 @@ pub fn draw_ui(f: &mut Frame, state: &mut TuiState) {
         Constraint::Min(10),
     ])
     .header(header_row)
-    .block(Block::default().borders(Borders::ALL).title("Active Torrents"))
+    .block(Block::default().borders(Borders::ALL).title(format!("Active Torrents | Total Peers: {}", total_peers)))
     .highlight_style(selected_style)
     .highlight_symbol(">> ");
 

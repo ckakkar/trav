@@ -8,5 +8,7 @@ pub mod manager;
 pub mod disk;
 pub mod magnet;
 pub mod dht;
+pub mod snapshot;
+pub mod swarm;
 
 pub use engine::Engine;
