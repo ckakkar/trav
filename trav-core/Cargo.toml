@@ -1,0 +1,19 @@
+[package]
+name = "trav-core"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+tokio.workspace = true
+thiserror.workspace = true
+anyhow.workspace = true
+bytes.workspace = true
+tracing.workspace = true
+serde_bencode = "0.2"
+sha1 = "0.10"
+serde = { version = "1.0", features = ["derive"] }
+hex.workspace = true
+reqwest.workspace = true
+tokio-util.workspace = true
+urlencoding.workspace = true
+serde_bytes.workspace = true

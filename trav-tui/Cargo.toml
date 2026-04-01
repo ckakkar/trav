@@ -1,0 +1,14 @@
+[package]
+name = "trav-tui"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+trav-core = { path = "../trav-core" }
+tokio.workspace = true
+ratatui = "0.26"
+crossterm = { version = "0.27", features = ["event-stream"] }
+anyhow.workspace = true
+tracing.workspace = true
+hex.workspace = true
+tokio-stream.workspace = true

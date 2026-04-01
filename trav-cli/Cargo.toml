@@ -1,0 +1,13 @@
+[package]
+name = "trav-cli"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+trav-core = { path = "../trav-core" }
+trav-tui = { path = "../trav-tui" }
+tokio.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+tracing-appender.workspace = true
