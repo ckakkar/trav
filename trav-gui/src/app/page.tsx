@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/tauri";
+import { appWindow } from "@tauri-apps/api/window";
 import SpeedChart from "@/components/SpeedChart";
 import PieceMap from "@/components/PieceMap";
 import { Activity, Download, Upload, Settings } from "lucide-react";
@@ -55,6 +56,7 @@ export default function Home() {
 
   useEffect(() => {
     let interval: NodeJS.Timeout;
+    let unlistenDrop: (() => void) | undefined;
     
     // Tauri specific, check window directly to only invoke backend inside Tauri context
     if (typeof window !== 'undefined' && (window as any).__TAURI_IPC__) {
@@ -66,9 +68,27 @@ export default function Home() {
                 console.error("IPC failed:", err);
             }
         }, 300); // 300ms refersh
+
+        appWindow.listen<string[]>("tauri://file-drop", async (event) => {
+            for (const droppedPath of event.payload ?? []) {
+                if (!droppedPath.toLowerCase().endsWith(".torrent")) continue;
+                try {
+                    await invoke("add_torrent", { filePath: droppedPath });
+                } catch (err) {
+                    console.error("Failed to add dropped torrent:", err);
+                }
+            }
+        }).then((unlisten) => {
+            unlistenDrop = unlisten;
+        }).catch((err) => {
+            console.error("Failed to register file-drop listener:", err);
+        });
     }
 
-    return () => clearInterval(interval);
+    return () => {
+      clearInterval(interval);
+      if (unlistenDrop) unlistenDrop();
+    };
   }, []);
 
   if (!snapshot) {

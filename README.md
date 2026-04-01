@@ -17,6 +17,40 @@ Cargo workspace members:
 
 ## Phase Status
 
+### Phase 1 - Core Protocol & Engine
+
+#### Objective
+Build a robust asynchronous headless BitTorrent engine with clean module boundaries and stable runtime behavior.
+
+#### Delivered
+- `trav-core` engine loop with command/event channels.
+- Bencode `.torrent` parsing and info-hash generation.
+- Peer wire protocol framing and handshake baseline.
+- Tracker integration foundations (HTTP and UDP paths).
+- Piece manager with rarest-first selection primitives.
+- Async disk task abstraction with bounded queue.
+
+### Phase 2 - Metadata, Magnet, and Discovery Expansion
+
+#### Objective
+Expand discovery and metadata capability beyond basic single tracker flows.
+
+#### Delivered
+- Magnet parsing module and extension protocol scaffolding.
+- DHT/KRPC scaffolding modules for iterative evolution.
+- Expanded tracker support and peer parsing paths.
+- Core module split for protocol surface growth (`tracker`, `dht`, `magnet`, `peer`).
+
+### Phase 3 - Operational Interface Baseline
+
+#### Objective
+Introduce a usable live operator interface on top of the headless engine.
+
+#### Delivered
+- Initial `trav-tui` dashboard using `ratatui` + `crossterm`.
+- CLI bootstrap (`trav-cli`) to run runtime, engine, and interface together.
+- Real-time table/log display and keyboard navigation loop.
+
 ### Phase 4 - Premium Interfaces
 
 #### Objective
@@ -36,8 +70,8 @@ Upgrade the terminal interface into a dense operator dashboard and introduce a m
 - Established shared state exposure from `trav-core` using `Arc<RwLock<EngineSnapshot>>`.
 
 #### Pending / Partial
-- Native OS drag-and-drop for `.torrent` files (not fully wired yet).
-- Full system tray behavior (not fully wired yet).
+- Native OS drag-and-drop for `.torrent` files is wired in Nova (desktop runtime).
+- System tray support is wired (`Show/Hide`, `Quit`).
 
 ### Phase 5 - Live Engine Wiring
 
@@ -79,32 +113,93 @@ Harden core runtime against path traversal, async stalls, unbounded memory press
 - **Observability**
   - Peer health metrics exposed in snapshot and surfaced in GUI/TUI views.
 
-## Run
+## In-Depth Usage Guide
 
-### TUI (CLI entrypoint)
+### 1) Prerequisites
+- Rust toolchain (`rustup`, `cargo`)
+- Node.js 18+ and npm (for `trav-gui`)
+- Platform dependencies required by Tauri (WebView toolchain)
+
+### 2) Build / check the workspace
+From repo root:
+```bash
+cargo check -p trav-core -p trav-tui -p trav-cli -p app
+```
+
+### 3) Run the terminal client (Quantum TUI)
+TUI is launched through `trav-cli`:
 ```bash
 cargo run --release -p trav-cli
 ```
 
-Optional startup torrent:
+Start with a torrent immediately:
 ```bash
 cargo run --release -p trav-cli -- /path/to/file.torrent /path/to/downloads
 ```
 
-### GUI web layer (inside `trav-gui`)
+Behavior:
+- boots Tokio runtime
+- starts `trav-core` in background
+- renders TUI on main thread
+- writes logs to `trav.log`
+
+### 4) Use TUI controls
+- `j` / Down Arrow: next torrent row
+- `k` / Up Arrow: previous torrent row
+- `q`: graceful shutdown
+
+### 5) Run Nova GUI (web layer only)
+Inside `trav-gui`:
 ```bash
 npm install
 npm run dev
 ```
 
-### Tauri desktop app (inside `trav-gui/src-tauri`)
-Use Tauri dev workflow from the GUI project root (expects frontend dev server via `beforeDevCommand`).
+This starts Next.js UI at `http://localhost:3000` (without desktop APIs like file-drop/system tray).
 
-## TUI Controls
+### 6) Run Nova as desktop app (Tauri + Next.js)
+From repo root:
+```bash
+cargo run -p app
+```
 
-- `j` / Down Arrow: next torrent row
-- `k` / Up Arrow: previous torrent row
-- `q`: graceful shutdown
+Or from `trav-gui/src-tauri`:
+```bash
+cargo run
+```
+
+Desktop-only behavior:
+- uses Tauri IPC to poll `EngineSnapshot`
+- accepts drag-and-drop of `.torrent` files
+- forwards dropped files to `trav-core` via `Command::AddTorrent`
+- exposes system tray menu:
+  - `Show/Hide`
+  - `Quit`
+
+### 7) Add torrents in practice
+- **TUI/CLI path:** launch with startup args:
+  - `cargo run --release -p trav-cli -- /path/file.torrent /path/downloads`
+- **GUI desktop path:** drag a `.torrent` file onto the Nova window.
+
+### 8) Download path and safety model
+- Output is jailed under:
+  - `download_dir/<info_hash_hex>/<sanitized_name>`
+- Unsafe paths from torrent metadata are rejected.
+- Multi-file torrents are validated for path safety and currently fail closed where unsupported.
+
+### 9) Peer health and stability behavior
+- Adaptive penalties track:
+  - network faults (timeouts)
+  - data faults (invalid/mismatched/hash-failed blocks)
+- Slow/bad peers are backoff-throttled, then disconnected above threshold.
+- Piece verification runs off reactor threads via `spawn_blocking`.
+- Channels between swarm and disk remain bounded for backpressure.
+
+### 10) Troubleshooting
+- **No GUI updates:** ensure you are running desktop (`cargo run -p app`), not only `npm run dev`.
+- **Dropped file ignored:** confirm extension is `.torrent` and path exists.
+- **No peers discovered:** verify tracker reachability and torrent health.
+- **Tauri build issues:** install required OS-level WebView/Tauri dependencies.
 
 ## Notes
 
