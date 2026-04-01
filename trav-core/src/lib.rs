@@ -6,5 +6,7 @@ pub mod tracker;
 pub mod peer;
 pub mod manager;
 pub mod disk;
+pub mod magnet;
+pub mod dht;
 
 pub use engine::Engine;

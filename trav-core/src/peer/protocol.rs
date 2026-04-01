@@ -16,6 +16,7 @@ pub enum PeerMessage {
     Piece { index: u32, begin: u32, block: Vec<u8> },
     Cancel { index: u32, begin: u32, length: u32 },
     Port { listen_port: u16 },
+    Extended { extended_id: u8, payload: Vec<u8> },
 }
 
 pub struct PeerCodec;
@@ -99,6 +100,15 @@ impl Decoder for PeerCodec {
                 }
                 PeerMessage::Port { listen_port: src.get_u16() }
             }
+            20 => {
+                if payload_len < 1 {
+                    return Err(BitTorrentError::Engine("Invalid Extended size".into()));
+                }
+                let extended_id = src.get_u8();
+                let mut payload = vec![0; payload_len - 1];
+                src.copy_to_slice(&mut payload);
+                PeerMessage::Extended { extended_id, payload }
+            }
             _ => return Err(BitTorrentError::Engine(format!("Unknown message id: {}", id))),
         };
 
@@ -151,6 +161,12 @@ impl Encoder<PeerMessage> for PeerCodec {
                 dst.put_u32(3);
                 dst.put_u8(9);
                 dst.put_u16(listen_port);
+            }
+            PeerMessage::Extended { extended_id, payload } => {
+                dst.put_u32(2 + payload.len() as u32);
+                dst.put_u8(20);
+                dst.put_u8(extended_id);
+                dst.put_slice(&payload);
             }
         }
         Ok(())

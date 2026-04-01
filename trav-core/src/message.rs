@@ -22,6 +22,12 @@ pub enum Event {
     TorrentProgress { hash: [u8; 20], progress: f32 },
     /// A torrent completed downloading.
     TorrentCompleted { hash: [u8; 20] },
+    /// A new torrent was added to the engine.
+    TorrentAdded { hash: [u8; 20], name: String, size_bytes: u64 },
+    /// Updated peer count for a specific torrent.
+    PeerCountUpdated { hash: [u8; 20], count: usize },
+    /// Real-time speed metrics for a specific torrent.
+    SpeedUpdated { hash: [u8; 20], download_hz: u64, upload_hz: u64 },
     /// An error occurred during operation.
     Error(String),
 }

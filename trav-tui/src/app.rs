@@ -1,7 +1,5 @@
 use ratatui::{
     backend::CrosstermBackend,
-    layout::{Constraint, Direction, Layout},
-    widgets::{Block, Borders, Paragraph},
     Terminal,
 };
 use crossterm::{
@@ -16,11 +14,13 @@ use std::io;
 use trav_core::message::{Command, Event as CoreEvent};
 use anyhow::Result;
 
+use crate::state::TuiState;
+use crate::widgets::table::draw_ui;
+
 pub struct TuiApp {
     command_tx: mpsc::Sender<Command>,
     event_rx: broadcast::Receiver<CoreEvent>,
-    status: String,
-    logs: Vec<String>,
+    state: TuiState,
 }
 
 impl TuiApp {
@@ -28,8 +28,7 @@ impl TuiApp {
         Self {
             command_tx,
             event_rx,
-            status: "Starting...".to_string(),
-            logs: vec![],
+            state: TuiState::new(),
         }
     }
 
@@ -43,24 +42,11 @@ impl TuiApp {
 
         let mut crossterm_events = EventStream::new();
 
+        self.state.log("Starting...".to_string());
+
         loop {
             // Render UI
-            terminal.draw(|f| {
-                let chunks = Layout::default()
-                    .direction(Direction::Vertical)
-                    .margin(1)
-                    .constraints([Constraint::Length(3), Constraint::Min(0)].as_ref())
-                    .split(f.size());
-
-                let header = Paragraph::new(format!("Trav Async BitTorrent Client - Status: {}", self.status))
-                    .block(Block::default().borders(Borders::ALL).title("Core"));
-                f.render_widget(header, chunks[0]);
-
-                let logs_text = self.logs.join("\n");
-                let logs_widget = Paragraph::new(logs_text)
-                    .block(Block::default().borders(Borders::ALL).title("Events Logs"));
-                f.render_widget(logs_widget, chunks[1]);
-            })?;
+            terminal.draw(|f| draw_ui(f, &mut self.state))?;
 
             // Handle Events Multi-plexing
             tokio::select! {
@@ -68,21 +54,50 @@ impl TuiApp {
                 core_event_result = self.event_rx.recv() => {
                     match core_event_result {
                         Ok(CoreEvent::EngineStarted) => {
-                            self.status = "Engine Running".to_string();
-                            self.logs.push("=> Engine Started Successfully".to_string());
+                            self.state.log("=> Engine Started Successfully".to_string());
                         }
                         Ok(CoreEvent::Error(err)) => {
-                            self.logs.push(format!("=> ERROR: {}", err));
+                            self.state.log(format!("=> ERROR: {}", err));
+                        }
+                        Ok(CoreEvent::TorrentAdded { hash, name, size_bytes }) => {
+                            self.state.add_torrent(hash, name.clone(), size_bytes);
+                            self.state.log(format!("=> Added Torrent: {}", name));
                         }
                         Ok(CoreEvent::TorrentProgress { hash, progress }) => {
-                            self.logs.push(format!("=> Progress {}: {:.2}%", hex::encode(hash), progress));
+                            if let Some(&idx) = self.state.torrents_map.get(&hash) {
+                                self.state.torrents[idx].progress = progress;
+                            }
+                        }
+                        Ok(CoreEvent::PeerCountUpdated { hash, count }) => {
+                            if let Some(&idx) = self.state.torrents_map.get(&hash) {
+                                self.state.torrents[idx].peers = count;
+                            }
+                        }
+                        Ok(CoreEvent::SpeedUpdated { hash, download_hz, upload_hz }) => {
+                            if let Some(&idx) = self.state.torrents_map.get(&hash) {
+                                self.state.torrents[idx].download_hz = download_hz;
+                                self.state.torrents[idx].upload_hz = upload_hz;
+                            }
+                            // Calculate global naive speeds
+                            let mut d_hz = 0;
+                            let mut u_hz = 0;
+                            for t in &self.state.torrents {
+                                d_hz += t.download_hz;
+                                u_hz += t.upload_hz;
+                            }
+                            self.state.global_down_hz = d_hz;
+                            self.state.global_up_hz = u_hz;
                         }
                         Ok(CoreEvent::TorrentCompleted { hash }) => {
-                            self.logs.push(format!("=> Completed: {}", hex::encode(hash)));
+                            if let Some(&idx) = self.state.torrents_map.get(&hash) {
+                                self.state.torrents[idx].progress = 100.0;
+                                self.state.torrents[idx].status = crate::state::Status::Seeding;
+                                self.state.log(format!("=> Completed: {}", self.state.torrents[idx].name));
+                            }
                         }
                         Err(_) => {
                             // Engine dropped the channel. Engine died?
-                            self.status = "Engine Disconnected".to_string();
+                            self.state.log("=> Engine Disconnected!".to_string());
                         }
                     }
                 }
@@ -90,10 +105,19 @@ impl TuiApp {
                 // Handle terminal input events
                 crossterm_event = crossterm_events.next() => {
                     if let Some(Ok(CEvent::Key(key))) = crossterm_event {
-                        if key.code == KeyCode::Char('q') {
-                            // Let the engine know we are quitting
-                            let _ = self.command_tx.send(Command::Quit).await;
-                            break;
+                        match key.code {
+                            KeyCode::Char('q') => {
+                                let _ = self.command_tx.send(Command::Quit).await;
+                                break;
+                            }
+                            KeyCode::Down | KeyCode::Char('j') => {
+                                self.state.next();
+                            }
+                            KeyCode::Up | KeyCode::Char('k') => {
+                                self.state.previous();
+                            }
+                            // Future: Enter key to view detailed stats of a torrent
+                            _ => {}
                         }
                     }
                 }

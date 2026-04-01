@@ -17,3 +17,4 @@ reqwest.workspace = true
 tokio-util.workspace = true
 urlencoding.workspace = true
 serde_bytes.workspace = true
+url.workspace = true

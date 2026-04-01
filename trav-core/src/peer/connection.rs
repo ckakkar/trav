@@ -26,9 +26,12 @@ impl PeerConnection {
 
     /// Performs the BitTorrent handshake over the established stream.
     pub async fn handshake(&mut self, info_hash: &[u8; 20], peer_id: &str) -> Result<()> {
+        let mut reserved = [0u8; 8];
+        reserved[5] |= 0x10; // Extension Protocol support (BEP 10)
+        
         let mut handshake = vec![19]; // pstrlen
         handshake.extend_from_slice(b"BitTorrent protocol"); // pstr
-        handshake.extend_from_slice(&[0u8; 8]); // reserved bytes
+        handshake.extend_from_slice(&reserved); // reserved bytes
         handshake.extend_from_slice(info_hash);
         handshake.extend_from_slice(peer_id.as_bytes());
 

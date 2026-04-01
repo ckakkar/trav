@@ -92,3 +92,122 @@ impl TrackerClient {
         Ok(tracker_response)
     }
 }
+
+use tokio::net::UdpSocket;
+use bytes::{Buf, BufMut, BytesMut};
+use url::Url;
+
+pub struct UdpTrackerClient {
+    port: u16,
+    peer_id: String,
+}
+
+impl UdpTrackerClient {
+    pub fn new(peer_id: &str, port: u16) -> Self {
+        Self {
+            peer_id: peer_id.to_string(),
+            port,
+        }
+    }
+
+    pub async fn announce(
+        &self,
+        announce_url: &str,
+        info_hash: &[u8; 20],
+        downloaded: u64,
+        uploaded: u64,
+        left: u64,
+    ) -> Result<TrackerResponse> {
+        let parsed_url = Url::parse(announce_url)
+            .map_err(|e| BitTorrentError::Engine(format!("Invalid UDP tracker URL: {}", e)))?;
+        
+        // Ensure default port is handled
+        let port = parsed_url.port().unwrap_or(80);
+        let host = parsed_url.host_str().unwrap_or("");
+        let addr = format!("{}:{}", host, port);
+
+        let socket = UdpSocket::bind("0.0.0.0:0").await.map_err(|e| BitTorrentError::Engine(e.to_string()))?;
+        socket.connect(&addr).await.map_err(|e| BitTorrentError::Engine(e.to_string()))?;
+
+        let transaction_id = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .subsec_nanos();
+
+        // 1. Connect Request
+        let mut connect_req = BytesMut::with_capacity(16);
+        connect_req.put_u64(0x41727101980); // magic protocol ID
+        connect_req.put_u32(0); // action: connect
+        connect_req.put_u32(transaction_id);
+
+        socket.send(&connect_req).await.map_err(|e| BitTorrentError::Engine(e.to_string()))?;
+
+        let mut buf = vec![0u8; 1024];
+        let n = socket.recv(&mut buf).await.map_err(|e| BitTorrentError::Engine(e.to_string()))?;
+        let mut response = &buf[..n];
+
+        if response.len() < 16 {
+            return Err(BitTorrentError::Engine("UDP Connect response too short".into()));
+        }
+
+        let action = response.get_u32();
+        let res_transaction_id = response.get_u32();
+        
+        if action != 0 || res_transaction_id != transaction_id {
+            return Err(BitTorrentError::Engine("Invalid UDP Connect response".into()));
+        }
+
+        let connection_id = response.get_u64();
+
+        // 2. Announce Request
+        let announce_transaction_id = transaction_id.wrapping_add(1);
+        let mut announce_req = BytesMut::with_capacity(98);
+        announce_req.put_u64(connection_id);
+        announce_req.put_u32(1); // action: announce
+        announce_req.put_u32(announce_transaction_id);
+        announce_req.put_slice(info_hash);
+        
+        let mut peer_id_bytes = [0u8; 20];
+        let pid_bytes = self.peer_id.as_bytes();
+        let copy_len = std::cmp::min(20, pid_bytes.len());
+        peer_id_bytes[..copy_len].copy_from_slice(&pid_bytes[..copy_len]);
+        announce_req.put_slice(&peer_id_bytes);
+        
+        announce_req.put_u64(downloaded);
+        announce_req.put_u64(left);
+        announce_req.put_u64(uploaded);
+        announce_req.put_u32(2); // event: started
+        announce_req.put_u32(0); // ip address (default)
+        announce_req.put_u32(0); // key
+        announce_req.put_i32(-1); // num_want (default)
+        announce_req.put_u16(self.port);
+
+        socket.send(&announce_req).await.map_err(|e| BitTorrentError::Engine(e.to_string()))?;
+
+        let mut buf = vec![0u8; 2048];
+        let n = socket.recv(&mut buf).await.map_err(|e| BitTorrentError::Engine(e.to_string()))?;
+        let mut response = &buf[..n];
+
+        if response.len() < 20 {
+            return Err(BitTorrentError::Engine("UDP Announce response too short".into()));
+        }
+
+        let action = response.get_u32();
+        let res_transaction_id = response.get_u32();
+        
+        if action != 1 || res_transaction_id != announce_transaction_id {
+            return Err(BitTorrentError::Engine("Invalid UDP Announce response".into()));
+        }
+
+        let interval = response.get_u32();
+        let _leechers = response.get_u32();
+        let _seeders = response.get_u32();
+
+        let peers_bytes = response.to_vec(); // The rest is pairs of 4-byte IP and 2-byte Port
+
+        Ok(TrackerResponse {
+            interval: interval as u64,
+            peers: peers_bytes,
+        })
+    }
+}
