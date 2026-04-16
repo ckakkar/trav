@@ -16,12 +16,17 @@ pub struct TorrentSnapshot {
     pub info_hash: [u8; 20],
     pub info_hash_hex: String,
     pub size_bytes: u64,
+    pub num_pieces: u32,
+    pub pieces_downloaded: u32,
+    /// Percentage 0.0–100.0 computed from pieces_downloaded / num_pieces.
     pub progress: f32,
+    /// Bytes/sec rate, updated by the engine's periodic speed tick.
     pub download_hz: u64,
     pub upload_hz: u64,
+    /// Cumulative bytes received (used by engine tick to compute download_hz).
+    pub bytes_downloaded_total: u64,
     pub state: String,
     pub peers: Vec<PeerSnapshot>,
-    /// We can store the bitfield compactly as a base64 string to reduce Tauri IPC JSON payload size
     pub piece_map_base64: String,
 }
 
