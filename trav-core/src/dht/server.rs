@@ -2,10 +2,9 @@ use tokio::net::UdpSocket;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use bytes::Bytes;
-use tracing::{info, debug, error};
+use tracing::debug;
 
-use super::krpc::{KrpcMessage, QueryArgs, ResponseArgs};
+use super::krpc::{KrpcMessage, ResponseArgs};
 use super::routing::RoutingTable;
 use crate::error::Result;
 

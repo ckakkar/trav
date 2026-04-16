@@ -3,16 +3,12 @@ use sha1::{Sha1, Digest};
 use tracing::info;
 
 pub struct PieceManager {
-    num_pieces: u32,
-    piece_length: u32,
-    total_length: u64,
+    pub num_pieces: u32,
+    pub piece_length: u32,
+    pub total_length: u64,
     pieces_hash: Vec<u8>,
-    
-    /// Count of peers holding each piece. Index corresponds to piece_index.
     availability: Vec<u32>,
-    /// Set of pieces successfully downloaded and verified.
     downloaded: HashSet<u32>,
-    /// Set of pieces currently being downloaded.
     in_progress: HashSet<u32>,
 }
 
@@ -29,59 +25,53 @@ impl PieceManager {
         }
     }
 
-    /// Called when a peer sends a BITFIELD message.
     pub fn handle_bitfield(&mut self, bitfield: &[u8]) {
         for (byte_idx, &byte) in bitfield.iter().enumerate() {
             for bit_idx in 0..8 {
                 if (byte & (1 << (7 - bit_idx))) != 0 {
-                    let piece_idx = (byte_idx * 8 + bit_idx) as u32;
-                    if piece_idx < self.num_pieces {
-                        self.availability[piece_idx as usize] += 1;
+                    let idx = (byte_idx * 8 + bit_idx) as u32;
+                    if idx < self.num_pieces {
+                        self.availability[idx as usize] += 1;
                     }
                 }
             }
         }
     }
 
-    /// Called when a peer sends a HAVE message.
     pub fn handle_have(&mut self, piece_index: u32) {
         if piece_index < self.num_pieces {
             self.availability[piece_index as usize] += 1;
         }
     }
 
-    /// Selects the next piece to download using the Rarest-First algorithm.
+    /// Rarest-first selection. Falls back to sequential when no availability
+    /// data exists yet (e.g. peer unchoked without sending a Bitfield first).
     pub fn pick_rarest_piece(&mut self) -> Option<u32> {
-        let mut rarest_index = None;
-        let mut min_availability = u32::MAX;
-
+        // Primary: rarest among pieces that at least one peer has
+        let mut rarest = None;
+        let mut min_avail = u32::MAX;
         for i in 0..self.num_pieces {
             if self.downloaded.contains(&i) || self.in_progress.contains(&i) {
                 continue;
             }
-
             let avail = self.availability[i as usize];
-            if avail > 0 && avail < min_availability {
-                min_availability = avail;
-                rarest_index = Some(i);
+            if avail > 0 && avail < min_avail {
+                min_avail = avail;
+                rarest = Some(i);
             }
         }
 
-        if let Some(index) = rarest_index {
-            self.in_progress.insert(index);
+        // Fallback: no availability data yet — pick the first unstarted piece
+        if rarest.is_none() {
+            rarest = (0..self.num_pieces).find(|&i| {
+                !self.downloaded.contains(&i) && !self.in_progress.contains(&i)
+            });
         }
 
-        rarest_index
-    }
-
-    /// Verifies the SHA-1 hash of a fully assembled piece.
-    pub fn verify_piece(&mut self, piece_index: u32, piece_data: &[u8]) -> bool {
-        let Some(expected_hash) = self.expected_hash(piece_index) else {
-            return false;
-        };
-        let verified = Self::verify_piece_data(&expected_hash, piece_data);
-        self.mark_piece_verification(piece_index, verified);
-        verified
+        if let Some(idx) = rarest {
+            self.in_progress.insert(idx);
+        }
+        rarest
     }
 
     pub fn expected_hash(&self, piece_index: u32) -> Option<[u8; 20]> {
@@ -98,9 +88,14 @@ impl PieceManager {
         self.in_progress.remove(&piece_index);
         if verified {
             self.downloaded.insert(piece_index);
-            info!("Piece {} verified successfully.", piece_index);
+            info!(
+                "Piece {} verified ({}/{})",
+                piece_index,
+                self.downloaded.len(),
+                self.num_pieces
+            );
         } else {
-            info!("Piece {} failed hash check.", piece_index);
+            info!("Piece {} hash failed", piece_index);
         }
     }
 
@@ -113,21 +108,37 @@ impl PieceManager {
             return None;
         }
         if piece_index + 1 == self.num_pieces {
-            let full_before_last = self.piece_length as u64 * (self.num_pieces.saturating_sub(1) as u64);
-            let remainder = self.total_length.saturating_sub(full_before_last);
-            return Some(remainder as u32);
+            let before_last = self.piece_length as u64 * self.num_pieces.saturating_sub(1) as u64;
+            return Some(self.total_length.saturating_sub(before_last) as u32);
         }
         Some(self.piece_length)
+    }
+
+    pub fn downloaded_count(&self) -> usize {
+        self.downloaded.len()
+    }
+
+    pub fn is_complete(&self) -> bool {
+        self.downloaded.len() == self.num_pieces as usize
+    }
+
+    pub fn bitfield_bytes(&self) -> Vec<u8> {
+        let num_bytes = (self.num_pieces as usize + 7) / 8;
+        let mut bits = vec![0u8; num_bytes];
+        for &i in &self.downloaded {
+            let byte_idx = i as usize / 8;
+            let bit_idx = 7 - (i as usize % 8);
+            if byte_idx < bits.len() {
+                bits[byte_idx] |= 1 << bit_idx;
+            }
+        }
+        bits
     }
 
     pub fn verify_piece_data(expected_hash: &[u8; 20], piece_data: &[u8]) -> bool {
         let mut hasher = Sha1::new();
         hasher.update(piece_data);
-        let actual_hash = hasher.finalize();
-        expected_hash == actual_hash.as_slice()
-    }
-
-    pub fn is_complete(&self) -> bool {
-        self.downloaded.len() == self.num_pieces as usize
+        let actual = hasher.finalize();
+        expected_hash == actual.as_slice()
     }
 }

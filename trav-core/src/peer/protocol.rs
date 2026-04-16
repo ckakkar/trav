@@ -16,6 +16,8 @@ pub enum PeerMessage {
     Cancel { index: u32, begin: u32, length: u32 },
     Port { listen_port: u16 },
     Extended { extended_id: u8, payload: Vec<u8> },
+    /// Gracefully absorbs any message ID we don't handle.
+    Unknown { id: u8, payload: Vec<u8> },
 }
 
 pub struct PeerCodec;
@@ -27,17 +29,14 @@ impl Decoder for PeerCodec {
 
     fn decode(&mut self, src: &mut BytesMut) -> std::result::Result<Option<Self::Item>, Self::Error> {
         if src.len() < 4 {
-            return Ok(None); // Need more data for the length prefix
+            return Ok(None);
         }
 
-        let mut length_buf = [0u8; 4];
-        length_buf.copy_from_slice(&src[..4]);
-        let length = u32::from_be_bytes(length_buf) as usize;
+        let length = u32::from_be_bytes([src[0], src[1], src[2], src[3]]) as usize;
 
         if length > MAX_PEER_MESSAGE_LEN {
             return Err(BitTorrentError::Engine(format!(
-                "Peer message too large: {} bytes",
-                length
+                "Peer message too large: {} bytes", length
             )));
         }
 
@@ -47,33 +46,33 @@ impl Decoder for PeerCodec {
         }
 
         if src.len() < 4 + length {
-            return Ok(None); // Need more data for the full message payload
+            src.reserve(4 + length - src.len());
+            return Ok(None);
         }
 
-        // We have a full message
-        src.advance(4); // Consume length
-        let id = src.get_u8(); // Get message id (which consumes 1 byte)
-
+        src.advance(4);
+        let id = src.get_u8();
         let payload_len = length - 1;
-        let message = match id {
+
+        let msg = match id {
             0 => PeerMessage::Choke,
             1 => PeerMessage::Unchoke,
             2 => PeerMessage::Interested,
             3 => PeerMessage::NotInterested,
             4 => {
                 if payload_len != 4 {
-                    return Err(BitTorrentError::Engine(format!("Invalid Have size: {}", payload_len)));
+                    return Err(BitTorrentError::Engine(format!("Bad Have length: {}", payload_len)));
                 }
                 PeerMessage::Have { piece_index: src.get_u32() }
             }
             5 => {
-                let mut bitfield = vec![0; payload_len];
-                src.copy_to_slice(&mut bitfield);
-                PeerMessage::Bitfield { payload: bitfield }
+                let mut bf = vec![0u8; payload_len];
+                src.copy_to_slice(&mut bf);
+                PeerMessage::Bitfield { payload: bf }
             }
             6 => {
                 if payload_len != 12 {
-                    return Err(BitTorrentError::Engine(format!("Invalid Request size: {}", payload_len)));
+                    return Err(BitTorrentError::Engine(format!("Bad Request length: {}", payload_len)));
                 }
                 PeerMessage::Request {
                     index: src.get_u32(),
@@ -83,17 +82,17 @@ impl Decoder for PeerCodec {
             }
             7 => {
                 if payload_len < 8 {
-                    return Err(BitTorrentError::Engine(format!("Invalid Piece size: {}", payload_len)));
+                    return Err(BitTorrentError::Engine(format!("Bad Piece length: {}", payload_len)));
                 }
                 let index = src.get_u32();
                 let begin = src.get_u32();
-                let mut block = vec![0; payload_len - 8];
+                let mut block = vec![0u8; payload_len - 8];
                 src.copy_to_slice(&mut block);
                 PeerMessage::Piece { index, begin, block }
             }
             8 => {
                 if payload_len != 12 {
-                    return Err(BitTorrentError::Engine(format!("Invalid Cancel size: {}", payload_len)));
+                    return Err(BitTorrentError::Engine(format!("Bad Cancel length: {}", payload_len)));
                 }
                 PeerMessage::Cancel {
                     index: src.get_u32(),
@@ -103,23 +102,30 @@ impl Decoder for PeerCodec {
             }
             9 => {
                 if payload_len != 2 {
-                    return Err(BitTorrentError::Engine(format!("Invalid Port size: {}", payload_len)));
+                    return Err(BitTorrentError::Engine(format!("Bad Port length: {}", payload_len)));
                 }
                 PeerMessage::Port { listen_port: src.get_u16() }
             }
             20 => {
                 if payload_len < 1 {
-                    return Err(BitTorrentError::Engine("Invalid Extended size".into()));
+                    return Err(BitTorrentError::Engine("Bad Extended length".into()));
                 }
                 let extended_id = src.get_u8();
-                let mut payload = vec![0; payload_len - 1];
+                let mut payload = vec![0u8; payload_len - 1];
                 src.copy_to_slice(&mut payload);
                 PeerMessage::Extended { extended_id, payload }
             }
-            _ => return Err(BitTorrentError::Engine(format!("Unknown message id: {}", id))),
+            unknown_id => {
+                // Consume the payload and continue rather than killing the connection.
+                let mut payload = vec![0u8; payload_len];
+                if payload_len > 0 {
+                    src.copy_to_slice(&mut payload);
+                }
+                PeerMessage::Unknown { id: unknown_id, payload }
+            }
         };
 
-        Ok(Some(message))
+        Ok(Some(msg))
     }
 }
 
@@ -134,47 +140,31 @@ impl Encoder<PeerMessage> for PeerCodec {
             PeerMessage::Interested => { dst.put_u32(1); dst.put_u8(2); }
             PeerMessage::NotInterested => { dst.put_u32(1); dst.put_u8(3); }
             PeerMessage::Have { piece_index } => {
-                dst.put_u32(5);
-                dst.put_u8(4);
-                dst.put_u32(piece_index);
+                dst.put_u32(5); dst.put_u8(4); dst.put_u32(piece_index);
             }
             PeerMessage::Bitfield { payload } => {
-                dst.put_u32(1 + payload.len() as u32);
-                dst.put_u8(5);
-                dst.put_slice(&payload);
+                dst.put_u32(1 + payload.len() as u32); dst.put_u8(5); dst.put_slice(&payload);
             }
             PeerMessage::Request { index, begin, length } => {
-                dst.put_u32(13);
-                dst.put_u8(6);
-                dst.put_u32(index);
-                dst.put_u32(begin);
-                dst.put_u32(length);
+                dst.put_u32(13); dst.put_u8(6);
+                dst.put_u32(index); dst.put_u32(begin); dst.put_u32(length);
             }
             PeerMessage::Piece { index, begin, block } => {
-                dst.put_u32(9 + block.len() as u32);
-                dst.put_u8(7);
-                dst.put_u32(index);
-                dst.put_u32(begin);
-                dst.put_slice(&block);
+                dst.put_u32(9 + block.len() as u32); dst.put_u8(7);
+                dst.put_u32(index); dst.put_u32(begin); dst.put_slice(&block);
             }
             PeerMessage::Cancel { index, begin, length } => {
-                dst.put_u32(13);
-                dst.put_u8(8);
-                dst.put_u32(index);
-                dst.put_u32(begin);
-                dst.put_u32(length);
+                dst.put_u32(13); dst.put_u8(8);
+                dst.put_u32(index); dst.put_u32(begin); dst.put_u32(length);
             }
             PeerMessage::Port { listen_port } => {
-                dst.put_u32(3);
-                dst.put_u8(9);
-                dst.put_u16(listen_port);
+                dst.put_u32(3); dst.put_u8(9); dst.put_u16(listen_port);
             }
             PeerMessage::Extended { extended_id, payload } => {
-                dst.put_u32(2 + payload.len() as u32);
-                dst.put_u8(20);
-                dst.put_u8(extended_id);
-                dst.put_slice(&payload);
+                dst.put_u32(2 + payload.len() as u32); dst.put_u8(20);
+                dst.put_u8(extended_id); dst.put_slice(&payload);
             }
+            PeerMessage::Unknown { .. } => {} // never sent
         }
         Ok(())
     }

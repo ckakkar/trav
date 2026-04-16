@@ -3,10 +3,36 @@ use ratatui::widgets::TableState;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Status {
+    Connecting,
     Downloading,
     Seeding,
     Paused,
+    NoPeers,
     Error,
+}
+
+impl Status {
+    pub fn from_str(s: &str) -> Self {
+        match s {
+            "Downloading" => Self::Downloading,
+            "Seeding" => Self::Seeding,
+            "Paused" => Self::Paused,
+            "No Peers" => Self::NoPeers,
+            "Error" => Self::Error,
+            _ => Self::Connecting,
+        }
+    }
+
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::Connecting => "CONN",
+            Self::Downloading => "DL",
+            Self::Seeding => "SEED",
+            Self::Paused => "PAUSED",
+            Self::NoPeers => "NO PEERS",
+            Self::Error => "ERROR",
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -14,12 +40,24 @@ pub struct TorrentState {
     pub hash: [u8; 20],
     pub name: String,
     pub size_bytes: u64,
+    pub num_pieces: u32,
+    pub pieces_downloaded: u32,
     pub progress: f32,
     pub status: Status,
     pub peers: usize,
     pub download_hz: u64,
     pub upload_hz: u64,
     pub health_badge: String,
+}
+
+impl TorrentState {
+    pub fn eta_secs(&self) -> Option<u64> {
+        if self.download_hz == 0 || self.progress >= 100.0 {
+            return None;
+        }
+        let remaining_bytes = (self.size_bytes as f64 * (1.0 - self.progress as f64 / 100.0)) as u64;
+        Some(remaining_bytes / self.download_hz.max(1))
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -49,67 +87,40 @@ impl TuiState {
             torrents_map: HashMap::new(),
             torrents: Vec::new(),
             peer_health_map: HashMap::new(),
-            logs: VecDeque::with_capacity(100),
+            logs: VecDeque::with_capacity(200),
             table_state: TableState::default(),
-            global_down_history: Vec::with_capacity(100),
-            global_up_history: Vec::with_capacity(100),
+            global_down_history: Vec::with_capacity(120),
+            global_up_history: Vec::with_capacity(120),
         }
     }
 
     pub fn log(&mut self, msg: String) {
-        if self.logs.len() >= 100 {
+        if self.logs.len() >= 200 {
             self.logs.pop_back();
         }
         self.logs.push_front(msg);
     }
 
-    pub fn add_torrent(&mut self, hash: [u8; 20], name: String, size_bytes: u64) {
-        if !self.torrents_map.contains_key(&hash) {
-            let idx = self.torrents.len();
-            self.torrents_map.insert(hash, idx);
-            self.torrents.push(TorrentState {
-                hash,
-                name,
-                size_bytes,
-                progress: 0.0,
-                status: Status::Downloading,
-                peers: 0,
-                download_hz: 0,
-                upload_hz: 0,
-                health_badge: "GOOD".to_string(),
-            });
-            
-            // Select the newly added row if none selected
-            if self.table_state.selected().is_none() {
-                self.table_state.select(Some(0));
-            }
-        }
-    }
-
     pub fn next(&mut self) {
+        let len = self.torrents.len();
+        if len == 0 {
+            return;
+        }
         let i = match self.table_state.selected() {
-            Some(i) => {
-                if i >= self.torrents.len().saturating_sub(1) {
-                    0
-                } else {
-                    i + 1
-                }
-            }
+            Some(i) => (i + 1) % len,
             None => 0,
         };
         self.table_state.select(Some(i));
     }
 
     pub fn previous(&mut self) {
+        let len = self.torrents.len();
+        if len == 0 {
+            return;
+        }
         let i = match self.table_state.selected() {
-            Some(i) => {
-                if i == 0 {
-                    self.torrents.len().saturating_sub(1)
-                } else {
-                    i - 1
-                }
-            }
-            None => 0,
+            Some(0) | None => len.saturating_sub(1),
+            Some(i) => i - 1,
         };
         self.table_state.select(Some(i));
     }

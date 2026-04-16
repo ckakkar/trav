@@ -1,5 +1,4 @@
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 
 /// Represents a KRPC Message sent over UDP for the Mainline DHT.
 #[derive(Debug, Clone, Serialize, Deserialize)]
