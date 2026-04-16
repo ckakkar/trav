@@ -29,9 +29,9 @@ impl PieceManager {
         for (byte_idx, &byte) in bitfield.iter().enumerate() {
             for bit_idx in 0..8 {
                 if (byte & (1 << (7 - bit_idx))) != 0 {
-                    let piece_idx = (byte_idx * 8 + bit_idx) as u32;
-                    if piece_idx < self.num_pieces {
-                        self.availability[piece_idx as usize] += 1;
+                    let idx = (byte_idx * 8 + bit_idx) as u32;
+                    if idx < self.num_pieces {
+                        self.availability[idx as usize] += 1;
                     }
                 }
             }
@@ -44,10 +44,12 @@ impl PieceManager {
         }
     }
 
+    /// Rarest-first selection. Falls back to sequential when no availability
+    /// data exists yet (e.g. peer unchoked without sending a Bitfield first).
     pub fn pick_rarest_piece(&mut self) -> Option<u32> {
+        // Primary: rarest among pieces that at least one peer has
         let mut rarest = None;
         let mut min_avail = u32::MAX;
-
         for i in 0..self.num_pieces {
             if self.downloaded.contains(&i) || self.in_progress.contains(&i) {
                 continue;
@@ -57,6 +59,13 @@ impl PieceManager {
                 min_avail = avail;
                 rarest = Some(i);
             }
+        }
+
+        // Fallback: no availability data yet — pick the first unstarted piece
+        if rarest.is_none() {
+            rarest = (0..self.num_pieces).find(|&i| {
+                !self.downloaded.contains(&i) && !self.in_progress.contains(&i)
+            });
         }
 
         if let Some(idx) = rarest {
@@ -79,9 +88,14 @@ impl PieceManager {
         self.in_progress.remove(&piece_index);
         if verified {
             self.downloaded.insert(piece_index);
-            info!("Piece {} verified OK ({}/{})", piece_index, self.downloaded.len(), self.num_pieces);
+            info!(
+                "Piece {} verified ({}/{})",
+                piece_index,
+                self.downloaded.len(),
+                self.num_pieces
+            );
         } else {
-            info!("Piece {} hash check failed", piece_index);
+            info!("Piece {} hash failed", piece_index);
         }
     }
 
@@ -94,9 +108,8 @@ impl PieceManager {
             return None;
         }
         if piece_index + 1 == self.num_pieces {
-            let full_before_last = self.piece_length as u64 * self.num_pieces.saturating_sub(1) as u64;
-            let remainder = self.total_length.saturating_sub(full_before_last);
-            return Some(remainder as u32);
+            let before_last = self.piece_length as u64 * self.num_pieces.saturating_sub(1) as u64;
+            return Some(self.total_length.saturating_sub(before_last) as u32);
         }
         Some(self.piece_length)
     }
@@ -109,7 +122,6 @@ impl PieceManager {
         self.downloaded.len() == self.num_pieces as usize
     }
 
-    /// Returns the bitfield as raw bytes (big-endian bit order per BEP 3).
     pub fn bitfield_bytes(&self) -> Vec<u8> {
         let num_bytes = (self.num_pieces as usize + 7) / 8;
         let mut bits = vec![0u8; num_bytes];
