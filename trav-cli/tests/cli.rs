@@ -77,3 +77,12 @@ fn daemon_refuses_public_bind_without_token() {
 fn hex(b: &[u8]) -> String {
     b.iter().map(|x| format!("{x:02x}")).collect()
 }
+
+#[test]
+fn health_check_fails_when_nothing_listens() {
+    let out = trav()
+        .args(["--health-check", "--web-bind", "127.0.0.1:9"])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(1));
+}

@@ -1,36 +1,71 @@
 name: Release
 
-# Push a tag like v0.2.0 to build installers for macOS (Apple Silicon + Intel),
-# Windows and Linux, attached to a draft GitHub release.
+# Push a tag `vX.Y.Z` (matching the versions in the repo) to produce a draft
+# GitHub release with:
+#   - desktop installers: macOS (Apple Silicon + Intel) .dmg, Windows .msi/.exe,
+#     Linux .AppImage/.deb/.rpm
+#   - `trav` CLI/daemon archives for Linux, macOS and Windows + SHA256SUMS
+#   - a multi-arch Docker image on ghcr.io
+#
+# Builds are unsigned by default; see CONTRIBUTING.md to enable signing.
 on:
   push:
     tags: ["v*"]
-  workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      release_id: ${{ steps.release.outputs.id }}
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tag matches repository versions
+        run: scripts/check-versions.sh
+      - id: v
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+      - name: Release notes from CHANGELOG
+        run: |
+          awk -v v="${GITHUB_REF_NAME#v}" '
+            $0 ~ "^## \\[" v "\\]" {on=1; next}
+            on && /^## \[/ {exit}
+            on {print}' CHANGELOG.md > notes.md
+          test -s notes.md || echo "Release ${GITHUB_REF_NAME}" > notes.md
+      - id: release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" --draft --title "Trav $GITHUB_REF_NAME" --notes-file notes.md
+          echo "id=$(gh release view "$GITHUB_REF_NAME" --json databaseId -q .databaseId)" >> "$GITHUB_OUTPUT"
+
   desktop:
-    permissions:
-      contents: write
+    needs: prepare
     strategy:
       fail-fast: false
       matrix:
         include:
-          - platform: macos-latest
+          - os: macos-latest
             args: --target aarch64-apple-darwin
-          - platform: macos-latest
+            targets: aarch64-apple-darwin
+          - os: macos-latest
             args: --target x86_64-apple-darwin
-          - platform: ubuntu-22.04
+            targets: x86_64-apple-darwin
+          - os: ubuntu-22.04
             args: ""
-          - platform: windows-latest
+            targets: ""
+          - os: windows-latest
             args: ""
-    runs-on: ${{ matrix.platform }}
+            targets: ""
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-      - name: Linux dependencies
-        if: matrix.platform == 'ubuntu-22.04'
+      - if: startsWith(matrix.os, 'ubuntu')
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -38,16 +73,119 @@ jobs:
           cache-dependency-path: trav-gui/package-lock.json
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+          targets: ${{ matrix.targets }}
       - uses: Swatinem/rust-cache@v2
+        with:
+          key: desktop-${{ matrix.targets }}
       - run: npm ci
         working-directory: trav-gui
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # To sign/notarize macOS builds, add the APPLE_* secrets and pass them
+          # here (see CONTRIBUTING.md). Unset secrets must not be passed: the
+          # bundler treats empty values as "sign with nothing" and fails.
         with:
           projectPath: trav-gui
-          tagName: ${{ github.ref_name }}
-          releaseName: Trav ${{ github.ref_name }}
-          releaseDraft: true
+          releaseId: ${{ needs.prepare.outputs.release_id }}
           args: ${{ matrix.args }}
+
+  cli:
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+          - os: ubuntu-22.04-arm
+            target: aarch64-unknown-linux-gnu
+          - os: macos-latest
+            target: aarch64-apple-darwin
+          - os: macos-latest
+            target: x86_64-apple-darwin
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: trav-gui/package-lock.json
+      - name: Build the web UI (embedded into the binary)
+        working-directory: trav-gui
+        run: npm ci && npm run build
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: cli-${{ matrix.target }}
+      - run: cargo build --release --locked -p trav-cli --target ${{ matrix.target }}
+      - name: Package
+        shell: bash
+        run: |
+          name="trav-${{ needs.prepare.outputs.version }}-${{ matrix.target }}"
+          mkdir "$name"
+          cp README.md LICENSE CHANGELOG.md "$name/"
+          if [[ "${{ matrix.target }}" == *windows* ]]; then
+            cp "target/${{ matrix.target }}/release/trav.exe" "$name/"
+            7z a "$name.zip" "$name" > /dev/null
+            echo "ASSET=$name.zip" >> "$GITHUB_ENV"
+          else
+            cp "target/${{ matrix.target }}/release/trav" "$name/"
+            tar czf "$name.tar.gz" "$name"
+            echo "ASSET=$name.tar.gz" >> "$GITHUB_ENV"
+          fi
+      - name: Upload
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "$GITHUB_REF_NAME" "$ASSET" --clobber
+
+  checksums:
+    needs: [cli, desktop]
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir assets && cd assets
+          gh release download "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY"
+          sha256sum * > SHA256SUMS
+          gh release upload "$GITHUB_REF_NAME" SHA256SUMS --repo "$GITHUB_REPOSITORY" --clobber
+
+  docker:
+    needs: prepare
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

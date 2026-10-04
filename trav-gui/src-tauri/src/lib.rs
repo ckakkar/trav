@@ -244,13 +244,50 @@ fn state_dir() -> PathBuf {
         })
 }
 
-pub fn run() {
-    let _ = tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "info,hyper=warn,reqwest=warn".into()),
-        )
+/// Daily-rotated log files under `<state>/logs` (7 kept), mirrored to stderr in
+/// debug builds. Panics are logged with a backtrace before the default hook runs.
+fn init_logging() -> Option<tracing_appender::non_blocking::WorkerGuard> {
+    use tracing_subscriber::prelude::*;
+    let filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| "info,hyper=warn,reqwest=warn".into());
+    let file = tracing_appender::rolling::Builder::new()
+        .rotation(tracing_appender::rolling::Rotation::DAILY)
+        .filename_prefix("trav-desktop")
+        .filename_suffix("log")
+        .max_log_files(7)
+        .build(state_dir().join("logs"))
+        .ok();
+    let (file_layer, guard) = match file {
+        Some(appender) => {
+            let (w, g) = tracing_appender::non_blocking(appender);
+            (
+                Some(
+                    tracing_subscriber::fmt::layer()
+                        .with_ansi(false)
+                        .with_writer(w),
+                ),
+                Some(g),
+            )
+        }
+        None => (None, None),
+    };
+    let stderr = cfg!(debug_assertions).then(tracing_subscriber::fmt::layer);
+    let _ = tracing_subscriber::registry()
+        .with(filter)
+        .with(file_layer)
+        .with(stderr)
         .try_init();
+
+    let default = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        tracing::error!(target: "panic", "{info}\n{}", std::backtrace::Backtrace::force_capture());
+        default(info);
+    }));
+    guard
+}
+
+pub fn run() {
+    let _log_guard = init_logging();
 
     let shell = Arc::new(Shell {
         notify: AtomicBool::new(true),

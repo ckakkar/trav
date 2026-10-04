@@ -19,6 +19,10 @@ struct Cli {
     #[arg(short, long)]
     daemon: bool,
 
+    /// Probe a running daemon's /api/health on --web-bind and exit 0/1 (for container health checks).
+    #[arg(long)]
+    health_check: bool,
+
     /// Address for the web UI / JSON API (daemon mode, or alongside the TUI with --web).
     #[arg(long, value_name = "ADDR", default_value = "127.0.0.1:9696")]
     web_bind: SocketAddr,
@@ -121,8 +125,43 @@ fn default_state_dir() -> PathBuf {
         .join("trav")
 }
 
+/// Minimal HTTP probe so container images need no curl.
+fn health_check(bind: SocketAddr) -> bool {
+    use std::io::{Read, Write};
+    let ip = if bind.ip().is_unspecified() {
+        [127, 0, 0, 1].into()
+    } else {
+        bind.ip()
+    };
+    let addr = SocketAddr::new(ip, bind.port());
+    let Ok(mut s) = std::net::TcpStream::connect_timeout(&addr, std::time::Duration::from_secs(2))
+    else {
+        return false;
+    };
+    let _ = s.set_read_timeout(Some(std::time::Duration::from_secs(2)));
+    if s.write_all(b"GET /api/health HTTP/1.0\r\nHost: localhost\r\n\r\n")
+        .is_err()
+    {
+        return false;
+    }
+    let mut head = [0u8; 12];
+    s.read_exact(&mut head).is_ok() && head.ends_with(b" 200")
+}
+
+/// Route panics through tracing so they land in the log file, not a lost stderr.
+fn install_panic_hook() {
+    let default = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        tracing::error!(target: "panic", "{info}\n{}", std::backtrace::Backtrace::force_capture());
+        default(info);
+    }));
+}
+
 fn main() -> Result<()> {
     let cli = Cli::parse();
+    if cli.health_check {
+        std::process::exit(if health_check(cli.web_bind) { 0 } else { 1 });
+    }
     if let Some(path) = &cli.create {
         return create(path, cli.output.clone(), &cli.trackers, cli.private);
     }
@@ -134,10 +173,22 @@ fn main() -> Result<()> {
     let filter = tracing_subscriber::EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| "info,hyper=warn,reqwest=warn".into());
     let _guard = if cli.daemon {
-        tracing_subscriber::fmt().with_env_filter(filter).init();
+        tracing_subscriber::fmt()
+            .with_env_filter(filter)
+            // Plain text when piped (docker logs, journald).
+            .with_ansi(std::io::IsTerminal::is_terminal(&std::io::stderr()))
+            .with_writer(std::io::stderr)
+            .init();
         None
     } else {
-        let appender = tracing_appender::rolling::never(&state_dir, "trav.log");
+        // Daily files, last 7 kept: logs/trav.YYYY-MM-DD.log
+        let appender = tracing_appender::rolling::Builder::new()
+            .rotation(tracing_appender::rolling::Rotation::DAILY)
+            .filename_prefix("trav")
+            .filename_suffix("log")
+            .max_log_files(7)
+            .build(state_dir.join("logs"))
+            .context("opening log directory")?;
         let (writer, guard) = tracing_appender::non_blocking(appender);
         tracing_subscriber::fmt()
             .with_env_filter(filter)
@@ -146,6 +197,8 @@ fn main() -> Result<()> {
             .init();
         Some(guard)
     };
+
+    install_panic_hook();
 
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()

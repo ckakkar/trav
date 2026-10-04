@@ -13,6 +13,10 @@ resolver = "2"
 [workspace.package]
 version = "0.2.0"
 edition = "2024"
+rust-version = "1.90"
+license = "MIT"
+authors = ["Cyrus Kakkar <cyrus@kkrwhofrags.xyz>"]
+repository = "https://github.com/ckakkar/trav"
 
 [workspace.dependencies]
 tokio = { version = "1.37", features = ["full"] }
@@ -31,3 +35,14 @@ serde_bytes = "0.11"
 url = "2.5"
 serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
+
+# Shipping builds: smaller, faster binaries. `cargo build --release`.
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = "symbols"
+panic = "unwind"
+
+# Hashing dominates checks and verification; keep it fast in debug/test too.
+[profile.dev.package.sha1]
+opt-level = 3

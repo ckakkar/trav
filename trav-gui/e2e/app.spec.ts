@@ -102,13 +102,13 @@ test("command palette and themes persist", async ({ page }) => {
   await openApp(page);
   await expect(row(page, "Album")).toBeVisible();
   await page.keyboard.press("Control+k");
-  await expect(page.locator(".palette-input input")).toBeFocused();
+  await expect(page.locator(".palette-input input:focus")).toHaveCount(1);
   await page.keyboard.type("pause all");
   await page.keyboard.press("Enter");
   await expect(page.locator(".trow .slabel", { hasText: "Paused" })).toHaveCount(2);
   await page.keyboard.press("Control+k");
-  await expect(page.locator(".palette-input input")).toBeFocused();
-  await expect(page.locator(".palette-input input")).toHaveValue("");
+  // The previous palette may still be animating out; the fresh one holds focus.
+  await expect(page.locator(".palette-input input:focus")).toHaveValue("");
   await page.keyboard.type("resume all");
   await page.keyboard.press("Enter");
   await expect(page.locator(".trow .slabel", { hasText: "Paused" })).toHaveCount(0);

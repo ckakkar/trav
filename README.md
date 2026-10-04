@@ -62,7 +62,7 @@ Type is Geist / Geist Mono with a serif display face. Corners use a 3 px radius,
 
 Requirements:
 
-- Rust 1.85+ (edition 2024)
+- Rust 1.90+ (edition 2024)
 - Node 20+
 - For the desktop app, the [Tauri system dependencies](https://v2.tauri.app/start/prerequisites/). On Linux that means `libwebkit2gtk-4.1-dev librsvg2-dev libayatana-appindicator3-dev`.
 
@@ -74,6 +74,46 @@ npm run tauri build                         # installers in target/release/bundl
 ```
 
 `cargo build` at the root builds the engine, the TUI and the CLI. The desktop crate is excluded from the default build because it needs WebView libraries. Build it with `cargo build -p trav-desktop`.
+
+### Tests
+
+```bash
+make check     # fmt, clippy -D warnings, cargo test, UI typecheck + vitest + build, version sync
+make e2e       # Playwright against real daemons (seeder, leecher, token-locked)
+```
+
+| Suite | What it covers |
+|---|---|
+| `trav-core` unit | bencode, metainfo, magnet, picker (incl. 20k-step randomized invariants), storage, wire codec, extensions, DHT, mock HTTP/UDP trackers, rate limiter |
+| `trav-core/tests/swarm.rs` | real engines over loopback: download, magnet metadata, resume, deleted-file recheck, selective download + HTTP tracker, pause, rate limit, 3-node swarm |
+| `trav-core/tests/robustness.rs` | deterministic fuzzing of every untrusted-input parser; path-jail escapes |
+| `trav-core/tests/state.rs` | persistence, state-dir locking, settings, the full RPC surface |
+| `trav-cli` | HTTP API security (DNS rebinding, CSRF, token), CLI black-box (`--create`, health check, public-bind guard) |
+| `trav-tui` | rendering through ratatui's `TestBackend` |
+| `trav-gui` (vitest) | formatting, sorting/filters, transport, history ring |
+| `trav-gui/e2e` (Playwright) | add/skip/download, paste-a-magnet, context menu, keyboard, palette, themes, settings, remove + delete, token gate |
+
+CI runs these on Linux, macOS and Windows. It also checks the MSRV (1.90) and supply-chain policy (`cargo-deny`), reports coverage, and builds and smoke-tests the Docker image. Pushing a `v*` tag produces desktop installers (unsigned by default; signing is optional, see CONTRIBUTING), CLI archives with `SHA256SUMS`, and a multi-arch `ghcr.io` image as a draft release.
+
+### Docker (headless / NAS)
+
+```bash
+docker run -d --name trav -e TRAV_TOKEN=change-me \
+  -p 9696:9696 -p 51413:51413 -p 51413:51413/udp \
+  -v trav-data:/data -v ~/Downloads:/downloads ghcr.io/ckakkar/trav:latest
+```
+
+The web UI is then at `http://<host>:9696/?token=change-me`. The image refuses to start without `TRAV_TOKEN` because it binds a public address.
+
+### Logs
+
+| Front-end | Location |
+|---|---|
+| Desktop | `<state dir>/logs/trav-desktop.YYYY-MM-DD.log` |
+| TUI | `<state dir>/logs/trav.YYYY-MM-DD.log` |
+| Daemon | stderr |
+
+Logs rotate daily and the last 7 are kept. Set `RUST_LOG=debug` for detail. Panics are logged with a backtrace.
 
 ### CLI
 
@@ -113,4 +153,4 @@ trav-gui/         Next.js UI (static export) + src-tauri desktop shell
 
 ## License
 
-MIT
+[MIT](LICENSE) · see [CHANGELOG](CHANGELOG.md), [CONTRIBUTING](CONTRIBUTING.md), [SECURITY](SECURITY.md).
