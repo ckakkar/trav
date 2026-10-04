@@ -46,6 +46,12 @@ export function Palette({
   const [idx, setIdx] = useState(0);
   const input = useRef<HTMLInputElement>(null);
 
+  // Each opening is a fresh element: re-opening during the exit animation must
+  // not resurrect the previous (frozen) input and its stale query.
+  const session = useRef(0);
+  const wasOpen = useRef(open);
+  if (wasOpen.current && !open) session.current += 1;
+  wasOpen.current = open;
   useEffect(() => {
     if (open) {
       setQ("");
@@ -84,7 +90,9 @@ export function Palette({
   return (
     <AnimatePresence>
       {open && (
-        <motion.div className="modal-scrim palette-scrim" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }} onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+        <motion.div
+          key={session.current}
+          className="modal-scrim palette-scrim" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }} onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
           <motion.div
             className="palette"
             role="dialog"
@@ -98,6 +106,7 @@ export function Palette({
               <Search size={15} />
               <input
                 ref={input}
+                autoFocus
                 value={q}
                 placeholder="Type a command, a torrent name, or paste a magnet…"
                 onChange={(e) => setQ(e.target.value)}

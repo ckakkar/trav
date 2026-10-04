@@ -565,7 +565,7 @@ mod tests {
             .map(|k| {
                 let mut bf = Bitfield::new(pieces);
                 for i in 0..pieces {
-                    if (i + k as usize) % 3 != 0 || k == 5 {
+                    if !(i + k as usize).is_multiple_of(3) || k == 5 {
                         bf.set(i);
                     }
                 }

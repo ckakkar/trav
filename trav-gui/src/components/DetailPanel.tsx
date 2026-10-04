@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "motion/react";
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Copy, FolderOpen, RefreshCw, Plus, Check } from "lucide-react";
 import type { TorrentDetails, FileInfo } from "@/lib/types";
 import type { SpeedHistory } from "@/lib/engine";
@@ -201,26 +201,40 @@ const PRIO_LABEL = ["Skip", "Normal", "High"];
 function Files({ d, actions }: { d: TorrentDetails; actions: DetailActions }) {
   const hash = d.summary.infoHash;
   const total = d.files.length;
+  // Optimistic overrides: the engine confirms on the next poll, but the control
+  // must reflect the click immediately (and survive rapid successive edits).
+  const [pending, setPending] = useState<Record<number, number>>({});
+  useEffect(() => {
+    setPending((p) => {
+      const left = Object.fromEntries(Object.entries(p).filter(([i, v]) => d.files.find((f) => f.index === Number(i))?.priority !== v));
+      return Object.keys(left).length === Object.keys(p).length ? p : left;
+    });
+  }, [d.files]);
+  const prioOf = (f: FileInfo) => pending[f.index] ?? f.priority;
   const prios = useMemo(() => {
     const arr = new Array(Math.max(0, ...d.files.map((f) => f.index + 1))).fill(1);
-    d.files.forEach((f) => (arr[f.index] = f.priority));
+    d.files.forEach((f) => (arr[f.index] = pending[f.index] ?? f.priority));
     return arr as number[];
-  }, [d.files]);
+  }, [d.files, pending]);
   if (!d.summary.hasMetadata) {
     return <div className="pane-note mono">Files appear once metadata arrives from the swarm.</div>;
   }
   const set = (f: FileInfo, p: number) => {
     const next = [...prios];
     next[f.index] = p;
+    setPending((x) => ({ ...x, [f.index]: p }));
     actions.setPriorities(hash, next);
   };
-  const setAll = (p: number) => actions.setPriorities(hash, prios.map(() => p));
-  const wanted = d.files.filter((f) => f.priority > 0).length;
+  const setAll = (p: number) => {
+    setPending(Object.fromEntries(d.files.map((f) => [f.index, p])));
+    actions.setPriorities(hash, prios.map(() => p));
+  };
+  const wanted = d.files.filter((f) => prioOf(f) > 0).length;
   return (
     <div className="files">
       <div className="pane-bar">
         <span className="mono faint">
-          {wanted} of {total} selected · {bytes(d.files.filter((f) => f.priority > 0).reduce((a, f) => a + f.size, 0))}
+          {wanted} of {total} selected · {bytes(d.files.filter((f) => prioOf(f) > 0).reduce((a, f) => a + f.size, 0))}
         </span>
         <div className="pane-actions">
           <button className="chip" onClick={() => setAll(1)}>
@@ -236,9 +250,9 @@ function Files({ d, actions }: { d: TorrentDetails; actions: DetailActions }) {
           const parts = f.path.split("/");
           const name = parts.pop();
           return (
-            <div key={f.index} className="file-row" data-skip={f.priority === 0 || undefined}>
+            <div key={f.index} className="file-row" data-skip={prioOf(f) === 0 || undefined}>
               <label className="check">
-                <input type="checkbox" checked={f.priority > 0} onChange={(e) => set(f, e.target.checked ? 1 : 0)} />
+                <input type="checkbox" checked={prioOf(f) > 0} onChange={(e) => set(f, e.target.checked ? 1 : 0)} />
                 <span />
               </label>
               <div className="file-name" title={f.path}>
@@ -252,7 +266,7 @@ function Files({ d, actions }: { d: TorrentDetails; actions: DetailActions }) {
                 <span className="mono faint">{pct(f.progress, 0)}</span>
               </div>
               <div className="mono num file-size">{bytes(f.size)}</div>
-              <select className="select sm" value={Math.min(2, f.priority)} onChange={(e) => set(f, Number(e.target.value))} aria-label="Priority">
+              <select className="select sm" value={Math.min(2, prioOf(f))} onChange={(e) => set(f, Number(e.target.value))} aria-label="Priority">
                 {PRIO_LABEL.map((l, i) => (
                   <option key={l} value={i}>
                     {l}

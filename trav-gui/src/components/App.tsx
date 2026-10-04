@@ -46,10 +46,11 @@ import {
   takePendingOpens,
 } from "@/lib/rpc";
 import { bytes, looksLikeMagnet } from "@/lib/format";
+import { FILTER_TESTS, isPausedLike, visibleTorrents, type FilterId } from "@/lib/torrents";
 import { load, save } from "@/lib/storage";
 import { Sidebar, type FilterDef } from "./Sidebar";
 import { StatusBar } from "./StatusBar";
-import { TorrentTable, sortTorrents, type Sort, type SortKey } from "./TorrentTable";
+import { TorrentTable, type Sort, type SortKey } from "./TorrentTable";
 import { DetailPanel, type DetailTab } from "./DetailPanel";
 import { AddDialog, type AddItem } from "./AddDialog";
 import { SettingsDialog, type UiPrefs } from "./SettingsDialog";
@@ -68,22 +69,21 @@ interface FilterSpec {
 }
 
 const FILTERS: FilterSpec[] = [
-  { id: "all", label: "All", icon: <Layers size={15} />, test: () => true },
+  { id: "all", label: "All", icon: <Layers size={15} />, test: FILTER_TESTS.all },
   {
     id: "downloading",
     label: "Downloading",
     icon: <ArrowDownToLine size={15} />,
-    test: (t) => !(t.hasMetadata && t.progress >= 1) && !["paused", "error", "finished"].includes(t.status),
+    test: FILTER_TESTS.downloading,
   },
-  { id: "seeding", label: "Seeding", icon: <ArrowUpFromLine size={15} />, test: (t) => t.status === "seeding" },
-  { id: "completed", label: "Completed", icon: <CheckCircle2 size={15} />, test: (t) => t.hasMetadata && t.progress >= 1 },
-  { id: "active", label: "Active", icon: <Activity size={15} />, test: (t) => t.downloadRate + t.uploadRate > 0 },
-  { id: "paused", label: "Paused", icon: <Pause size={15} />, test: (t) => t.status === "paused" || t.status === "finished" },
-  { id: "error", label: "Errors", icon: <TriangleAlert size={15} />, test: (t) => t.status === "error", hideEmpty: true },
+  { id: "seeding", label: "Seeding", icon: <ArrowUpFromLine size={15} />, test: FILTER_TESTS.seeding },
+  { id: "completed", label: "Completed", icon: <CheckCircle2 size={15} />, test: FILTER_TESTS.completed },
+  { id: "active", label: "Active", icon: <Activity size={15} />, test: FILTER_TESTS.active },
+  { id: "paused", label: "Paused", icon: <Pause size={15} />, test: FILTER_TESTS.paused },
+  { id: "error", label: "Errors", icon: <TriangleAlert size={15} />, test: FILTER_TESTS.error, hideEmpty: true },
 ];
 
 const DEFAULT_PREFS: UiPrefs = { theme: "ink", notify: true, confirmRemove: true, scanlines: true };
-const isPausedLike = (t: TorrentSummary) => t.status === "paused" || t.status === "finished" || t.status === "error";
 
 export default function App() {
   const toast = useToast();
@@ -162,11 +162,7 @@ export default function App() {
     [torrents],
   );
   const activeFilter = FILTERS.find((f) => f.id === filter) ?? FILTERS[0];
-  const visible = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    const list = torrents.filter((t) => activeFilter.test(t) && (!q || t.name.toLowerCase().includes(q) || t.infoHash.startsWith(q)));
-    return sortTorrents(list, sort);
-  }, [torrents, activeFilter, search, sort]);
+  const visible = useMemo(() => visibleTorrents(torrents, activeFilter.id as FilterId, search, sort), [torrents, activeFilter, search, sort]);
 
   // Drop selection entries for torrents that disappeared.
   useEffect(() => {
@@ -385,8 +381,8 @@ export default function App() {
 
   useEffect(() => {
     const onPaste = (e: ClipboardEvent) => {
-      const el = e.target as HTMLElement;
-      if (el.closest("input, textarea, [contenteditable]")) return;
+      const el = e.target instanceof Element ? e.target : null;
+      if (el?.closest("input, textarea, [contenteditable]")) return;
       const text = e.clipboardData?.getData("text") ?? "";
       const links = text.split(/\s+/).filter(looksLikeMagnet);
       if (links.length) {
@@ -403,7 +399,7 @@ export default function App() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const mod = e.metaKey || e.ctrlKey;
-      const typing = (e.target as HTMLElement).closest("input, textarea, select");
+      const typing = e.target instanceof Element && e.target.closest("input, textarea, select");
       if (mod && e.key.toLowerCase() === "k") {
         e.preventDefault();
         setPaletteOpen((o) => !o);

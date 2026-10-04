@@ -3,16 +3,13 @@
 import { AnimatePresence, motion } from "motion/react";
 import { memo, type MouseEvent } from "react";
 import { ArrowDown, ArrowUp } from "lucide-react";
-import type { TorrentStatus, TorrentSummary } from "@/lib/types";
+import type { TorrentSummary } from "@/lib/types";
+import { statusLabel, type Sort, type SortKey } from "@/lib/torrents";
+
+export { sortTorrents, statusLabel, type Sort, type SortKey } from "@/lib/torrents";
 import { ago, bytes, eta, pad2, pct, rate } from "@/lib/format";
 import { Tween } from "@/lib/tween";
 import { ease } from "./Modal";
-
-export type SortKey = "queue" | "name" | "size" | "progress" | "status" | "down" | "up" | "eta" | "peers" | "ratio" | "added";
-export interface Sort {
-  key: SortKey;
-  dir: 1 | -1;
-}
 
 const COLS: { key: SortKey; label: string; cls: string }[] = [
   { key: "queue", label: "#", cls: "c-idx" },
@@ -27,68 +24,6 @@ const COLS: { key: SortKey; label: string; cls: string }[] = [
   { key: "ratio", label: "Ratio", cls: "c-ratio num" },
   { key: "added", label: "Added", cls: "c-added num" },
 ];
-
-export function statusLabel(t: TorrentSummary): { label: string; tone: string } {
-  const map: Record<TorrentStatus, [string, string]> = {
-    downloading: ["Downloading", "down"],
-    seeding: ["Seeding", "seed"],
-    paused: ["Paused", "idle"],
-    queued: ["Queued", "idle"],
-    checking: ["Checking", "warn"],
-    metadata: ["Fetching info", "warn"],
-    finished: ["Finished", "seed-dim"],
-    error: ["Error", "err"],
-  };
-  const [label, tone] = map[t.status];
-  if (t.status === "downloading" && t.downloadRate === 0 && t.peers + t.seeds === 0) return { label: "Stalled", tone: "warn" };
-  return { label, tone };
-}
-
-const statusRank: Record<TorrentStatus, number> = {
-  downloading: 0,
-  metadata: 1,
-  checking: 2,
-  seeding: 3,
-  queued: 4,
-  finished: 5,
-  paused: 6,
-  error: 7,
-};
-
-export function sortTorrents(list: TorrentSummary[], s: Sort): TorrentSummary[] {
-  const key = (t: TorrentSummary): number | string => {
-    switch (s.key) {
-      case "queue":
-        return t.queuePosition;
-      case "name":
-        return t.name.toLowerCase();
-      case "size":
-        return t.size;
-      case "progress":
-        return t.progress;
-      case "status":
-        return statusRank[t.status];
-      case "down":
-        return t.downloadRate;
-      case "up":
-        return t.uploadRate;
-      case "eta":
-        return t.eta ?? Number.MAX_SAFE_INTEGER;
-      case "peers":
-        return t.peers + t.seeds;
-      case "ratio":
-        return t.ratio;
-      case "added":
-        return t.addedAt;
-    }
-  };
-  return [...list].sort((a, b) => {
-    const ka = key(a);
-    const kb = key(b);
-    const c = ka < kb ? -1 : ka > kb ? 1 : a.queuePosition - b.queuePosition;
-    return c * s.dir;
-  });
-}
 
 interface RowProps {
   t: TorrentSummary;
