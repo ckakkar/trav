@@ -1,210 +1,115 @@
-# Trav - Headless BitTorrent Engine with Premium Interfaces
+# Trav
 
-Trav is a Rust BitTorrent project built around a shared, headless engine (`trav-core`) with multiple frontends:
-- `trav-tui` (Quantum terminal dashboard)
-- `trav-gui` (Nova desktop app via Tauri + Next.js + TypeScript + Tailwind)
-- `trav-cli` (runtime bootstrap + TUI launcher)
+A fast, quiet BitTorrent client written in Rust. One headless async engine (`trav-core`) drives three front-ends:
 
-The design goal is one core engine, multiple interfaces, with non-blocking shared telemetry.
+| Front-end | What it is | Run |
+|---|---|---|
+| **Nova** (desktop) | Tauri 2 app, Next 16 / React 19 UI | `cd trav-gui && npm i && npm run tauri dev` |
+| **Quantum** (terminal) | ratatui dashboard | `cargo run --release -p trav-cli` |
+| **Daemon** (web) | headless engine + the Nova UI over HTTP | `cargo run --release -p trav-cli -- --daemon` |
 
-## Workspace
+The desktop app and the CLI share one library (`~/Library/Application Support/trav` on macOS, `~/.local/share/trav` on Linux, `%APPDATA%\trav` on Windows). The state directory is lock-protected, so only one of them runs the engine at a time.
 
-Cargo workspace members:
-- `trav-core`
-- `trav-tui`
-- `trav-cli`
-- `trav-gui/src-tauri`
+## Engine
 
-## Phase Status
+- **Downloading** — rarest-first or sequential picking, per-peer bitfields, adaptive request pipelining (scales with each peer's rate), end-game mode with cancels, per-file priorities (skip / normal / high).
+- **Seeding** — inbound listener (dual-stack IPv4/IPv6), choker with optimistic unchoke, upload queue served off the reactor.
+- **Discovery** — HTTP and UDP trackers (all tiers, re-announce, `started`/`completed`/`stopped`, IPv6 peers), Mainline DHT (iterative `get_peers` + `announce_peer`; answers queries), PEX, magnet `x.pe` hints, UPnP port mapping.
+- **Magnet links** — hex or base32 info-hash; metadata fetched over `ut_metadata` and saved as a `.torrent`.
+- **Persistence** — resume data, settings and DHT nodes survive restarts. Resume data is checked against file sizes on start, and missing or truncated files trigger a recheck.
+- **Control** — pause/resume, force recheck, reannounce, remove (optionally with data), queueing (`maxActiveDownloads`), a seed-ratio limit, and global rate limits (token bucket).
+- **Safety** — every path component from torrent metadata is sanitized and jailed under the save path. The bencode parser has a depth limit, peer frames are size-capped, and peers that send bad data are banned after hash failures.
 
-### Phase 1 - Core Protocol & Engine
+Not implemented yet: uTP (peers that only speak uTP can't be reached over TCP), MSE/PE encryption, web seeds (BEP 19), BitTorrent v2.
 
-#### Objective
-Build a robust asynchronous headless BitTorrent engine with clean module boundaries and stable runtime behavior.
+## Nova UI
 
-#### Delivered
-- `trav-core` engine loop with command/event channels.
-- Bencode `.torrent` parsing and info-hash generation.
-- Peer wire protocol framing and handshake baseline.
-- Tracker integration foundations (HTTP and UDP paths).
-- Piece manager with rarest-first selection primitives.
-- Async disk task abstraction with bounded queue.
+The design comes from [kkrwhofrags.xyz](https://kkrwhofrags.xyz). There are three themes, cycled with `⌘⇧L`:
 
-### Phase 2 - Metadata, Magnet, and Discovery Expansion
+- **Ink**: the site's dark tokens (`#0c0d10`, orange `#ff8a3d`).
+- **Paper**: the editorial register (`#f5f2ea`, rust `#b93213`, paper grain).
+- **Phosphor**: terminal mode (green on black, CRT scanlines).
 
-#### Objective
-Expand discovery and metadata capability beyond basic single tracker flows.
+Type is Geist / Geist Mono with a serif display face. Corners use a 3 px radius, rules are hairlines, and labels are small uppercase mono.
 
-#### Delivered
-- Magnet parsing module and extension protocol scaffolding.
-- DHT/KRPC scaffolding modules for iterative evolution.
-- Expanded tracker support and peer parsing paths.
-- Core module split for protocol surface growth (`tracker`, `dht`, `magnet`, `peer`).
+**Motion.** Speeds and percentages ease toward each new value through one shared `requestAnimationFrame` loop, so they update without React re-renders. Progress bars animate their transform across each 500 ms poll. The graphs are time-based canvases that slide continuously. Rows glide when the sort order changes, and switching themes plays a view-transition wipe.
 
-### Phase 3 - Operational Interface Baseline
+**Features.**
+- Sortable, multi-select table with a right-click menu.
+- Detail panel with five tabs: Overview (with piece map), Files (priorities), Peers (µTorrent-style flags), Trackers, and Speed.
+- Add dialog that lets you pick files before downloading.
+- Drag & drop anywhere, and `⌘V` anywhere to paste magnet links.
+- Command palette (`⌘K`), settings, and toasts.
 
-#### Objective
-Introduce a usable live operator interface on top of the headless engine.
+**Desktop integration.**
+- Native open/folder dialogs and reveal-in-folder.
+- Notification when a download completes.
+- Tray icon showing live speeds. Closing the window keeps Trav seeding in the tray.
+- Single instance: opening a magnet or `.torrent` while Trav is running hands it to the open window.
+- Registers as the `magnet:` handler and the `.torrent` file association.
 
-#### Delivered
-- Initial `trav-tui` dashboard using `ratatui` + `crossterm`.
-- CLI bootstrap (`trav-cli`) to run runtime, engine, and interface together.
-- Real-time table/log display and keyboard navigation loop.
+| Keys | |
+|---|---|
+| `⌘O` / `⌘V` | add .torrent / paste magnet |
+| `↑↓` `j k` (`⇧` extends) · `⌘A` | move / select |
+| `Space` | pause ↔ resume selection |
+| `Del` / `⇧Del` | remove / remove + delete data |
+| `↵` | show in folder |
+| `1`–`5` | detail tabs |
+| `/` · `⌘K` · `⌘,` | filter · palette · settings |
 
-### Phase 4 - Premium Interfaces
+## Build
 
-#### Objective
-Upgrade the terminal interface into a dense operator dashboard and introduce a modern desktop GUI, both powered by the same `trav-core`.
+Requirements:
 
-#### Delivered
-- Added `trav-gui/src-tauri` to the Cargo workspace.
-- Introduced Nova GUI stack with:
-  - Next.js + TypeScript + Tailwind CSS
-  - Dark-themed dashboard style
-  - Live telemetry cards and charts
-  - Piece map visualization panel
-- Upgraded Quantum TUI with:
-  - Constraint-based, high-density layout
-  - Speed sparklines
-  - Torrent table and live logs
-- Established shared state exposure from `trav-core` using `Arc<RwLock<EngineSnapshot>>`.
+- Rust 1.85+ (edition 2024)
+- Node 20+
+- For the desktop app, the [Tauri system dependencies](https://v2.tauri.app/start/prerequisites/). On Linux that means `libwebkit2gtk-4.1-dev librsvg2-dev libayatana-appindicator3-dev`.
 
-#### Pending / Partial
-- Native OS drag-and-drop for `.torrent` files is wired in Nova (desktop runtime).
-- System tray support is wired (`Show/Hide`, `Quit`).
-
-### Phase 5 - Live Engine Wiring
-
-#### Objective
-Wire both interfaces to live engine state and event flow without UI-specific logic inside core networking paths.
-
-#### Delivered
-- `trav-core` emits and updates shared real-time snapshot state.
-- `trav-tui` reads snapshot on periodic ticks and renders live torrent/peer metrics.
-- `trav-gui` reads snapshot through Tauri IPC (`get_snapshot`) and updates UI continuously.
-- Swarm loop integrated with tracker-discovered peers and request pipeline.
-
-### Phase 6 - Security & Stability Audit
-
-#### Objective
-Harden core runtime against path traversal, async stalls, unbounded memory pressure, and abusive peers.
-
-#### Delivered
-- **Path traversal/jail hardening**
-  - Added strict metadata path sanitization.
-  - Enforced jailed output paths under per-torrent root (`download_dir/<info_hash>/...`).
-  - Rejects unsafe segments (`..`, absolute/prefix paths, separators, NUL, unsafe trailing characters).
-- **Tokio blocking mitigation**
-  - Piece SHA-1 verification moved to `tokio::task::spawn_blocking`.
-- **Backpressure**
-  - Disk queue remains bounded; explicit queue capacity constant introduced.
-- **Timeouts aligned for global swarms**
-  - Handshake timeout: 15s
-  - Idle/read timeout: 90s
-  - Piece request timeout: 30s
-  - Write operations wrapped with explicit timeout paths.
-- **Protocol and abuse safeguards**
-  - Peer codec max message length guard.
-  - Retry budget per piece.
-  - Adaptive peer penalty scoring with category split:
-    - network penalties (timeouts)
-    - data penalties (bad/mismatched/hash-failed payloads)
-  - Peer backoff and disconnect threshold logic.
-- **Observability**
-  - Peer health metrics exposed in snapshot and surfaced in GUI/TUI views.
-
-## In-Depth Usage Guide
-
-### 1) Prerequisites
-- Rust toolchain (`rustup`, `cargo`)
-- Node.js 18+ and npm (for `trav-gui`)
-- Platform dependencies required by Tauri (WebView toolchain)
-
-### 2) Build / check the workspace
-From repo root:
 ```bash
-cargo check -p trav-core -p trav-tui -p trav-cli -p app
+cargo test                                  # unit + loopback swarm integration tests
+cd trav-gui && npm install
+npm run tauri dev                           # desktop app with hot reload
+npm run tauri build                         # installers in target/release/bundle/
 ```
 
-### 3) Run the terminal client (Quantum TUI)
-TUI is launched through `trav-cli`:
+`cargo build` at the root builds the engine, the TUI and the CLI. The desktop crate is excluded from the default build because it needs WebView libraries. Build it with `cargo build -p trav-desktop`.
+
+### CLI
+
 ```bash
-cargo run --release -p trav-cli
+trav                                         # terminal UI
+trav ubuntu.iso.torrent 'magnet:?xt=…'       # add on start
+trav --daemon                                # headless, web UI on http://127.0.0.1:9696
+trav --daemon --web-bind 0.0.0.0:9696 --token s3cret   # LAN access (token required)
+trav --create ./folder --tracker udp://… -o out.torrent # make a torrent
+trav -s ~/Downloads -p 51413                 # set save path / listen port
 ```
 
-Start with a torrent immediately:
-```bash
-cargo run --release -p trav-cli -- /path/to/file.torrent /path/to/downloads
+The daemon embeds the static Nova build: run `npm run build` in `trav-gui` before `cargo build --release`. Without a token it only answers requests whose `Host` is loopback, which blocks DNS-rebinding attacks.
+
+### JSON API
+
+Every front-end uses the same API: `POST /api/rpc {"method": …, "params": …}` over HTTP, or `invoke("rpc", …)` in Tauri. Engine events stream as server-sent events at `GET /api/events`.
+
+Methods:
+
+- `snapshot`, `details {hash}`
+- `add {torrent|path|magnet, savePath, paused, sequential, filePriorities}`, `inspect`
+- `pause` / `resume` / `recheck` / `reannounce` / `remove {hash|hashes, deleteFiles}`
+- `pauseAll`, `resumeAll`
+- `setFilePriorities`, `setSequential`, `setQueuePosition`, `addPeers`
+- `getSettings`, `setSettings`
+
+## Layout
+
 ```
-
-Behavior:
-- boots Tokio runtime
-- starts `trav-core` in background
-- renders TUI on main thread
-- writes logs to `trav.log`
-
-### 4) Use TUI controls
-- `j` / Down Arrow: next torrent row
-- `k` / Up Arrow: previous torrent row
-- `q`: graceful shutdown
-
-### 5) Run Nova GUI (web layer only)
-Inside `trav-gui`:
-```bash
-npm install
-npm run dev
+trav-core/        engine: bencode, metainfo, magnet, picker, storage, peer wire,
+                  extensions (metadata/PEX), DHT, trackers, UPnP, torrent actor, rpc
+trav-tui/         ratatui front-end
+trav-cli/         `trav` binary: TUI, --daemon web server, --create
+trav-gui/         Next.js UI (static export) + src-tauri desktop shell
 ```
-
-This starts Next.js UI at `http://localhost:3000` (without desktop APIs like file-drop/system tray).
-
-### 6) Run Nova as desktop app (Tauri + Next.js)
-From repo root:
-```bash
-cargo run -p app
-```
-
-Or from `trav-gui/src-tauri`:
-```bash
-cargo run
-```
-
-Desktop-only behavior:
-- uses Tauri IPC to poll `EngineSnapshot`
-- accepts drag-and-drop of `.torrent` files
-- forwards dropped files to `trav-core` via `Command::AddTorrent`
-- exposes system tray menu:
-  - `Show/Hide`
-  - `Quit`
-
-### 7) Add torrents in practice
-- **TUI/CLI path:** launch with startup args:
-  - `cargo run --release -p trav-cli -- /path/file.torrent /path/downloads`
-- **GUI desktop path:** drag a `.torrent` file onto the Nova window.
-
-### 8) Download path and safety model
-- Output is jailed under:
-  - `download_dir/<info_hash_hex>/<sanitized_name>`
-- Unsafe paths from torrent metadata are rejected.
-- Multi-file torrents are validated for path safety and currently fail closed where unsupported.
-
-### 9) Peer health and stability behavior
-- Adaptive penalties track:
-  - network faults (timeouts)
-  - data faults (invalid/mismatched/hash-failed blocks)
-- Slow/bad peers are backoff-throttled, then disconnected above threshold.
-- Piece verification runs off reactor threads via `spawn_blocking`.
-- Channels between swarm and disk remain bounded for backpressure.
-
-### 10) Troubleshooting
-- **No GUI updates:** ensure you are running desktop (`cargo run -p app`), not only `npm run dev`.
-- **Dropped file ignored:** confirm extension is `.torrent` and path exists.
-- **No peers discovered:** verify tracker reachability and torrent health.
-- **Tauri build issues:** install required OS-level WebView/Tauri dependencies.
-
-## Notes
-
-- Logs are written to `trav.log` by the CLI runtime to avoid corrupting the terminal UI.
-- Current implementation is intentionally iterative; some advanced BitTorrent behaviors are still being expanded.
 
 ## License
 
