@@ -132,7 +132,7 @@ fn draw_table(f: &mut Frame, app: &mut TuiApp, area: Rect) {
         Constraint::Length(3),
         Constraint::Fill(1),
         Constraint::Length(9),
-        Constraint::Length(19),
+        Constraint::Length(20),
         Constraint::Length(6),
         Constraint::Length(11),
         Constraint::Length(11),
@@ -166,7 +166,7 @@ fn draw_table(f: &mut Frame, app: &mut TuiApp, area: Rect) {
 
 fn torrent_row(i: usize, t: &TorrentSummary) -> Row<'static> {
     let (st, color) = status_style(t.status);
-    let pct = format!("{:>5.1}%", t.progress * 100.0);
+    let pct = format!(" {:>5.1}%", t.progress * 100.0);
     let bar_color = match t.status {
         TorrentStatus::Downloading => ACCENT,
         TorrentStatus::Error => SIG,

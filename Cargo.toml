@@ -3,7 +3,11 @@ members = [
     "trav-core",
     "trav-tui",
     "trav-cli",
+    "trav-gui/src-tauri",
 ]
+# The desktop shell needs WebView system libraries; build it explicitly with
+# `cargo build -p trav-desktop` (or `npm run tauri build` in trav-gui).
+default-members = ["trav-core", "trav-tui", "trav-cli"]
 resolver = "2"
 
 [workspace.package]

@@ -42,6 +42,53 @@ struct Cli {
     /// Engine state directory (resume data, settings).
     #[arg(long, value_name = "DIR", env = "TRAV_STATE_DIR")]
     state_dir: Option<PathBuf>,
+
+    /// Create a .torrent from a file or folder, then exit.
+    #[arg(long, value_name = "PATH")]
+    create: Option<PathBuf>,
+
+    /// Output path for --create (default: <name>.torrent).
+    #[arg(short, long, value_name = "FILE", requires = "create")]
+    output: Option<PathBuf>,
+
+    /// Tracker URL(s) to embed with --create.
+    #[arg(long = "tracker", value_name = "URL", requires = "create")]
+    trackers: Vec<String>,
+
+    /// Mark the created torrent private (no DHT/PEX).
+    #[arg(long, requires = "create")]
+    private: bool,
+}
+
+/// Piece size targeting ~1500 pieces, clamped to 16 KiB–16 MiB.
+fn auto_piece_size(total: u64) -> u32 {
+    let target = (total / 1500).clamp(16 << 10, 16 << 20);
+    target.next_power_of_two().min(16 << 20) as u32
+}
+
+fn create(path: &std::path::Path, output: Option<PathBuf>, trackers: &[String], private: bool) -> Result<()> {
+    let total = if path.is_dir() {
+        fn walk(p: &std::path::Path) -> u64 {
+            std::fs::read_dir(p)
+                .map(|rd| rd.flatten().map(|e| if e.path().is_dir() { walk(&e.path()) } else { e.metadata().map(|m| m.len()).unwrap_or(0) }).sum())
+                .unwrap_or(0)
+        }
+        walk(path)
+    } else {
+        std::fs::metadata(path)?.len()
+    };
+    let piece = auto_piece_size(total);
+    let bytes = trav_core::metainfo::create_torrent(path, piece, trackers, private)?;
+    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "torrent".into());
+    let out = output.unwrap_or_else(|| PathBuf::from(format!("{name}.torrent")));
+    std::fs::write(&out, &bytes)?;
+    let meta = trav_core::metainfo::Metainfo::from_bytes(&bytes)?;
+    println!("{}  {}  ({} pieces × {} KiB)", hex_hash(&meta.info_hash), out.display(), meta.info.num_pieces(), piece / 1024);
+    Ok(())
+}
+
+fn hex_hash(h: &[u8; 20]) -> String {
+    h.iter().map(|b| format!("{b:02x}")).collect()
 }
 
 fn default_state_dir() -> PathBuf {
@@ -50,6 +97,9 @@ fn default_state_dir() -> PathBuf {
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
+    if let Some(path) = &cli.create {
+        return create(path, cli.output.clone(), &cli.trackers, cli.private);
+    }
     let state_dir = cli.state_dir.clone().unwrap_or_else(default_state_dir);
     std::fs::create_dir_all(&state_dir).with_context(|| format!("creating {}", state_dir.display()))?;
 

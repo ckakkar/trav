@@ -492,7 +492,8 @@ impl Torrent {
             Phase::Paused
         } else if st.ratio_stopped {
             Phase::Finished
-        } else if st.queued {
+        } else if st.queued && (st.picker.is_some() || st.meta.is_none()) {
+            // Queue only gates downloading; verifying existing data proceeds regardless.
             Phase::Queued
         } else if st.meta.is_none() {
             Phase::Metadata
@@ -506,11 +507,11 @@ impl Torrent {
                     warn!("{}: payload missing on disk, starting over", st.name);
                     st.pending_have = None;
                     self.install_picker(st, &meta);
-                    Phase::Active
+                    if st.queued { Phase::Queued } else { Phase::Active }
                 }
                 Some(_) => {
                     self.install_picker(st, &meta);
-                    Phase::Active
+                    if st.queued { Phase::Queued } else { Phase::Active }
                 }
                 None if storage_has_files => {
                     if was_active {
@@ -521,7 +522,7 @@ impl Torrent {
                 }
                 None => {
                     self.install_picker(st, &meta);
-                    Phase::Active
+                    if st.queued { Phase::Queued } else { Phase::Active }
                 }
             }
         } else {
@@ -1227,7 +1228,7 @@ impl Torrent {
     pub(crate) fn is_download_candidate(&self) -> bool {
         let st = self.st.lock();
         !st.user_paused
-            && !matches!(st.phase, Phase::Error(_))
+            && !matches!(st.phase, Phase::Error(_) | Phase::Checking)
             && !st.picker.as_ref().is_some_and(Picker::wanted_complete)
     }
 
