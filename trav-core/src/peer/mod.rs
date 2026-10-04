@@ -1,3 +1,4 @@
-pub mod protocol;
-pub mod connection;
+pub mod client;
 pub mod extension;
+pub mod handshake;
+pub mod protocol;
