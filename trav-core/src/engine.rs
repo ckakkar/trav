@@ -601,5 +601,6 @@ impl EngineHandle {
         }
         // Give the fire-and-forget "stopped" announces a moment to leave.
         tokio::time::sleep(Duration::from_millis(300)).await;
+        self.s.ctx.store.unlock();
     }
 }

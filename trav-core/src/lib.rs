@@ -18,6 +18,7 @@ pub mod path_safety;
 pub mod peer;
 pub mod persist;
 pub mod picker;
+pub mod rpc;
 pub mod settings;
 pub mod snapshot;
 pub mod storage;

@@ -27,12 +27,27 @@ pub struct ResumeData {
 
 pub struct Store {
     root: PathBuf,
+    /// Exclusive lock on `<root>/.lock` so two engines never share a state dir.
+    lock: parking_lot::Mutex<Option<std::fs::File>>,
 }
 
 impl Store {
     pub fn new(root: PathBuf) -> std::io::Result<Self> {
         std::fs::create_dir_all(root.join("torrents"))?;
-        Ok(Self { root })
+        let f = std::fs::OpenOptions::new().create(true).truncate(false).write(true).open(root.join(".lock"))?;
+        if f.try_lock().is_err() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::WouldBlock,
+                format!("another Trav instance is using {}", root.display()),
+            ));
+        }
+        Ok(Self { root, lock: parking_lot::Mutex::new(Some(f)) })
+    }
+
+    pub fn unlock(&self) {
+        if let Some(f) = self.lock.lock().take() {
+            let _ = f.unlock();
+        }
     }
 
     pub fn root(&self) -> &Path {

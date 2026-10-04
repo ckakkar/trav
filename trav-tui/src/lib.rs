@@ -1,5 +1,7 @@
-pub mod app;
-pub mod state;
-pub mod widgets;
+//! Quantum — the terminal front-end for Trav.
+
+mod app;
+mod fmt;
+mod ui;
 
 pub use app::TuiApp;

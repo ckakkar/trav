@@ -1,58 +1,134 @@
-use anyhow::Result;
-use tokio::runtime::Runtime;
-use tracing::{info, Level};
-use tracing_subscriber;
+mod web;
 
-use trav_core::Engine;
-use trav_tui::TuiApp;
+use std::net::SocketAddr;
+use std::path::PathBuf;
+
+use anyhow::{Context, Result};
+use clap::Parser;
+use tracing::info;
+use trav_core::{AddTorrent, Engine, Settings, TorrentSource};
+
+/// Trav — a fast, headless BitTorrent engine with a terminal UI and a web UI.
+#[derive(Parser, Debug)]
+#[command(name = "trav", version, about)]
+struct Cli {
+    /// .torrent files, magnet links or info-hashes to add on startup.
+    items: Vec<String>,
+
+    /// Run headless and serve the web UI instead of the terminal UI.
+    #[arg(short, long)]
+    daemon: bool,
+
+    /// Address for the web UI / JSON API (daemon mode, or alongside the TUI with --web).
+    #[arg(long, value_name = "ADDR", default_value = "127.0.0.1:9696")]
+    web_bind: SocketAddr,
+
+    /// Also serve the web UI while running the terminal UI.
+    #[arg(long)]
+    web: bool,
+
+    /// Require this token for API access (mandatory when binding a non-loopback address).
+    #[arg(long, env = "TRAV_TOKEN")]
+    token: Option<String>,
+
+    /// Where downloads go (persisted to settings).
+    #[arg(short = 's', long, value_name = "DIR")]
+    save_path: Option<PathBuf>,
+
+    /// Peer listen port (persisted to settings).
+    #[arg(short, long)]
+    port: Option<u16>,
+
+    /// Engine state directory (resume data, settings).
+    #[arg(long, value_name = "DIR", env = "TRAV_STATE_DIR")]
+    state_dir: Option<PathBuf>,
+}
+
+fn default_state_dir() -> PathBuf {
+    dirs::data_dir().unwrap_or_else(|| PathBuf::from(".")).join("trav")
+}
 
 fn main() -> Result<()> {
-    // We do NOT want to initialize a global tracing subscriber that prints to stdout, 
-    // because that would conflict with the TUI. We should either log to a file or 
-    // disable logging for now. Let's log to a file.
-    let file_appender = tracing_appender::rolling::never(".", "trav.log");
-    let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
-    
-    tracing_subscriber::fmt()
-        .with_writer(non_blocking)
-        .with_max_level(Level::DEBUG)
-        .init();
+    let cli = Cli::parse();
+    let state_dir = cli.state_dir.clone().unwrap_or_else(default_state_dir);
+    std::fs::create_dir_all(&state_dir).with_context(|| format!("creating {}", state_dir.display()))?;
 
-    info!("Starting trav CLI...");
+    // The TUI owns the terminal, so log to a file there; the daemon logs to stderr.
+    let filter = tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info,hyper=warn,reqwest=warn".into());
+    let _guard = if cli.daemon {
+        tracing_subscriber::fmt().with_env_filter(filter).init();
+        None
+    } else {
+        let appender = tracing_appender::rolling::never(&state_dir, "trav.log");
+        let (writer, guard) = tracing_appender::non_blocking(appender);
+        tracing_subscriber::fmt().with_env_filter(filter).with_ansi(false).with_writer(writer).init();
+        Some(guard)
+    };
 
-    // Create a multi-threaded Tokio runtime
-    let rt = Runtime::new()?;
-    // We enter the tokio runtime context so that `mpsc::channel` inside Engine::new works gracefully
-    // although `Engine::new()` does NOT require it strictly.
-    let (engine, command_tx, event_rx, snapshot) = rt.block_on(async { Engine::new() });
+    let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build()?;
+    rt.block_on(run(cli, state_dir))
+}
 
-    // Spawn the core Engine on a background Tokio task
-    rt.spawn(async move {
-        if let Err(e) = engine.run().await {
-            tracing::error!("Engine runtime error: {:?}", e);
+async fn run(cli: Cli, state_dir: PathBuf) -> Result<()> {
+    let engine = Engine::start(&state_dir).await.context("starting engine")?;
+
+    if cli.save_path.is_some() || cli.port.is_some() {
+        let mut s: Settings = engine.settings();
+        if let Some(p) = cli.save_path.clone() {
+            s.download_dir = std::path::absolute(p)?;
         }
-    });
-
-    // Parse CLI arguments to optionally inject an AddTorrent command on startup
-    let args: Vec<String> = std::env::args().collect();
-    if args.len() > 1 {
-        let file_path = std::path::PathBuf::from(&args[1]);
-        let download_dir = if args.len() > 2 {
-            std::path::PathBuf::from(&args[2])
-        } else {
-            std::path::PathBuf::from("./downloads")
-        };
-        let _ = command_tx.try_send(trav_core::message::Command::AddTorrent { file_path, download_dir });
+        if let Some(p) = cli.port {
+            s.listen_port = p;
+        }
+        engine.update_settings(s).await?;
     }
 
-    // Run the TUI on the main thread (which acts as a blocking GUI event loop)
-    let mut tui_app = TuiApp::new(command_tx, event_rx, snapshot);
-    rt.block_on(async move {
-        if let Err(e) = tui_app.run().await {
-            tracing::error!("TUI runtime error: {:?}", e);
+    for item in &cli.items {
+        let src = match TorrentSource::from_input(item) {
+            TorrentSource::File(p) => TorrentSource::Bytes(std::fs::read(&p).with_context(|| format!("reading {}", p.display()))?),
+            other => other,
+        };
+        match engine.add(AddTorrent::new(src)).await {
+            Ok(h) => info!("added {h}"),
+            Err(e) => eprintln!("trav: {item}: {e}"),
         }
-    });
+    }
 
-    info!("trav CLI shutdown gracefully.");
+    if cli.daemon {
+        println!("trav {} · web UI on http://{}", env!("CARGO_PKG_VERSION"), cli.web_bind);
+        tokio::select! {
+            r = web::serve(engine.clone(), cli.web_bind, cli.token.clone()) => r?,
+            _ = shutdown_signal() => {}
+        }
+    } else {
+        if cli.web {
+            let (e, bind, token) = (engine.clone(), cli.web_bind, cli.token.clone());
+            tokio::spawn(async move {
+                if let Err(err) = web::serve(e, bind, token).await {
+                    tracing::error!("web UI: {err}");
+                }
+            });
+        }
+        let mut tui = trav_tui::TuiApp::new(engine.clone());
+        tui.run().await?;
+    }
+
+    engine.shutdown().await;
     Ok(())
+}
+
+async fn shutdown_signal() {
+    let ctrl_c = tokio::signal::ctrl_c();
+    #[cfg(unix)]
+    {
+        let mut term = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()).expect("signal handler");
+        tokio::select! {
+            _ = ctrl_c => {}
+            _ = term.recv() => {}
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = ctrl_c.await;
+    }
 }
