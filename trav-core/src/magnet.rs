@@ -34,7 +34,8 @@ impl Magnet {
             match key.as_ref() {
                 k if k == "xt" || k.starts_with("xt.") => {
                     if let Some(h) = value.strip_prefix("urn:btih:") {
-                        info_hash = Some(parse_btih(h).ok_or_else(|| bad(format!("bad btih '{h}'")))?);
+                        info_hash =
+                            Some(parse_btih(h).ok_or_else(|| bad(format!("bad btih '{h}'")))?);
                     }
                 }
                 "dn" => display_name = Some(value.into_owned()),
@@ -49,7 +50,12 @@ impl Magnet {
         }
 
         let info_hash = info_hash.ok_or_else(|| bad("missing xt=urn:btih:".into()))?;
-        Ok(Self { info_hash, display_name, trackers, peers })
+        Ok(Self {
+            info_hash,
+            display_name,
+            trackers,
+            peers,
+        })
     }
 
     pub fn to_uri(&self) -> String {

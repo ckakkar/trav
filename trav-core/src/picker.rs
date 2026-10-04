@@ -37,15 +37,19 @@ struct Partial {
     blocks: Vec<Block>,
     data: Vec<u8>,
     done: u32,
+    /// Blocks in the `Free` state; lets `pick` skip fully requested pieces in O(1).
+    free: u32,
     contributors: Vec<PeerKey>,
 }
 
 impl Partial {
     fn new(size: u32) -> Self {
+        let n = size.div_ceil(BLOCK_SIZE);
         Self {
-            blocks: vec![Block::Free; size.div_ceil(BLOCK_SIZE) as usize],
+            blocks: vec![Block::Free; n as usize],
             data: vec![0; size as usize],
             done: 0,
+            free: n,
             contributors: Vec::new(),
         }
     }
@@ -61,8 +65,15 @@ pub enum OnBlock {
     Rejected,
     /// Already received from another peer during end-game.
     Duplicate,
-    Accepted { cancel: Vec<PeerKey> },
-    Complete { piece: u32, data: Vec<u8>, contributors: Vec<PeerKey>, cancel: Vec<PeerKey> },
+    Accepted {
+        cancel: Vec<PeerKey>,
+    },
+    Complete {
+        piece: u32,
+        data: Vec<u8>,
+        contributors: Vec<PeerKey>,
+        cancel: Vec<PeerKey>,
+    },
 }
 
 pub struct Picker {
@@ -153,20 +164,30 @@ impl Picker {
     }
 
     pub fn have_bytes(&self) -> u64 {
-        self.have.iter_ones().map(|i| self.piece_size(i as u32) as u64).sum()
+        self.have
+            .iter_ones()
+            .map(|i| self.piece_size(i as u32) as u64)
+            .sum()
     }
 
     /// Bytes sitting in partially assembled pieces (for a smoother progress readout).
     pub fn partial_bytes(&self) -> u64 {
-        self.partial.values().map(|p| p.done as u64 * BLOCK_SIZE as u64).sum()
+        self.partial
+            .values()
+            .map(|p| p.done as u64 * BLOCK_SIZE as u64)
+            .sum()
     }
 
     pub fn in_progress(&self) -> impl Iterator<Item = u32> + '_ {
-        self.partial.keys().copied().chain(self.verifying.iter().copied())
+        self.partial
+            .keys()
+            .copied()
+            .chain(self.verifying.iter().copied())
     }
 
     pub fn is_interesting(&self, peer: &Bitfield) -> bool {
-        peer.iter_ones().any(|i| i < self.num_pieces() && self.wanted(i))
+        peer.iter_ones()
+            .any(|i| i < self.num_pieces() && self.wanted(i))
     }
 
     pub fn is_wanted(&self, piece: u32) -> bool {
@@ -197,13 +218,21 @@ impl Picker {
 
     /// Swarm health: min copies + fraction of pieces above the minimum.
     pub fn distributed_copies(&self) -> f64 {
-        let Some(&min) = self.availability.iter().min() else { return 0.0 };
+        let Some(&min) = self.availability.iter().min() else {
+            return 0.0;
+        };
         let above = self.availability.iter().filter(|&&a| a > min).count();
         min as f64 + above as f64 / self.availability.len().max(1) as f64
     }
 
     /// Fill `out` with up to `max` block requests that `peer` (owning `peer_has`) can serve.
-    pub fn pick(&mut self, peer: PeerKey, peer_has: &Bitfield, max: usize, out: &mut Vec<BlockReq>) {
+    pub fn pick(
+        &mut self,
+        peer: PeerKey,
+        peer_has: &Bitfield,
+        max: usize,
+        out: &mut Vec<BlockReq>,
+    ) {
         if max == 0 {
             return;
         }
@@ -211,7 +240,12 @@ impl Picker {
         let target = start_len + max;
 
         // 1. Finish what is already open — keeps the partial set small.
-        let mut open: Vec<u32> = self.partial.keys().copied().filter(|&p| peer_has.get(p as usize)).collect();
+        let mut open: Vec<u32> = self
+            .partial
+            .iter()
+            .filter(|(p, part)| part.free > 0 && peer_has.get(**p as usize))
+            .map(|(p, _)| *p)
+            .collect();
         if self.sequential {
             open.sort_unstable();
         }
@@ -224,7 +258,9 @@ impl Picker {
 
         // 2. Open new pieces.
         while out.len() < target && self.partial.len() < self.max_partial {
-            let Some(p) = self.choose_new_piece(peer_has) else { break };
+            let Some(p) = self.choose_new_piece(peer_has) else {
+                break;
+            };
             self.partial.insert(p, Partial::new(self.piece_size(p)));
             self.take_free_blocks(p, peer, target, out);
         }
@@ -237,15 +273,22 @@ impl Picker {
 
     fn take_free_blocks(&mut self, p: u32, peer: PeerKey, target: usize, out: &mut Vec<BlockReq>) {
         let size = self.piece_size(p);
-        let Some(part) = self.partial.get_mut(&p) else { return };
+        let Some(part) = self.partial.get_mut(&p) else {
+            return;
+        };
         for (bi, b) in part.blocks.iter_mut().enumerate() {
-            if out.len() >= target {
+            if out.len() >= target || part.free == 0 {
                 break;
             }
             if matches!(b, Block::Free) {
                 *b = Block::Requested(vec![peer]);
+                part.free -= 1;
                 let begin = bi as u32 * BLOCK_SIZE;
-                out.push(BlockReq { piece: p, begin, len: (size - begin).min(BLOCK_SIZE) });
+                out.push(BlockReq {
+                    piece: p,
+                    begin,
+                    len: (size - begin).min(BLOCK_SIZE),
+                });
             }
         }
     }
@@ -260,7 +303,10 @@ impl Picker {
             let (avail, tie) = if self.sequential {
                 (0, i as u32)
             } else {
-                (self.availability[i], (i as u32).wrapping_mul(2_654_435_761) ^ self.seed)
+                (
+                    self.availability[i],
+                    (i as u32).wrapping_mul(2_654_435_761) ^ self.seed,
+                )
             };
             let better = match best {
                 None => true,
@@ -276,8 +322,19 @@ impl Picker {
         best.map(|b| b.3)
     }
 
-    fn pick_endgame(&mut self, peer: PeerKey, peer_has: &Bitfield, target: usize, out: &mut Vec<BlockReq>) {
-        let mut pieces: Vec<u32> = self.partial.keys().copied().filter(|&p| peer_has.get(p as usize)).collect();
+    fn pick_endgame(
+        &mut self,
+        peer: PeerKey,
+        peer_has: &Bitfield,
+        target: usize,
+        out: &mut Vec<BlockReq>,
+    ) {
+        let mut pieces: Vec<u32> = self
+            .partial
+            .keys()
+            .copied()
+            .filter(|&p| peer_has.get(p as usize))
+            .collect();
         pieces.sort_unstable();
         for p in pieces {
             let size = self.piece_size(p);
@@ -286,19 +343,24 @@ impl Picker {
                 if out.len() >= target {
                     return;
                 }
-                if let Block::Requested(peers) = b {
-                    if peers.len() < ENDGAME_DUP && !peers.contains(&peer) {
-                        peers.push(peer);
-                        let begin = bi as u32 * BLOCK_SIZE;
-                        out.push(BlockReq { piece: p, begin, len: (size - begin).min(BLOCK_SIZE) });
-                    }
+                if let Block::Requested(peers) = b
+                    && peers.len() < ENDGAME_DUP
+                    && !peers.contains(&peer)
+                {
+                    peers.push(peer);
+                    let begin = bi as u32 * BLOCK_SIZE;
+                    out.push(BlockReq {
+                        piece: p,
+                        begin,
+                        len: (size - begin).min(BLOCK_SIZE),
+                    });
                 }
             }
         }
     }
 
     pub fn on_block(&mut self, peer: PeerKey, piece: u32, begin: u32, data: &[u8]) -> OnBlock {
-        if begin % BLOCK_SIZE != 0 {
+        if !begin.is_multiple_of(BLOCK_SIZE) {
             return OnBlock::Rejected;
         }
         let size = self.piece_size_checked(piece);
@@ -310,13 +372,18 @@ impl Picker {
             };
         };
         let bi = (begin / BLOCK_SIZE) as usize;
-        let expected = size.map(|s| (s - begin.min(s)).min(BLOCK_SIZE)).unwrap_or(0);
+        let expected = size
+            .map(|s| (s - begin.min(s)).min(BLOCK_SIZE))
+            .unwrap_or(0);
         if bi >= part.blocks.len() || data.len() as u32 != expected {
             return OnBlock::Rejected;
         }
         let cancel = match std::mem::replace(&mut part.blocks[bi], Block::Done) {
             Block::Done => return OnBlock::Duplicate,
-            Block::Free => Vec::new(),
+            Block::Free => {
+                part.free -= 1;
+                Vec::new()
+            }
             Block::Requested(peers) => peers.into_iter().filter(|&p| p != peer).collect(),
         };
         part.data[begin as usize..begin as usize + data.len()].copy_from_slice(data);
@@ -327,7 +394,12 @@ impl Picker {
         if part.done as usize == part.blocks.len() {
             let part = self.partial.remove(&piece).expect("present");
             self.verifying.insert(piece);
-            OnBlock::Complete { piece, data: part.data, contributors: part.contributors, cancel }
+            OnBlock::Complete {
+                piece,
+                data: part.data,
+                contributors: part.contributors,
+                cancel,
+            }
         } else {
             OnBlock::Accepted { cancel }
         }
@@ -339,12 +411,15 @@ impl Picker {
 
     /// Return a single outstanding request to the pool (timeout, reject, cancel).
     pub fn release(&mut self, peer: PeerKey, req: &BlockReq) {
-        let Some(part) = self.partial.get_mut(&req.piece) else { return };
+        let Some(part) = self.partial.get_mut(&req.piece) else {
+            return;
+        };
         let bi = (req.begin / BLOCK_SIZE) as usize;
         if let Some(Block::Requested(peers)) = part.blocks.get_mut(bi) {
             peers.retain(|&p| p != peer);
             if peers.is_empty() {
                 part.blocks[bi] = Block::Free;
+                part.free += 1;
             }
         }
         if part.idle() {
@@ -360,6 +435,7 @@ impl Picker {
                     peers.retain(|&p| p != peer);
                     if peers.is_empty() {
                         *b = Block::Free;
+                        part.free += 1;
                     }
                 }
             }
@@ -405,7 +481,14 @@ mod tests {
         p.add_bitfield(&peer_bf);
         let mut out = vec![];
         p.pick(1, &peer_bf, 10, &mut out);
-        assert_eq!(out, vec![BlockReq { piece: 2, begin: 0, len: BLOCK_SIZE }]);
+        assert_eq!(
+            out,
+            vec![BlockReq {
+                piece: 2,
+                begin: 0,
+                len: BLOCK_SIZE
+            }]
+        );
         match p.on_block(1, 2, 0, &vec![7; BLOCK_SIZE as usize]) {
             OnBlock::Complete { piece, data, .. } => {
                 assert_eq!(piece, 2);
@@ -430,7 +513,10 @@ mod tests {
             OnBlock::Complete { cancel, .. } => assert_eq!(cancel, vec![1]),
             other => panic!("unexpected {other:?}"),
         }
-        assert!(matches!(p.on_block(1, 0, 0, &vec![0; BLOCK_SIZE as usize]), OnBlock::Duplicate));
+        assert!(matches!(
+            p.on_block(1, 0, 0, &vec![0; BLOCK_SIZE as usize]),
+            OnBlock::Duplicate
+        ));
     }
 
     #[test]

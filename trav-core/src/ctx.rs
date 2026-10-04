@@ -1,10 +1,10 @@
 //! Session-wide context shared by every torrent.
 
-use std::sync::atomic::{AtomicBool, AtomicU16, AtomicU64, AtomicUsize};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU16, AtomicU64, AtomicUsize};
 
 use parking_lot::RwLock;
-use tokio::sync::{broadcast, Semaphore};
+use tokio::sync::{Semaphore, broadcast};
 
 use crate::dht::Dht;
 use crate::limiter::RateLimiter;

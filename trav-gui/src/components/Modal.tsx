@@ -35,7 +35,11 @@ export function Modal({
     };
     window.addEventListener("keydown", onKey, true);
     requestAnimationFrame(() => {
-      const first = panel.current?.querySelector<HTMLElement>("[data-autofocus], input, button, select, textarea");
+      const root = panel.current;
+      const first =
+        root?.querySelector<HTMLElement>("[data-autofocus]:not(:disabled)") ??
+        root?.querySelector<HTMLElement>(".modal-body input, .modal-body textarea, .modal-body select") ??
+        root?.querySelector<HTMLElement>(".modal-foot button:not(:disabled)");
       first?.focus();
     });
     return () => {

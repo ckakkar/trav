@@ -11,7 +11,11 @@ pub enum Event {
     #[serde(rename_all = "camelCase")]
     TorrentCompleted { info_hash: String, name: String },
     #[serde(rename_all = "camelCase")]
-    TorrentError { info_hash: String, name: String, message: String },
+    TorrentError {
+        info_hash: String,
+        name: String,
+        message: String,
+    },
     #[serde(rename_all = "camelCase")]
     TorrentRemoved { info_hash: String },
 }

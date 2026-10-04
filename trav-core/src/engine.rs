@@ -4,19 +4,19 @@
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicU16, AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU16, AtomicU64, AtomicUsize, Ordering};
 use std::time::Duration;
 
 use base64::Engine as _;
 use parking_lot::RwLock;
 use tokio::net::TcpListener;
-use tokio::sync::{broadcast, oneshot, watch, Semaphore};
+use tokio::sync::{Semaphore, broadcast, oneshot, watch};
 use tokio::task::JoinHandle;
 use tracing::{debug, info, warn};
 
 use crate::bitfield::Bitfield;
-use crate::ctx::{generate_peer_id, Ctx, HALF_OPEN_LIMIT};
+use crate::ctx::{Ctx, HALF_OPEN_LIMIT, generate_peer_id};
 use crate::dht::Dht;
 use crate::error::{Error, Result};
 use crate::limiter::RateLimiter;
@@ -27,7 +27,7 @@ use crate::peer::handshake::{self, Handshake};
 use crate::persist::Store;
 use crate::settings::Settings;
 use crate::snapshot::{EngineSnapshot, GlobalStats, PreviewFile, TorrentDetails, TorrentPreview};
-use crate::torrent::{now_unix, Cmd, PeerSource, Torrent, TorrentInit};
+use crate::torrent::{Cmd, PeerSource, Torrent, TorrentInit, now_unix};
 
 const SNAPSHOT_INTERVAL: Duration = Duration::from_millis(500);
 const SAVE_INTERVAL: Duration = Duration::from_secs(20);
@@ -68,7 +68,13 @@ pub struct AddTorrent {
 
 impl AddTorrent {
     pub fn new(source: TorrentSource) -> Self {
-        Self { source, save_path: None, paused: false, sequential: false, file_priorities: None }
+        Self {
+            source,
+            save_path: None,
+            paused: false,
+            sequential: false,
+            file_priorities: None,
+        }
     }
 }
 
@@ -97,7 +103,10 @@ impl Engine {
     }
 
     /// Start with explicit settings overriding whatever was persisted (tests, CLI flags).
-    pub async fn start_with(state_dir: impl Into<PathBuf>, overrides: Option<Settings>) -> Result<EngineHandle> {
+    pub async fn start_with(
+        state_dir: impl Into<PathBuf>,
+        overrides: Option<Settings>,
+    ) -> Result<EngineHandle> {
         let store = Store::new(state_dir.into())?;
         let settings = overrides
             .or_else(|| store.load::<Settings>("settings.json"))
@@ -156,7 +165,9 @@ impl Engine {
                 n += 1;
                 s.apply_queue();
                 s.publish();
-                if n % (SAVE_INTERVAL.as_millis() / SNAPSHOT_INTERVAL.as_millis()) as u64 == 0 {
+                if n.is_multiple_of(
+                    (SAVE_INTERVAL.as_millis() / SNAPSHOT_INTERVAL.as_millis()) as u64,
+                ) {
                     s.save_all(false);
                 }
             }
@@ -179,7 +190,10 @@ impl Engine {
                 .files
                 .iter()
                 .filter(|f| !f.pad)
-                .map(|f| PreviewFile { path: f.display_path(), size: f.length })
+                .map(|f| PreviewFile {
+                    path: f.display_path(),
+                    size: f.length,
+                })
                 .collect(),
             trackers: m.all_trackers().cloned().collect(),
             comment: m.comment.clone(),
@@ -197,7 +211,14 @@ impl Session {
         }
         let want = self.ctx.settings.read().listen_port;
         let mut bound = None;
-        for port in std::iter::once(want).chain((1..=10).map(|i| want.wrapping_add(i))).chain(std::iter::once(0)) {
+        for port in std::iter::once(want)
+            .chain((1..=10).map(|i| want.wrapping_add(i)))
+            .chain(std::iter::once(0))
+        {
+            if let Some(l) = bind_dual_stack(port) {
+                bound = Some(l);
+                break;
+            }
             if let Ok(l) = TcpListener::bind(("0.0.0.0", port)).await {
                 bound = Some(l);
                 break;
@@ -226,6 +247,8 @@ impl Session {
     }
 
     async fn accept(self: Arc<Self>, mut stream: tokio::net::TcpStream, addr: SocketAddr) {
+        // Dual-stack sockets report IPv4 peers as ::ffff:a.b.c.d.
+        let addr = SocketAddr::new(addr.ip().to_canonical(), addr.port());
         let global = self.ctx.settings.read().max_peers_global;
         if self.ctx.connections.load(Ordering::Relaxed) >= global {
             return;
@@ -239,7 +262,9 @@ impl Session {
             }
         };
         let torrent = self.torrents.read().get(&theirs.info_hash).cloned();
-        let Some(t) = torrent.filter(|t| t.accepts_incoming()) else { return };
+        let Some(t) = torrent.filter(|t| t.accepts_incoming()) else {
+            return;
+        };
         if theirs.peer_id == self.ctx.peer_id {
             return;
         }
@@ -279,7 +304,10 @@ impl Session {
                 continue;
             }
             let have = match (&meta, &r.have) {
-                (Some(m), Some(h)) => b64.decode(h).ok().map(|b| Bitfield::from_bytes(&b, m.info.num_pieces())),
+                (Some(m), Some(h)) => b64
+                    .decode(h)
+                    .ok()
+                    .map(|b| Bitfield::from_bytes(&b, m.info.num_pieces())),
                 _ => None,
             };
             let t = Torrent::spawn(
@@ -330,7 +358,11 @@ impl Session {
 
     fn publish(&self) {
         let mut torrents: Vec<_> = self.torrents.read().values().map(|t| t.summary()).collect();
-        torrents.sort_by(|a, b| a.queue_position.cmp(&b.queue_position).then(a.added_at.cmp(&b.added_at)));
+        torrents.sort_by(|a, b| {
+            a.queue_position
+                .cmp(&b.queue_position)
+                .then(a.added_at.cmp(&b.added_at))
+        });
         let settings = self.ctx.settings.read().clone();
         let stats = GlobalStats {
             download_rate: torrents.iter().map(|t| t.download_rate).sum(),
@@ -344,19 +376,26 @@ impl Session {
             listen_port: self.ctx.listen_port.load(Ordering::Relaxed),
             connectable: self.ctx.connectable.load(Ordering::Relaxed),
             free_space: free_space(&settings.download_dir),
-            upnp: settings.enable_upnp.then(|| self.ctx.upnp_status.read().clone()).flatten(),
+            upnp: settings
+                .enable_upnp
+                .then(|| self.ctx.upnp_status.read().clone())
+                .flatten(),
         };
         let seq = self.seq.fetch_add(1, Ordering::Relaxed) + 1;
-        let _ = self.snapshot_tx.send(Arc::new(EngineSnapshot { seq, torrents, stats }));
+        let _ = self.snapshot_tx.send(Arc::new(EngineSnapshot {
+            seq,
+            torrents,
+            stats,
+        }));
     }
 
     fn save_all(&self, force: bool) {
         let list: Vec<Arc<Torrent>> = self.torrents.read().values().cloned().collect();
         for t in list {
-            if let Some(r) = t.take_resume(force) {
-                if let Err(e) = self.ctx.store.save_resume(&t.info_hash, &r) {
-                    warn!("failed to save resume data: {e}");
-                }
+            if let Some(r) = t.take_resume(force)
+                && let Err(e) = self.ctx.store.save_resume(&t.info_hash, &r)
+            {
+                warn!("failed to save resume data: {e}");
             }
         }
         if let Some(d) = self.ctx.dht() {
@@ -369,8 +408,26 @@ impl Session {
 
     fn get(&self, hash: &str) -> Result<Arc<Torrent>> {
         let ih = parse_hash(hash)?;
-        self.torrents.read().get(&ih).cloned().ok_or_else(|| Error::Engine("no such torrent".into()))
+        self.torrents
+            .read()
+            .get(&ih)
+            .cloned()
+            .ok_or_else(|| Error::Engine("no such torrent".into()))
     }
+}
+
+/// One socket for IPv6 and IPv4-mapped peers (V6ONLY defaults to on under Windows).
+fn bind_dual_stack(port: u16) -> Option<TcpListener> {
+    use socket2::{Domain, Protocol, Socket, Type};
+    let s = Socket::new(Domain::IPV6, Type::STREAM, Some(Protocol::TCP)).ok()?;
+    s.set_only_v6(false).ok()?;
+    #[cfg(not(windows))]
+    s.set_reuse_address(true).ok()?;
+    s.bind(&SocketAddr::from((std::net::Ipv6Addr::UNSPECIFIED, port)).into())
+        .ok()?;
+    s.listen(1024).ok()?;
+    s.set_nonblocking(true).ok()?;
+    TcpListener::from_std(std::net::TcpListener::from(s)).ok()
 }
 
 fn parse_hash(hash: &str) -> Result<InfoHash> {
@@ -397,7 +454,11 @@ impl EngineHandle {
             TorrentSource::File(p) => (Some(Metainfo::read_file(&p).await?), None),
             TorrentSource::Magnet(m) => (None, Some(Magnet::parse(&m)?)),
         };
-        let ih = meta.as_ref().map(|m| m.info_hash).or(magnet.as_ref().map(|m| m.info_hash)).expect("one is set");
+        let ih = meta
+            .as_ref()
+            .map(|m| m.info_hash)
+            .or(magnet.as_ref().map(|m| m.info_hash))
+            .expect("one is set");
 
         if let Some(existing) = s.torrents.read().get(&ih).cloned() {
             // Merge new trackers/peers into the existing torrent rather than erroring.
@@ -407,7 +468,9 @@ impl EngineHandle {
             return Err(Error::Engine("torrent is already in the list".into()));
         }
 
-        let save_path = req.save_path.unwrap_or_else(|| s.ctx.settings.read().download_dir.clone());
+        let save_path = req
+            .save_path
+            .unwrap_or_else(|| s.ctx.settings.read().download_dir.clone());
         let file_priorities = match (&meta, req.file_priorities) {
             (Some(m), Some(p)) if p.len() == m.info.files.len() => p,
             _ => Vec::new(),
@@ -415,7 +478,13 @@ impl EngineHandle {
         if let Some(m) = &meta {
             s.ctx.store.save_torrent(&ih, &m.to_torrent_bytes())?;
         }
-        let queue_pos = s.torrents.read().values().map(|t| t.queue_pos() + 1).max().unwrap_or(0);
+        let queue_pos = s
+            .torrents
+            .read()
+            .values()
+            .map(|t| t.queue_pos() + 1)
+            .max()
+            .unwrap_or(0);
         let name = meta
             .as_ref()
             .map(|m| m.info.name.clone())
@@ -448,7 +517,10 @@ impl EngineHandle {
         s.apply_queue();
         s.publish();
         let hex = hex::encode(ih);
-        s.ctx.emit(Event::TorrentAdded { info_hash: hex.clone(), name });
+        s.ctx.emit(Event::TorrentAdded {
+            info_hash: hex.clone(),
+            name,
+        });
         Ok(hex)
     }
 
@@ -504,7 +576,9 @@ impl EngineHandle {
 
     /// Manually add peer addresses (e.g. `1.2.3.4:6881`).
     pub fn add_peers(&self, hash: &str, peers: Vec<SocketAddr>) -> Result<()> {
-        self.s.get(hash)?.send(Cmd::AddPeers(peers, PeerSource::Manual));
+        self.s
+            .get(hash)?
+            .send(Cmd::AddPeers(peers, PeerSource::Manual));
         Ok(())
     }
 
@@ -524,12 +598,22 @@ impl EngineHandle {
 
     pub async fn remove(&self, hash: &str, delete_files: bool) -> Result<()> {
         let ih = parse_hash(hash)?;
-        let t = self.s.torrents.write().remove(&ih).ok_or_else(|| Error::Engine("no such torrent".into()))?;
+        let t = self
+            .s
+            .torrents
+            .write()
+            .remove(&ih)
+            .ok_or_else(|| Error::Engine("no such torrent".into()))?;
         let (tx, rx) = oneshot::channel();
-        t.send(Cmd::Shutdown { delete_files, done: tx });
+        t.send(Cmd::Shutdown {
+            delete_files,
+            done: tx,
+        });
         let _ = tokio::time::timeout(Duration::from_secs(10), rx).await;
         self.s.ctx.store.remove(&ih);
-        self.s.ctx.emit(Event::TorrentRemoved { info_hash: hex::encode(ih) });
+        self.s.ctx.emit(Event::TorrentRemoved {
+            info_hash: hex::encode(ih),
+        });
         self.s.apply_queue();
         self.s.publish();
         Ok(())
@@ -592,10 +676,14 @@ impl EngineHandle {
         let mut waits = Vec::new();
         for t in list {
             let (tx, rx) = oneshot::channel();
-            t.send(Cmd::Shutdown { delete_files: false, done: tx });
+            t.send(Cmd::Shutdown {
+                delete_files: false,
+                done: tx,
+            });
             waits.push(rx);
         }
-        let _ = tokio::time::timeout(Duration::from_secs(5), futures::future::join_all(waits)).await;
+        let _ =
+            tokio::time::timeout(Duration::from_secs(5), futures::future::join_all(waits)).await;
         if let Some(h) = self.s.listener.lock().take() {
             h.abort();
         }

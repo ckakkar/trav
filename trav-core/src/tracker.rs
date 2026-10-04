@@ -74,7 +74,11 @@ pub fn http_client() -> reqwest::Client {
         .unwrap_or_default()
 }
 
-pub async fn announce(url: &str, req: &AnnounceRequest, http: &reqwest::Client) -> Result<AnnounceResponse> {
+pub async fn announce(
+    url: &str,
+    req: &AnnounceRequest,
+    http: &reqwest::Client,
+) -> Result<AnnounceResponse> {
     if url.starts_with("udp://") {
         announce_udp(url, req).await
     } else if url.starts_with("http://") || url.starts_with("https://") {
@@ -96,7 +100,11 @@ fn pct(bytes: &[u8]) -> String {
     s
 }
 
-async fn announce_http(base: &str, req: &AnnounceRequest, http: &reqwest::Client) -> Result<AnnounceResponse> {
+async fn announce_http(
+    base: &str,
+    req: &AnnounceRequest,
+    http: &reqwest::Client,
+) -> Result<AnnounceResponse> {
     let sep = if base.contains('?') { '&' } else { '?' };
     let mut url = format!(
         "{base}{sep}info_hash={}&peer_id={}&port={}&uploaded={}&downloaded={}&left={}&compact=1&no_peer_id=1&numwant={}&key={:08x}",
@@ -118,9 +126,16 @@ async fn announce_http(base: &str, req: &AnnounceRequest, http: &reqwest::Client
         url.push_str(&pct(id.as_bytes()));
     }
 
-    let resp = http.get(&url).send().await.map_err(|e| Error::Tracker(short_reqwest(&e)))?;
+    let resp = http
+        .get(&url)
+        .send()
+        .await
+        .map_err(|e| Error::Tracker(short_reqwest(&e)))?;
     let status = resp.status();
-    let body = resp.bytes().await.map_err(|e| Error::Tracker(short_reqwest(&e)))?;
+    let body = resp
+        .bytes()
+        .await
+        .map_err(|e| Error::Tracker(short_reqwest(&e)))?;
     let v = bencode::decode(&body).map_err(|_| {
         if status.is_success() {
             Error::Tracker("malformed tracker response".into())
@@ -145,14 +160,25 @@ pub(crate) fn parse_http_response(v: &Value) -> Result<AnnounceResponse> {
     if let Some(f) = v.get("failure reason").and_then(Value::as_string_lossy) {
         return Err(Error::Tracker(f));
     }
-    let secs = |k: &str| v.get(k).and_then(Value::as_int).filter(|&i| i > 0).map(|i| Duration::from_secs(i as u64));
+    let secs = |k: &str| {
+        v.get(k)
+            .and_then(Value::as_int)
+            .filter(|&i| i > 0)
+            .map(|i| Duration::from_secs(i as u64))
+    };
     let mut peers = Vec::new();
     match v.get("peers") {
         Some(Value::Bytes(b)) => peers.extend(parse_compact_v4(b)),
         Some(Value::List(list)) => {
             for p in list {
-                let ip = p.get("ip").and_then(Value::as_str).and_then(|s| s.parse::<IpAddr>().ok());
-                let port = p.get("port").and_then(Value::as_int).and_then(|p| u16::try_from(p).ok());
+                let ip = p
+                    .get("ip")
+                    .and_then(Value::as_str)
+                    .and_then(|s| s.parse::<IpAddr>().ok());
+                let port = p
+                    .get("port")
+                    .and_then(Value::as_int)
+                    .and_then(|p| u16::try_from(p).ok());
                 if let (Some(ip), Some(port)) = (ip, port) {
                     peers.push(SocketAddr::new(ip, port));
                 }
@@ -166,8 +192,14 @@ pub(crate) fn parse_http_response(v: &Value) -> Result<AnnounceResponse> {
     Ok(AnnounceResponse {
         interval: secs("interval").unwrap_or(Duration::from_secs(1800)),
         min_interval: secs("min interval"),
-        seeders: v.get("complete").and_then(Value::as_int).map(|i| i.max(0) as u32),
-        leechers: v.get("incomplete").and_then(Value::as_int).map(|i| i.max(0) as u32),
+        seeders: v
+            .get("complete")
+            .and_then(Value::as_int)
+            .map(|i| i.max(0) as u32),
+        leechers: v
+            .get("incomplete")
+            .and_then(Value::as_int)
+            .map(|i| i.max(0) as u32),
         peers,
         warning: v.get("warning message").and_then(Value::as_string_lossy),
         tracker_id: v.get("tracker id").and_then(Value::as_string_lossy),
@@ -201,15 +233,22 @@ const UDP_MAGIC: u64 = 0x0417_2710_1980;
 
 async fn announce_udp(url: &str, req: &AnnounceRequest) -> Result<AnnounceResponse> {
     let parsed = Url::parse(url).map_err(|e| Error::Tracker(format!("bad URL: {e}")))?;
-    let host = parsed.host_str().ok_or_else(|| Error::Tracker("missing host".into()))?;
-    let port = parsed.port().ok_or_else(|| Error::Tracker("missing port".into()))?;
+    let host = parsed
+        .host_str()
+        .ok_or_else(|| Error::Tracker("missing host".into()))?;
+    let port = parsed
+        .port()
+        .ok_or_else(|| Error::Tracker("missing port".into()))?;
     let host = host.trim_start_matches('[').trim_end_matches(']');
 
-    let addrs: Vec<SocketAddr> = tokio::time::timeout(Duration::from_secs(10), tokio::net::lookup_host((host, port)))
-        .await
-        .map_err(|_| Error::Tracker("DNS timed out".into()))?
-        .map_err(|_| Error::Tracker("DNS lookup failed".into()))?
-        .collect();
+    let addrs: Vec<SocketAddr> = tokio::time::timeout(
+        Duration::from_secs(10),
+        tokio::net::lookup_host((host, port)),
+    )
+    .await
+    .map_err(|_| Error::Tracker("DNS timed out".into()))?
+    .map_err(|_| Error::Tracker("DNS lookup failed".into()))?
+    .collect();
     let addr = addrs
         .iter()
         .find(|a| a.is_ipv4())
@@ -217,7 +256,11 @@ async fn announce_udp(url: &str, req: &AnnounceRequest) -> Result<AnnounceRespon
         .copied()
         .ok_or_else(|| Error::Tracker("no address for host".into()))?;
 
-    let bind: SocketAddr = if addr.is_ipv4() { "0.0.0.0:0".parse().unwrap() } else { "[::]:0".parse().unwrap() };
+    let bind: SocketAddr = if addr.is_ipv4() {
+        "0.0.0.0:0".parse().unwrap()
+    } else {
+        "[::]:0".parse().unwrap()
+    };
     let sock = UdpSocket::bind(bind).await?;
     sock.connect(addr).await?;
 
@@ -238,7 +281,9 @@ async fn announce_udp(url: &str, req: &AnnounceRequest) -> Result<AnnounceRespon
                     out = Some((&body[..8]).get_u64());
                     break;
                 }
-                Some((3, body)) => return Err(Error::Tracker(String::from_utf8_lossy(&body).into_owned())),
+                Some((3, body)) => {
+                    return Err(Error::Tracker(String::from_utf8_lossy(&body).into_owned()));
+                }
                 _ => continue,
             }
         }
@@ -284,7 +329,9 @@ async fn announce_udp(url: &str, req: &AnnounceRequest) -> Result<AnnounceRespon
                     tracker_id: None,
                 });
             }
-            Some((3, body)) => return Err(Error::Tracker(String::from_utf8_lossy(&body).into_owned())),
+            Some((3, body)) => {
+                return Err(Error::Tracker(String::from_utf8_lossy(&body).into_owned()));
+            }
             _ => continue,
         }
     }
@@ -292,7 +339,12 @@ async fn announce_udp(url: &str, req: &AnnounceRequest) -> Result<AnnounceRespon
 }
 
 /// Wait for a datagram carrying `tid`; returns (action, body-after-header).
-async fn recv_matching(sock: &UdpSocket, buf: &mut [u8], tid: u32, wait: Duration) -> Result<Option<(u32, Vec<u8>)>> {
+async fn recv_matching(
+    sock: &UdpSocket,
+    buf: &mut [u8],
+    tid: u32,
+    wait: Duration,
+) -> Result<Option<(u32, Vec<u8>)>> {
     let deadline = tokio::time::Instant::now() + wait;
     loop {
         let n = match tokio::time::timeout_at(deadline, sock.recv(buf)).await {
@@ -330,12 +382,22 @@ mod tests {
         let v = DictBuilder::new()
             .value(
                 "peers",
-                Value::List(vec![DictBuilder::new().bytes("ip", "10.0.0.2").int("port", 51413).build()]),
+                Value::List(vec![
+                    DictBuilder::new()
+                        .bytes("ip", "10.0.0.2")
+                        .int("port", 51413)
+                        .build(),
+                ]),
             )
             .build();
-        assert_eq!(parse_http_response(&v).unwrap().peers, vec!["10.0.0.2:51413".parse().unwrap()]);
+        assert_eq!(
+            parse_http_response(&v).unwrap().peers,
+            vec!["10.0.0.2:51413".parse().unwrap()]
+        );
 
-        let f = DictBuilder::new().bytes("failure reason", "unregistered torrent").build();
+        let f = DictBuilder::new()
+            .bytes("failure reason", "unregistered torrent")
+            .build();
         assert!(parse_http_response(&f).is_err());
     }
 }

@@ -94,6 +94,8 @@ export default function App() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [focus, setFocus] = useState<string | null>(null);
   const anchor = useRef<string | null>(null);
+  // Hashes we just added/jumped to: not in the snapshot yet, so don't prune them.
+  const fresh = useRef(new Map<string, number>());
   const [tab, setTab] = useState<DetailTab>(() => load("tab", "overview"));
   const [panelH, setPanelH] = useState<number>(() => load("panelH", 320));
   const [collapsed, setCollapsed] = useState<boolean>(() => load("collapsed", false));
@@ -168,7 +170,9 @@ export default function App() {
 
   // Drop selection entries for torrents that disappeared.
   useEffect(() => {
-    const live = new Set(torrents.map((t) => t.infoHash));
+    const now = Date.now();
+    for (const [h, t] of fresh.current) if (now - t > 5000) fresh.current.delete(h);
+    const live = new Set([...torrents.map((t) => t.infoHash), ...fresh.current.keys()]);
     setSelected((s) => {
       const next = new Set([...s].filter((h) => live.has(h)));
       return next.size === s.size ? s : next;
@@ -250,6 +254,7 @@ export default function App() {
   );
 
   const jumpTo = useCallback((hash: string) => {
+    fresh.current.set(hash, Date.now());
     setFilter("all");
     setSelected(new Set([hash]));
     setFocus(hash);
@@ -309,6 +314,7 @@ export default function App() {
           }
         } else if (e.type === "torrentError") toast("Torrent error", { body: `${e.name}: ${e.message}`, tone: "error" });
         else if (e.type === "metadataReceived") toast("Metadata received", { body: e.name });
+        else if (e.type === "torrentAdded") toast("Added", { body: e.name });
         refresh();
       }),
     [toast, refresh, prefs.notify],
@@ -588,7 +594,7 @@ export default function App() {
         mac={mac && desktop}
       />
 
-      <main className="main" style={{ ["--panel-h" as string]: collapsed ? "0px" : `${panelH}px` }}>
+      <main className="main" style={{ ["--panel-h" as string]: collapsed || (snapshot && torrents.length === 0) ? "0px" : `${panelH}px` }}>
         <header className="toolbar" data-tauri-drag-region>
           <div className="tb-title" data-tauri-drag-region>
             <h1 className="display" data-tauri-drag-region>

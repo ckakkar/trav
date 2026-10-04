@@ -27,7 +27,9 @@ fn settings(download_dir: &Path) -> Settings {
 
 /// Deterministic pseudo-random bytes so failures are reproducible.
 fn payload(len: usize, seed: u64) -> Vec<u8> {
-    let mut x = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+    let mut x = seed
+        .wrapping_mul(6364136223846793005)
+        .wrapping_add(1442695040888963407);
     (0..len)
         .map(|_| {
             x ^= x << 13;
@@ -60,7 +62,10 @@ async fn wait_for(h: &EngineHandle, hash: &str, want: TorrentStatus, secs: u64) 
             if Instant::now() > deadline {
                 panic!(
                     "timed out waiting for {want:?}; status={:?} progress={:.3} peers={} err={:?}",
-                    t.status, t.progress, t.peers + t.seeds, t.error
+                    t.status,
+                    t.progress,
+                    t.peers + t.seeds,
+                    t.error
                 );
             }
         } else if Instant::now() > deadline {
@@ -72,8 +77,10 @@ async fn wait_for(h: &EngineHandle, hash: &str, want: TorrentStatus, secs: u64) 
 
 fn same_tree(a: &Path, b: &Path) {
     for rel in ["a.bin", "sub/b.bin", "empty.txt"] {
-        let x = std::fs::read(a.join(rel)).unwrap_or_else(|e| panic!("{rel} in {}: {e}", a.display()));
-        let y = std::fs::read(b.join(rel)).unwrap_or_else(|e| panic!("{rel} in {}: {e}", b.display()));
+        let x =
+            std::fs::read(a.join(rel)).unwrap_or_else(|e| panic!("{rel} in {}: {e}", a.display()));
+        let y =
+            std::fs::read(b.join(rel)).unwrap_or_else(|e| panic!("{rel} in {}: {e}", b.display()));
         assert!(x == y, "{rel} differs");
     }
 }
@@ -82,8 +89,13 @@ async fn seeder(tmp: &Path, trackers: &[String]) -> (EngineHandle, String, Vec<u
     let content_parent = tmp.join("seed-data");
     let content = make_content(&content_parent);
     let torrent = create_torrent(&content, 32 * 1024, trackers, false).unwrap();
-    let seed = Engine::start_with(tmp.join("seed-state"), Some(settings(&content_parent))).await.unwrap();
-    let hash = seed.add(AddTorrent::new(TorrentSource::Bytes(torrent.clone()))).await.unwrap();
+    let seed = Engine::start_with(tmp.join("seed-state"), Some(settings(&content_parent)))
+        .await
+        .unwrap();
+    let hash = seed
+        .add(AddTorrent::new(TorrentSource::Bytes(torrent.clone())))
+        .await
+        .unwrap();
     wait_for(&seed, &hash, TorrentStatus::Seeding, 20).await;
     (seed, hash, torrent, content)
 }
@@ -102,10 +114,17 @@ async fn downloads_from_seed_and_resumes() {
     assert_eq!(st.progress, 1.0, "seeder should verify existing data");
 
     let dl_dir = tmp.path().join("dl");
-    let leech = Engine::start_with(tmp.path().join("leech-state"), Some(settings(&dl_dir))).await.unwrap();
-    let h2 = leech.add(AddTorrent::new(TorrentSource::Bytes(torrent))).await.unwrap();
+    let leech = Engine::start_with(tmp.path().join("leech-state"), Some(settings(&dl_dir)))
+        .await
+        .unwrap();
+    let h2 = leech
+        .add(AddTorrent::new(TorrentSource::Bytes(torrent)))
+        .await
+        .unwrap();
     assert_eq!(h2, hash);
-    leech.add_peers(&hash, vec![local(seed.listen_port())]).unwrap();
+    leech
+        .add_peers(&hash, vec![local(seed.listen_port())])
+        .unwrap();
 
     wait_for(&leech, &hash, TorrentStatus::Seeding, 30).await;
     same_tree(&content, &dl_dir.join("album"));
@@ -113,14 +132,36 @@ async fn downloads_from_seed_and_resumes() {
     let d = leech.details(&hash).unwrap();
     assert_eq!(d.files.len(), 3);
     assert!(d.files.iter().all(|f| f.progress == 1.0));
-    assert!(seed.snapshot().torrents[0].uploaded >= 1_534_574, "seeder accounts uploads");
+    assert!(
+        seed.snapshot().torrents[0].uploaded >= 1_534_574,
+        "seeder accounts uploads"
+    );
 
     // Restart: resume data must be trusted, no re-download.
     leech.shutdown().await;
     drop(leech);
-    let leech = Engine::start_with(tmp.path().join("leech-state"), Some(settings(&dl_dir))).await.unwrap();
+    let leech = Engine::start_with(tmp.path().join("leech-state"), Some(settings(&dl_dir)))
+        .await
+        .unwrap();
     wait_for(&leech, &hash, TorrentStatus::Seeding, 5).await;
     assert_eq!(leech.snapshot().stats.session_downloaded, 0);
+
+    // Delete one file behind the engine's back: resume data must not be trusted blindly.
+    leech.shutdown().await;
+    drop(leech);
+    std::fs::remove_file(dl_dir.join("album/sub/b.bin")).unwrap();
+    let leech = Engine::start_with(tmp.path().join("leech-state"), Some(settings(&dl_dir)))
+        .await
+        .unwrap();
+    leech
+        .add_peers(&hash, vec![local(seed.listen_port())])
+        .unwrap();
+    wait_for(&leech, &hash, TorrentStatus::Seeding, 30).await;
+    same_tree(&content, &dl_dir.join("album"));
+    assert!(
+        leech.snapshot().stats.session_downloaded > 1_000_000,
+        "missing file was re-downloaded"
+    );
 
     // Remove with data.
     leech.remove(&hash, true).await.unwrap();
@@ -135,10 +176,18 @@ async fn magnet_fetches_metadata_from_peer() {
     let (seed, hash, _torrent, content) = seeder(tmp.path(), &[]).await;
 
     let dl_dir = tmp.path().join("dl");
-    let leech = Engine::start_with(tmp.path().join("leech-state"), Some(settings(&dl_dir))).await.unwrap();
-    let magnet = format!("magnet:?xt=urn:btih:{hash}&dn=album&x.pe=127.0.0.1:{}", seed.listen_port());
+    let leech = Engine::start_with(tmp.path().join("leech-state"), Some(settings(&dl_dir)))
+        .await
+        .unwrap();
+    let magnet = format!(
+        "magnet:?xt=urn:btih:{hash}&dn=album&x.pe=127.0.0.1:{}",
+        seed.listen_port()
+    );
     let mut events = leech.events();
-    let h2 = leech.add(AddTorrent::new(TorrentSource::Magnet(magnet))).await.unwrap();
+    let h2 = leech
+        .add(AddTorrent::new(TorrentSource::Magnet(magnet)))
+        .await
+        .unwrap();
     assert_eq!(h2, hash);
 
     wait_for(&leech, &hash, TorrentStatus::Seeding, 30).await;
@@ -154,7 +203,13 @@ async fn magnet_fetches_metadata_from_peer() {
     }
     assert!(saw.0 && saw.1, "metadata + completion events: {saw:?}");
     // The fetched metadata is persisted as a .torrent for future sessions.
-    assert!(leech.state_dir().join("torrents").join(format!("{hash}.torrent")).exists());
+    assert!(
+        leech
+            .state_dir()
+            .join("torrents")
+            .join(format!("{hash}.torrent"))
+            .exists()
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -183,7 +238,10 @@ async fn selective_download_and_http_tracker() {
                     let mut body = b"d8:intervali60e5:peers6:".to_vec();
                     body.extend_from_slice(&peers);
                     body.push(b'e');
-                    let head = format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", body.len());
+                    let head = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                        body.len()
+                    );
                     let _ = s.write_all(head.as_bytes()).await;
                     let _ = s.write_all(&body).await;
                 });
@@ -191,25 +249,41 @@ async fn selective_download_and_http_tracker() {
         });
     }
 
-    let (seed, hash, torrent, content) = seeder(tmp.path(), std::slice::from_ref(&tracker_url)).await;
+    let (seed, hash, torrent, content) =
+        seeder(tmp.path(), std::slice::from_ref(&tracker_url)).await;
     seed_port.store(seed.listen_port(), std::sync::atomic::Ordering::SeqCst);
 
     let dl_dir = tmp.path().join("dl");
-    let leech = Engine::start_with(tmp.path().join("leech-state"), Some(settings(&dl_dir))).await.unwrap();
+    let leech = Engine::start_with(tmp.path().join("leech-state"), Some(settings(&dl_dir)))
+        .await
+        .unwrap();
     let preview = leech.inspect(&torrent).unwrap();
     // Files are listed sorted: a.bin, empty.txt, sub/b.bin — skip the big one.
-    assert_eq!(preview.files.iter().map(|f| f.path.as_str()).collect::<Vec<_>>(), ["a.bin", "empty.txt", "sub/b.bin"]);
+    assert_eq!(
+        preview
+            .files
+            .iter()
+            .map(|f| f.path.as_str())
+            .collect::<Vec<_>>(),
+        ["a.bin", "empty.txt", "sub/b.bin"]
+    );
     let mut req = AddTorrent::new(TorrentSource::Bytes(torrent));
     req.file_priorities = Some(vec![1, 1, 0]);
     leech.add(req).await.unwrap();
 
     wait_for(&leech, &hash, TorrentStatus::Seeding, 30).await;
-    assert!(hits.load(std::sync::atomic::Ordering::SeqCst) >= 2, "both engines announced");
+    assert!(
+        hits.load(std::sync::atomic::Ordering::SeqCst) >= 2,
+        "both engines announced"
+    );
     let got = std::fs::read(dl_dir.join("album/a.bin")).unwrap();
     assert_eq!(got, std::fs::read(content.join("a.bin")).unwrap());
     let d = leech.details(&hash).unwrap();
     let b = d.files.iter().find(|f| f.path == "sub/b.bin").unwrap();
-    assert!(b.progress < 1.0, "skipped file must not be fully downloaded");
+    assert!(
+        b.progress < 1.0,
+        "skipped file must not be fully downloaded"
+    );
     assert_eq!(d.trackers[0].status, "working");
 
     // Re-enable the skipped file: the torrent resumes downloading and completes.
@@ -221,7 +295,11 @@ async fn selective_download_and_http_tracker() {
             assert_eq!(d.summary.status, TorrentStatus::Seeding);
             break;
         }
-        assert!(Instant::now() < deadline, "re-enabled file never completed: {:?}", d.files);
+        assert!(
+            Instant::now() < deadline,
+            "re-enabled file never completed: {:?}",
+            d.files
+        );
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
     same_tree(&content, &dl_dir.join("album"));
@@ -235,11 +313,15 @@ async fn pause_resume_and_rate_limit() {
     let dl_dir = tmp.path().join("dl");
     let mut s = settings(&dl_dir);
     s.download_limit = 400 * 1024;
-    let leech = Engine::start_with(tmp.path().join("leech-state"), Some(s)).await.unwrap();
+    let leech = Engine::start_with(tmp.path().join("leech-state"), Some(s))
+        .await
+        .unwrap();
     let mut req = AddTorrent::new(TorrentSource::Bytes(torrent));
     req.paused = true;
     leech.add(req).await.unwrap();
-    leech.add_peers(&hash, vec![local(seed.listen_port())]).unwrap();
+    leech
+        .add_peers(&hash, vec![local(seed.listen_port())])
+        .unwrap();
     tokio::time::sleep(Duration::from_millis(1500)).await;
     let t = &leech.snapshot().torrents[0];
     assert_eq!(t.status, TorrentStatus::Paused);
@@ -249,8 +331,51 @@ async fn pause_resume_and_rate_limit() {
     leech.resume(&hash).unwrap();
     wait_for(&leech, &hash, TorrentStatus::Seeding, 30).await;
     // ~1.5 MB at 400 KiB/s cannot finish in under ~2.5 s.
-    assert!(started.elapsed() > Duration::from_millis(2500), "rate limit ignored: {:?}", started.elapsed());
+    assert!(
+        started.elapsed() > Duration::from_millis(2500),
+        "rate limit ignored: {:?}",
+        started.elapsed()
+    );
     same_tree(&content, &dl_dir.join("album"));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn three_node_swarm() {
+    init_tracing();
+    let tmp = tempfile::tempdir().unwrap();
+    let (seed, hash, torrent, content) = seeder(tmp.path(), &[]).await;
+    let mut leechers = Vec::new();
+    for name in ["a", "b"] {
+        let dir = tmp.path().join(format!("dl-{name}"));
+        let mut s = settings(&dir);
+        // Throttle so both are mid-download at the same time and trade pieces.
+        s.download_limit = 600 * 1024;
+        let e = Engine::start_with(tmp.path().join(format!("state-{name}")), Some(s))
+            .await
+            .unwrap();
+        e.add(AddTorrent::new(TorrentSource::Bytes(torrent.clone())))
+            .await
+            .unwrap();
+        leechers.push((e, dir));
+    }
+    let a_port = leechers[0].0.listen_port();
+    leechers[0]
+        .0
+        .add_peers(&hash, vec![local(seed.listen_port())])
+        .unwrap();
+    leechers[1]
+        .0
+        .add_peers(&hash, vec![local(seed.listen_port()), local(a_port)])
+        .unwrap();
+    for (e, dir) in &leechers {
+        wait_for(e, &hash, TorrentStatus::Seeding, 40).await;
+        same_tree(&content, &dir.join("album"));
+    }
+    let b_details = leechers[1].0.details(&hash).unwrap();
+    assert!(
+        leechers[0].0.snapshot().torrents[0].uploaded > 0 || !b_details.peers.is_empty(),
+        "leechers exchanged data"
+    );
 }
 
 /// `cargo test --release -p trav-core --test swarm throughput -- --ignored --nocapture`
@@ -264,14 +389,26 @@ async fn throughput() {
     let file = src.join("big.bin");
     std::fs::write(&file, payload(256 << 20, 9)).unwrap();
     let torrent = create_torrent(&file, 1 << 20, &[], false).unwrap();
-    let seed = Engine::start_with(tmp.path().join("s"), Some(settings(&src))).await.unwrap();
-    let hash = seed.add(AddTorrent::new(TorrentSource::Bytes(torrent.clone()))).await.unwrap();
+    let seed = Engine::start_with(tmp.path().join("s"), Some(settings(&src)))
+        .await
+        .unwrap();
+    let hash = seed
+        .add(AddTorrent::new(TorrentSource::Bytes(torrent.clone())))
+        .await
+        .unwrap();
     wait_for(&seed, &hash, TorrentStatus::Seeding, 60).await;
     let dl = tmp.path().join("dl");
-    let leech = Engine::start_with(tmp.path().join("l"), Some(settings(&dl))).await.unwrap();
-    leech.add(AddTorrent::new(TorrentSource::Bytes(torrent))).await.unwrap();
+    let leech = Engine::start_with(tmp.path().join("l"), Some(settings(&dl)))
+        .await
+        .unwrap();
+    leech
+        .add(AddTorrent::new(TorrentSource::Bytes(torrent)))
+        .await
+        .unwrap();
     let t = Instant::now();
-    leech.add_peers(&hash, vec![local(seed.listen_port())]).unwrap();
+    leech
+        .add_peers(&hash, vec![local(seed.listen_port())])
+        .unwrap();
     wait_for(&leech, &hash, TorrentStatus::Seeding, 120).await;
     let secs = t.elapsed().as_secs_f64();
     println!("256 MiB in {secs:.2}s = {:.1} MiB/s", 256.0 / secs);

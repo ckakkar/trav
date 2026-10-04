@@ -54,7 +54,9 @@ impl Settings {
     /// Clamp values that would wedge the engine.
     pub fn sanitized(mut self) -> Self {
         self.max_peers_per_torrent = self.max_peers_per_torrent.clamp(1, 2000);
-        self.max_peers_global = self.max_peers_global.clamp(self.max_peers_per_torrent.min(50), 20_000);
+        self.max_peers_global = self
+            .max_peers_global
+            .clamp(self.max_peers_per_torrent.min(50), 20_000);
         self.upload_slots = self.upload_slots.clamp(1, 200);
         if !self.seed_ratio_limit.is_finite() || self.seed_ratio_limit < 0.0 {
             self.seed_ratio_limit = 0.0;

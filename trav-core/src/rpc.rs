@@ -8,7 +8,7 @@ use std::path::PathBuf;
 
 use base64::Engine as _;
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use crate::engine::{AddTorrent, EngineHandle, TorrentSource};
 use crate::settings::Settings;
@@ -48,7 +48,10 @@ impl Target {
     }
 
     fn one(&self) -> Result<&str, String> {
-        self.hash.as_deref().or(self.hashes.first().map(String::as_str)).ok_or_else(|| "missing hash".into())
+        self.hash
+            .as_deref()
+            .or(self.hashes.first().map(String::as_str))
+            .ok_or_else(|| "missing hash".into())
     }
 }
 
@@ -68,12 +71,18 @@ pub async fn dispatch(h: &EngineHandle, method: &str, params: Value) -> Result<V
         "snapshot" => Ok(to_json(&*h.snapshot())),
         "details" => {
             let t: Target = parse(params)?;
-            Ok(h.details(t.one()?).map(|d| to_json(&d)).unwrap_or(Value::Null))
+            Ok(h.details(t.one()?)
+                .map(|d| to_json(&d))
+                .unwrap_or(Value::Null))
         }
         "add" => {
             let p: AddParams = parse(params)?;
             let source = if let Some(b) = p.torrent {
-                TorrentSource::Bytes(base64::engine::general_purpose::STANDARD.decode(b.trim()).map_err(|e| e.to_string())?)
+                TorrentSource::Bytes(
+                    base64::engine::general_purpose::STANDARD
+                        .decode(b.trim())
+                        .map_err(|e| e.to_string())?,
+                )
             } else if let Some(m) = p.magnet {
                 TorrentSource::from_input(&m)
             } else if let Some(path) = p.path {
@@ -84,7 +93,10 @@ pub async fn dispatch(h: &EngineHandle, method: &str, params: Value) -> Result<V
             let hash = h
                 .add(AddTorrent {
                     source,
-                    save_path: p.save_path.filter(|s| !s.trim().is_empty()).map(PathBuf::from),
+                    save_path: p
+                        .save_path
+                        .filter(|s| !s.trim().is_empty())
+                        .map(PathBuf::from),
                     paused: p.paused,
                     sequential: p.sequential,
                     file_priorities: p.file_priorities,
@@ -96,11 +108,15 @@ pub async fn dispatch(h: &EngineHandle, method: &str, params: Value) -> Result<V
         "inspect" => {
             let p: AddParams = parse(params)?;
             let bytes = match (p.torrent, p.path) {
-                (Some(b), _) => base64::engine::general_purpose::STANDARD.decode(b.trim()).map_err(|e| e.to_string())?,
+                (Some(b), _) => base64::engine::general_purpose::STANDARD
+                    .decode(b.trim())
+                    .map_err(|e| e.to_string())?,
                 (None, Some(path)) => tokio::fs::read(&path).await.map_err(|e| e.to_string())?,
                 _ => return Err("missing torrent".into()),
             };
-            h.inspect(&bytes).map(|p| to_json(&p)).map_err(|e| e.to_string())
+            h.inspect(&bytes)
+                .map(|p| to_json(&p))
+                .map_err(|e| e.to_string())
         }
         "pause" | "resume" | "recheck" | "reannounce" => {
             let t: Target = parse(params)?;
@@ -118,7 +134,9 @@ pub async fn dispatch(h: &EngineHandle, method: &str, params: Value) -> Result<V
         "remove" => {
             let t: Target = parse(params)?;
             for hash in t.all() {
-                h.remove(&hash, t.delete_files).await.map_err(|e| e.to_string())?;
+                h.remove(&hash, t.delete_files)
+                    .await
+                    .map_err(|e| e.to_string())?;
             }
             ok()
         }
@@ -132,28 +150,36 @@ pub async fn dispatch(h: &EngineHandle, method: &str, params: Value) -> Result<V
         }
         "setSequential" => {
             let t: Target = parse(params)?;
-            h.set_sequential(t.one()?, t.enabled).map_err(|e| e.to_string())?;
+            h.set_sequential(t.one()?, t.enabled)
+                .map_err(|e| e.to_string())?;
             ok()
         }
         "setFilePriorities" => {
             let t: Target = parse(params)?;
-            h.set_file_priorities(t.one()?, t.priorities.clone()).map_err(|e| e.to_string())?;
+            h.set_file_priorities(t.one()?, t.priorities.clone())
+                .map_err(|e| e.to_string())?;
             ok()
         }
         "setQueuePosition" => {
             let t: Target = parse(params)?;
-            h.set_queue_position(t.one()?, t.position).map_err(|e| e.to_string())?;
+            h.set_queue_position(t.one()?, t.position)
+                .map_err(|e| e.to_string())?;
             ok()
         }
         "addPeers" => {
             let t: Target = parse(params)?;
-            let peers: Vec<SocketAddr> = t.peers.iter().filter_map(|p| p.trim().parse().ok()).collect();
+            let peers: Vec<SocketAddr> = t
+                .peers
+                .iter()
+                .filter_map(|p| p.trim().parse().ok())
+                .collect();
             h.add_peers(t.one()?, peers).map_err(|e| e.to_string())?;
             ok()
         }
         "getSettings" => Ok(to_json(&h.settings())),
         "setSettings" => {
-            let s: Settings = serde_json::from_value(params).map_err(|e| format!("bad settings: {e}"))?;
+            let s: Settings =
+                serde_json::from_value(params).map_err(|e| format!("bad settings: {e}"))?;
             h.update_settings(s).await.map_err(|e| e.to_string())?;
             Ok(to_json(&h.settings()))
         }

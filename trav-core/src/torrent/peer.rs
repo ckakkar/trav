@@ -10,25 +10,27 @@
 
 use std::collections::VecDeque;
 use std::net::SocketAddr;
-use std::sync::atomic::Ordering;
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
 use bytes::Bytes;
 use futures::{SinkExt, StreamExt};
 use parking_lot::Mutex;
 use tokio::net::TcpStream;
-use tokio::sync::{mpsc, Notify};
+use tokio::sync::{Notify, mpsc};
 use tokio_util::codec::Framed;
 use tracing::debug;
 
 use super::{Cmd, PeerCmd, Phase, Torrent};
 use crate::bitfield::Bitfield;
-use crate::error::{proto, Error, Result};
-use crate::peer::extension::{ExtHandshake, MetadataMsg, PexMsg, METADATA_PIECE, UT_METADATA, UT_PEX};
+use crate::error::{Error, Result, proto};
+use crate::peer::extension::{
+    ExtHandshake, METADATA_PIECE, MetadataMsg, PexMsg, UT_METADATA, UT_PEX,
+};
 use crate::peer::handshake::Handshake;
-use crate::peer::protocol::{PeerCodec, PeerMessage, MAX_BLOCK_LEN};
-use crate::picker::{BlockReq, OnBlock, PeerKey, BLOCK_SIZE};
+use crate::peer::protocol::{MAX_BLOCK_LEN, PeerCodec, PeerMessage};
+use crate::picker::{BLOCK_SIZE, BlockReq, OnBlock, PeerKey};
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 const SNUB_AFTER: Duration = Duration::from_secs(60);
@@ -77,6 +79,7 @@ pub(super) async fn run(
         reqq: 250,
         got_bitfield: false,
         snubbed: false,
+        last_idle_check: Instant::now(),
     };
     if let Err(e) = conn.session(stream, hs, rx).await {
         debug!("peer {addr} closed: {e}");
@@ -101,6 +104,8 @@ struct Conn {
     reqq: usize,
     got_bitfield: bool,
     snubbed: bool,
+    /// Throttles the O(pieces) interest re-check when nothing is pickable.
+    last_idle_check: Instant,
 }
 
 impl Conn {
@@ -113,7 +118,12 @@ impl Conn {
             .map_err(|_| Error::Protocol("writer closed".into()))
     }
 
-    async fn session(&mut self, stream: TcpStream, hs: Handshake, mut rx: mpsc::UnboundedReceiver<PeerCmd>) -> Result<()> {
+    async fn session(
+        &mut self,
+        stream: TcpStream,
+        hs: Handshake,
+        mut rx: mpsc::UnboundedReceiver<PeerCmd>,
+    ) -> Result<()> {
         let (mut sink, mut source) = Framed::with_capacity(stream, PeerCodec, 64 * 1024).split();
 
         // Writer: drain the channel, flushing only when it runs dry (natural batching).
@@ -143,7 +153,12 @@ impl Conn {
         self.out = Some(out_tx.clone());
 
         // Uploader: serve queued requests from disk.
-        let uploader = tokio::spawn(uploader(self.t.clone(), self.key, self.uploads.clone(), out_tx));
+        let uploader = tokio::spawn(uploader(
+            self.t.clone(),
+            self.key,
+            self.uploads.clone(),
+            out_tx,
+        ));
         let _uploader_guard = AbortOnDrop(uploader.abort_handle());
 
         self.greet(&hs).await?;
@@ -211,7 +226,11 @@ impl Conn {
             (ext, bf, dht)
         };
         if let Some(payload) = ext {
-            self.send(PeerMessage::Extended { extended_id: 0, payload }).await?;
+            self.send(PeerMessage::Extended {
+                extended_id: 0,
+                payload,
+            })
+            .await?;
         }
         if let Some(payload) = bitfield {
             self.send(PeerMessage::Bitfield { payload }).await?;
@@ -240,14 +259,25 @@ impl Conn {
             PeerCmd::Cancel(r) => {
                 if let Some(i) = self.pending.iter().position(|(p, _)| *p == r) {
                     self.pending.swap_remove(i);
-                    self.send(PeerMessage::Cancel { index: r.piece, begin: r.begin, length: r.len }).await?;
+                    self.send(PeerMessage::Cancel {
+                        index: r.piece,
+                        begin: r.begin,
+                        length: r.len,
+                    })
+                    .await?;
                 }
             }
             PeerCmd::Refresh => {
                 self.update_interest().await?;
                 self.request_metadata().await?;
             }
-            PeerCmd::Ext(id, payload) => self.send(PeerMessage::Extended { extended_id: id, payload }).await?,
+            PeerCmd::Ext(id, payload) => {
+                self.send(PeerMessage::Extended {
+                    extended_id: id,
+                    payload,
+                })
+                .await?
+            }
             PeerCmd::Disconnect => unreachable!("handled by caller"),
         }
         Ok(())
@@ -289,8 +319,14 @@ impl Conn {
                         return Err(proto("have index out of range"));
                     }
                     let st = &mut *st;
-                    let Some(p) = st.peers.get_mut(&self.key) else { return Ok(()) };
-                    let changed = if n.is_some() { p.bitfield.set(piece_index as usize) } else { p.bitfield.set_grow(piece_index as usize) };
+                    let Some(p) = st.peers.get_mut(&self.key) else {
+                        return Ok(());
+                    };
+                    let changed = if n.is_some() {
+                        p.bitfield.set(piece_index as usize)
+                    } else {
+                        p.bitfield.set_grow(piece_index as usize)
+                    };
                     match st.picker.as_mut() {
                         Some(pk) if changed => {
                             pk.add_have(piece_index);
@@ -312,7 +348,9 @@ impl Conn {
                     let mut st = self.t.st.lock();
                     let n = st.meta.as_ref().map(|m| m.info.num_pieces());
                     let bf = match n {
-                        Some(n) if payload.len() != n.div_ceil(8) => return Err(proto("bitfield length mismatch")),
+                        Some(n) if payload.len() != n.div_ceil(8) => {
+                            return Err(proto("bitfield length mismatch"));
+                        }
                         Some(n) => Bitfield::from_bytes(&payload, n),
                         None => Bitfield::from_bytes_unsized(&payload),
                     };
@@ -327,19 +365,38 @@ impl Conn {
                 }
                 self.update_interest().await?;
             }
-            PeerMessage::Request { index, begin, length } => self.on_request(index, begin, length),
-            PeerMessage::Cancel { index, begin, length } => {
-                let r = BlockReq { piece: index, begin, len: length };
+            PeerMessage::Request {
+                index,
+                begin,
+                length,
+            } => self.on_request(index, begin, length),
+            PeerMessage::Cancel {
+                index,
+                begin,
+                length,
+            } => {
+                let r = BlockReq {
+                    piece: index,
+                    begin,
+                    len: length,
+                };
                 self.uploads.q.lock().retain(|q| *q != r);
             }
-            PeerMessage::Piece { index, begin, block } => self.on_piece(index, begin, block).await?,
+            PeerMessage::Piece {
+                index,
+                begin,
+                block,
+            } => self.on_piece(index, begin, block).await?,
             PeerMessage::Port { listen_port } => {
                 if let Some(dht) = self.t.ctx.dht() {
                     let addr = SocketAddr::new(self.addr.ip(), listen_port);
                     tokio::spawn(async move { dht.ping(addr).await });
                 }
             }
-            PeerMessage::Extended { extended_id, payload } => self.on_extended(extended_id, payload).await?,
+            PeerMessage::Extended {
+                extended_id,
+                payload,
+            } => self.on_extended(extended_id, payload).await?,
         }
         Ok(())
     }
@@ -360,7 +417,9 @@ impl Conn {
                         && length <= MAX_BLOCK_LEN
                         && (index as usize) < pk.num_pieces()
                         && pk.have().get(index as usize)
-                        && begin.checked_add(length).is_some_and(|e| e <= pk.piece_size(index))
+                        && begin
+                            .checked_add(length)
+                            .is_some_and(|e| e <= pk.piece_size(index))
                 }
                 _ => false,
             }
@@ -368,7 +427,11 @@ impl Conn {
         if ok {
             let mut q = self.uploads.q.lock();
             if q.len() < MAX_UPLOAD_QUEUE {
-                q.push_back(BlockReq { piece: index, begin, len: length });
+                q.push_back(BlockReq {
+                    piece: index,
+                    begin,
+                    len: length,
+                });
                 drop(q);
                 self.uploads.notify.notify_one();
             }
@@ -378,7 +441,11 @@ impl Conn {
     async fn on_piece(&mut self, index: u32, begin: u32, block: Bytes) -> Result<()> {
         let len = block.len();
         self.t.ctx.down.acquire(len).await;
-        if let Some(i) = self.pending.iter().position(|(r, _)| r.piece == index && r.begin == begin) {
+        if let Some(i) = self
+            .pending
+            .iter()
+            .position(|(r, _)| r.piece == index && r.begin == begin)
+        {
             self.pending.swap_remove(i);
         }
         self.last_piece = Instant::now();
@@ -386,7 +453,10 @@ impl Conn {
             self.snubbed = false;
             self.with_peer(|p| p.snubbed = false);
         }
-        self.t.ctx.session_down.fetch_add(len as u64, Ordering::Relaxed);
+        self.t
+            .ctx
+            .session_down
+            .fetch_add(len as u64, Ordering::Relaxed);
 
         let complete = {
             let mut st = self.t.st.lock();
@@ -401,7 +471,11 @@ impl Conn {
                 None => OnBlock::Rejected,
             };
             let cancel_peers = |ks: &[PeerKey]| {
-                let r = BlockReq { piece: index, begin, len: len as u32 };
+                let r = BlockReq {
+                    piece: index,
+                    begin,
+                    len: len as u32,
+                };
                 for k in ks {
                     if let Some(p) = st.peers.get(k) {
                         let _ = p.tx.send(PeerCmd::Cancel(r));
@@ -413,7 +487,12 @@ impl Conn {
                     cancel_peers(&cancel);
                     None
                 }
-                OnBlock::Complete { piece, data, contributors, cancel } => {
+                OnBlock::Complete {
+                    piece,
+                    data,
+                    contributors,
+                    cancel,
+                } => {
                     cancel_peers(&cancel);
                     Some((piece, data, contributors))
                 }
@@ -440,10 +519,11 @@ impl Conn {
                 {
                     let mut st = self.t.st.lock();
                     let need_meta = st.meta.is_none();
-                    if need_meta && st.metadata.is_none() {
-                        if let (Some(size), Some(_)) = (hs.metadata_size, self.ext_metadata) {
-                            st.metadata = Some(super::MetadataAssembly::new(size));
-                        }
+                    if need_meta
+                        && st.metadata.is_none()
+                        && let (Some(size), Some(_)) = (hs.metadata_size, self.ext_metadata)
+                    {
+                        st.metadata = Some(super::MetadataAssembly::new(size));
                     }
                     if let Some(p) = st.peers.get_mut(&self.key) {
                         p.ext_pex = hs.m.get("ut_pex").copied();
@@ -466,7 +546,9 @@ impl Conn {
                                 (start < raw.len()).then(|| MetadataMsg::Data {
                                     piece,
                                     total_size: raw.len(),
-                                    data: Bytes::copy_from_slice(&raw[start..(start + METADATA_PIECE).min(raw.len())]),
+                                    data: Bytes::copy_from_slice(
+                                        &raw[start..(start + METADATA_PIECE).min(raw.len())],
+                                    ),
                                 })
                             }
                             None => None,
@@ -474,12 +556,22 @@ impl Conn {
                     }
                     .unwrap_or(MetadataMsg::Reject { piece });
                     if let Some(their) = self.ext_metadata {
-                        self.send(PeerMessage::Extended { extended_id: their, payload: reply.encode() }).await?;
+                        self.send(PeerMessage::Extended {
+                            extended_id: their,
+                            payload: reply.encode(),
+                        })
+                        .await?;
                     }
                 }
                 MetadataMsg::Data { piece, data, .. } => {
                     self.metadata_req = None;
-                    let done = self.t.st.lock().metadata.as_mut().and_then(|m| m.on_data(piece, data));
+                    let done = self
+                        .t
+                        .st
+                        .lock()
+                        .metadata
+                        .as_mut()
+                        .and_then(|m| m.on_data(piece, data));
                     match done {
                         Some(raw) => self.t.send(Cmd::MetadataDone(raw)),
                         None => self.request_metadata().await?,
@@ -497,9 +589,16 @@ impl Conn {
                 let pex = PexMsg::decode(&payload)?;
                 let allowed = self.t.ctx.settings.read().enable_pex;
                 if allowed {
-                    let private = self.t.st.lock().meta.as_ref().is_some_and(|m| m.info.private);
+                    let private = self
+                        .t
+                        .st
+                        .lock()
+                        .meta
+                        .as_ref()
+                        .is_some_and(|m| m.info.private);
                     if !private && !pex.added.is_empty() {
-                        self.t.send(Cmd::AddPeers(pex.added, super::PeerSource::Pex));
+                        self.t
+                            .send(Cmd::AddPeers(pex.added, super::PeerSource::Pex));
                     }
                 }
             }
@@ -509,7 +608,9 @@ impl Conn {
     }
 
     async fn request_metadata(&mut self) -> Result<()> {
-        let Some(their) = self.ext_metadata else { return Ok(()) };
+        let Some(their) = self.ext_metadata else {
+            return Ok(());
+        };
         if self.metadata_req.is_some() || self.metadata_rejects >= 3 {
             return Ok(());
         }
@@ -522,8 +623,11 @@ impl Conn {
         };
         if let Some(piece) = piece {
             self.metadata_req = Some((piece, Instant::now()));
-            self.send(PeerMessage::Extended { extended_id: their, payload: MetadataMsg::Request { piece }.encode() })
-                .await?;
+            self.send(PeerMessage::Extended {
+                extended_id: their,
+                payload: MetadataMsg::Request { piece }.encode(),
+            })
+            .await?;
         }
         Ok(())
     }
@@ -533,7 +637,12 @@ impl Conn {
     async fn set_interested(&mut self, on: bool) -> Result<()> {
         self.am_interested = on;
         self.with_peer(|p| p.am_interested = on);
-        self.send(if on { PeerMessage::Interested } else { PeerMessage::NotInterested }).await
+        self.send(if on {
+            PeerMessage::Interested
+        } else {
+            PeerMessage::NotInterested
+        })
+        .await
     }
 
     async fn update_interest(&mut self) -> Result<()> {
@@ -565,8 +674,17 @@ impl Conn {
         if self.snubbed {
             return 1;
         }
-        let rate = self.t.st.lock().peers.get(&self.key).map(|p| p.down.rate()).unwrap_or(0);
-        ((rate as usize * 3) / BLOCK_SIZE as usize).clamp(MIN_DEPTH, MAX_DEPTH).min(self.reqq.max(1))
+        let rate = self
+            .t
+            .st
+            .lock()
+            .peers
+            .get(&self.key)
+            .map(|p| p.down.rate())
+            .unwrap_or(0);
+        ((rate as usize * 3) / BLOCK_SIZE as usize)
+            .clamp(MIN_DEPTH, MAX_DEPTH)
+            .min(self.reqq.max(1))
     }
 
     async fn fill_requests(&mut self) -> Result<()> {
@@ -590,13 +708,22 @@ impl Conn {
             }
         }
         if reqs.is_empty() && self.pending.is_empty() {
-            // Nothing this peer can give us right now.
-            return self.update_interest().await;
+            // Nothing this peer can give us right now; re-evaluate interest at most once a second.
+            if self.last_idle_check.elapsed() >= Duration::from_secs(1) {
+                self.last_idle_check = Instant::now();
+                return self.update_interest().await;
+            }
+            return Ok(());
         }
         let now = Instant::now();
         for r in reqs {
             self.pending.push((r, now));
-            self.send(PeerMessage::Request { index: r.piece, begin: r.begin, length: r.len }).await?;
+            self.send(PeerMessage::Request {
+                index: r.piece,
+                begin: r.begin,
+                length: r.len,
+            })
+            .await?;
         }
         Ok(())
     }
@@ -612,7 +739,8 @@ impl Conn {
             .map(|(r, _)| *r)
             .collect();
         if !expired.is_empty() {
-            self.pending.retain(|(_, at)| now.duration_since(*at) <= REQUEST_TIMEOUT);
+            self.pending
+                .retain(|(_, at)| now.duration_since(*at) <= REQUEST_TIMEOUT);
             if let Some(pk) = self.t.st.lock().picker.as_mut() {
                 for r in &expired {
                     pk.release(self.key, r);
@@ -624,23 +752,31 @@ impl Conn {
             self.with_peer(|p| p.snubbed = true);
             self.release_all();
         }
-        if let Some((_, at)) = self.metadata_req {
-            if at.elapsed() > Duration::from_secs(20) {
-                self.metadata_req = None;
-                self.metadata_rejects += 1;
-            }
+        if let Some((_, at)) = self.metadata_req
+            && at.elapsed() > Duration::from_secs(20)
+        {
+            self.metadata_req = None;
+            self.metadata_rejects += 1;
         }
         self.request_metadata().await?;
 
         // A seed connected to a seed has nothing to do.
         let st = self.t.st.lock();
         let we_done = st.picker.as_ref().is_some_and(|p| p.is_complete());
-        let they_done = st.peers.get(&self.key).is_some_and(|p| !p.bitfield.is_empty() && p.bitfield.all());
+        let they_done = st
+            .peers
+            .get(&self.key)
+            .is_some_and(|p| !p.bitfield.is_empty() && p.bitfield.all());
         Ok(we_done && they_done)
     }
 }
 
-async fn uploader(t: Arc<Torrent>, key: PeerKey, uploads: Arc<UploadQueue>, out: mpsc::Sender<PeerMessage>) {
+async fn uploader(
+    t: Arc<Torrent>,
+    key: PeerKey,
+    uploads: Arc<UploadQueue>,
+    out: mpsc::Sender<PeerMessage>,
+) {
     loop {
         let next = uploads.q.lock().pop_front();
         let Some(r) = next else {
@@ -651,9 +787,10 @@ async fn uploader(t: Arc<Torrent>, key: PeerKey, uploads: Arc<UploadQueue>, out:
             let st = t.st.lock();
             let choking = st.peers.get(&key).is_none_or(|p| p.am_choking);
             match (&st.storage, &st.meta) {
-                (Some(s), Some(m)) if !choking => {
-                    (s.clone(), m.info.piece_length as u64 * r.piece as u64 + r.begin as u64)
-                }
+                (Some(s), Some(m)) if !choking => (
+                    s.clone(),
+                    m.info.piece_length as u64 * r.piece as u64 + r.begin as u64,
+                ),
                 _ => continue,
             }
         };
@@ -666,7 +803,15 @@ async fn uploader(t: Arc<Torrent>, key: PeerKey, uploads: Arc<UploadQueue>, out:
         };
         t.ctx.up.acquire(data.len()).await;
         let n = data.len() as u64;
-        if out.send(PeerMessage::Piece { index: r.piece, begin: r.begin, block: Bytes::from(data) }).await.is_err() {
+        if out
+            .send(PeerMessage::Piece {
+                index: r.piece,
+                begin: r.begin,
+                block: Bytes::from(data),
+            })
+            .await
+            .is_err()
+        {
             return;
         }
         t.ctx.session_up.fetch_add(n, Ordering::Relaxed);

@@ -8,11 +8,19 @@ pub struct Bitfield {
 
 impl Bitfield {
     pub fn new(len: usize) -> Self {
-        Self { bytes: vec![0; len.div_ceil(8)], len, ones: 0 }
+        Self {
+            bytes: vec![0; len.div_ceil(8)],
+            len,
+            ones: 0,
+        }
     }
 
     pub fn full(len: usize) -> Self {
-        let mut b = Self { bytes: vec![0xff; len.div_ceil(8)], len, ones: len };
+        let mut b = Self {
+            bytes: vec![0xff; len.div_ceil(8)],
+            len,
+            ones: len,
+        };
         b.clear_spare();
         b
     }
@@ -21,7 +29,11 @@ impl Bitfield {
     pub fn from_bytes(bytes: &[u8], len: usize) -> Self {
         let mut v = bytes.to_vec();
         v.resize(len.div_ceil(8), 0);
-        let mut b = Self { bytes: v, len, ones: 0 };
+        let mut b = Self {
+            bytes: v,
+            len,
+            ones: 0,
+        };
         b.clear_spare();
         b.recount();
         b
@@ -29,17 +41,21 @@ impl Bitfield {
 
     /// Build when the piece count is not yet known (magnet links before metadata).
     pub fn from_bytes_unsized(bytes: &[u8]) -> Self {
-        let mut b = Self { bytes: bytes.to_vec(), len: bytes.len() * 8, ones: 0 };
+        let mut b = Self {
+            bytes: bytes.to_vec(),
+            len: bytes.len() * 8,
+            ones: 0,
+        };
         b.recount();
         b
     }
 
     fn clear_spare(&mut self) {
         let spare = self.bytes.len() * 8 - self.len;
-        if spare > 0 {
-            if let Some(last) = self.bytes.last_mut() {
-                *last &= 0xffu8 << spare;
-            }
+        if spare > 0
+            && let Some(last) = self.bytes.last_mut()
+        {
+            *last &= 0xffu8 << spare;
         }
     }
 

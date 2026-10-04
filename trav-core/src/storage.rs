@@ -45,15 +45,26 @@ impl Storage {
                 let path = if info.multi_file {
                     path_safety::jail_join(
                         save_path,
-                        std::iter::once(info.name.as_str()).chain(f.path.iter().map(String::as_str)),
+                        std::iter::once(info.name.as_str())
+                            .chain(f.path.iter().map(String::as_str)),
                     )?
                 } else {
                     content_root.clone()
                 };
-                Ok(StorageFile { path, offset: f.offset, length: f.length, pad: f.pad })
+                Ok(StorageFile {
+                    path,
+                    offset: f.offset,
+                    length: f.length,
+                    pad: f.pad,
+                })
             })
             .collect::<Result<Vec<_>>>()?;
-        Ok(Self { content_root, files, total_length: info.total_length, handles: Mutex::new(HashMap::new()) })
+        Ok(Self {
+            content_root,
+            files,
+            total_length: info.total_length,
+            handles: Mutex::new(HashMap::new()),
+        })
     }
 
     pub fn content_root(&self) -> &Path {
@@ -69,10 +80,16 @@ impl Storage {
         self.files.iter().any(|f| !f.pad && f.path.exists())
     }
 
-    fn overlapping(&self, offset: u64, len: usize) -> impl Iterator<Item = (usize, &StorageFile, u64, usize, usize)> {
+    fn overlapping(
+        &self,
+        offset: u64,
+        len: usize,
+    ) -> impl Iterator<Item = (usize, &StorageFile, u64, usize, usize)> {
         let end = offset + len as u64;
         // Files are sorted by offset; binary search for the first overlap.
-        let first = self.files.partition_point(|f| f.offset + f.length <= offset);
+        let first = self
+            .files
+            .partition_point(|f| f.offset + f.length <= offset);
         self.files[first..]
             .iter()
             .enumerate()
@@ -81,7 +98,13 @@ impl Storage {
             .map(move |(i, f)| {
                 let s = offset.max(f.offset);
                 let e = end.min(f.offset + f.length);
-                (first + i, f, s - f.offset, (s - offset) as usize, (e - offset) as usize)
+                (
+                    first + i,
+                    f,
+                    s - f.offset,
+                    (s - offset) as usize,
+                    (e - offset) as usize,
+                )
             })
     }
 
@@ -94,7 +117,12 @@ impl Storage {
             if let Some(parent) = f.path.parent() {
                 std::fs::create_dir_all(parent)?;
             }
-            let file = OpenOptions::new().read(true).write(true).create(true).truncate(false).open(&f.path)?;
+            let file = OpenOptions::new()
+                .read(true)
+                .write(true)
+                .create(true)
+                .truncate(false)
+                .open(&f.path)?;
             // Sparse-allocate to the final size so later reads past EOF behave.
             if file.metadata()?.len() < f.length {
                 file.set_len(f.length)?;
@@ -128,7 +156,10 @@ impl Storage {
 
     pub fn read(&self, offset: u64, len: usize) -> io::Result<Vec<u8>> {
         if offset + len as u64 > self.total_length {
-            return Err(io::Error::new(io::ErrorKind::InvalidInput, "read past end of torrent"));
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "read past end of torrent",
+            ));
         }
         let mut buf = vec![0u8; len];
         for (idx, f, file_off, a, b) in self.overlapping(offset, len) {
@@ -149,13 +180,31 @@ impl Storage {
         }
     }
 
+    /// True when every file holding a verified piece still exists at full size.
+    /// Cheap metadata check used to decide whether resume data can be trusted.
+    pub fn consistent_with(&self, have: &crate::bitfield::Bitfield, piece_length: u32) -> bool {
+        self.files
+            .iter()
+            .filter(|f| !f.pad && f.length > 0)
+            .all(|f| {
+                let first = (f.offset / piece_length as u64) as usize;
+                let last = ((f.offset + f.length - 1) / piece_length as u64) as usize;
+                let needed = (first..=last).any(|i| have.get(i));
+                !needed || std::fs::metadata(&f.path).is_ok_and(|m| m.len() >= f.length)
+            })
+    }
+
     /// Zero-length files never receive a write; materialise them explicitly.
     pub fn create_empty_files(&self) {
         for f in self.files.iter().filter(|f| f.length == 0 && !f.pad) {
             if let Some(parent) = f.path.parent() {
                 let _ = std::fs::create_dir_all(parent);
             }
-            let _ = OpenOptions::new().write(true).create(true).truncate(false).open(&f.path);
+            let _ = OpenOptions::new()
+                .write(true)
+                .create(true)
+                .truncate(false)
+                .open(&f.path);
         }
     }
 
@@ -196,7 +245,9 @@ impl Storage {
 }
 
 fn remove_empty_dirs(dir: &Path) -> bool {
-    let Ok(rd) = std::fs::read_dir(dir) else { return false };
+    let Ok(rd) = std::fs::read_dir(dir) else {
+        return false;
+    };
     let mut empty = true;
     for e in rd.flatten() {
         let p = e.path();
@@ -259,13 +310,27 @@ mod tests {
         let files: Vec<FileEntry> = files
             .iter()
             .map(|(n, l)| {
-                let f = FileEntry { path: vec![n.to_string()], length: *l, offset: off, pad: false };
+                let f = FileEntry {
+                    path: vec![n.to_string()],
+                    length: *l,
+                    offset: off,
+                    pad: false,
+                };
                 off += l;
                 f
             })
             .collect();
         let pieces = vec![[0u8; 20]; off.div_ceil(4) as usize];
-        Info { name: "t".into(), piece_length: 4, pieces, files, multi_file: true, total_length: off, private: false, raw: vec![] }
+        Info {
+            name: "t".into(),
+            piece_length: 4,
+            pieces,
+            files,
+            multi_file: true,
+            total_length: off,
+            private: false,
+            raw: vec![],
+        }
     }
 
     #[test]

@@ -38,7 +38,10 @@ pub fn identify(peer_id: &[u8; 20]) -> String {
         return format!("{name} {}", version(ver));
     }
     if peer_id[0] == b'M' && peer_id[2] == b'-' {
-        return format!("BitTorrent Mainline {}", sanitize(&peer_id[1..6]).replace('-', "."));
+        return format!(
+            "BitTorrent Mainline {}",
+            sanitize(&peer_id[1..6]).replace('-', ".")
+        );
     }
     if &peer_id[..4] == b"exbc" {
         return "BitComet".into();
@@ -65,7 +68,9 @@ fn version(v: &[u8]) -> String {
 }
 
 fn sanitize(b: &[u8]) -> String {
-    b.iter().map(|&c| if c.is_ascii_graphic() { c as char } else { '?' }).collect()
+    b.iter()
+        .map(|&c| if c.is_ascii_graphic() { c as char } else { '?' })
+        .collect()
 }
 
 #[cfg(test)]

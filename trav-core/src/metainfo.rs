@@ -62,13 +62,16 @@ impl Info {
             .filter(|n| !n.trim().is_empty())
             .unwrap_or_else(|| "untitled".to_string());
 
-        let piece_length = v
-            .get("piece length")
-            .and_then(Value::as_int)
-            .filter(|&p| p > 0 && (p as u64) <= MAX_PIECE_LENGTH)
-            .ok_or_else(|| bad("missing or invalid piece length"))? as u32;
+        let piece_length =
+            v.get("piece length")
+                .and_then(Value::as_int)
+                .filter(|&p| p > 0 && (p as u64) <= MAX_PIECE_LENGTH)
+                .ok_or_else(|| bad("missing or invalid piece length"))? as u32;
 
-        let pieces_raw = v.get("pieces").and_then(Value::as_bytes).ok_or_else(|| bad("missing pieces"))?;
+        let pieces_raw = v
+            .get("pieces")
+            .and_then(Value::as_bytes)
+            .ok_or_else(|| bad("missing pieces"))?;
         if pieces_raw.is_empty() || pieces_raw.len() % 20 != 0 {
             return Err(bad("pieces length is not a multiple of 20"));
         }
@@ -92,7 +95,8 @@ impl Info {
                     .get("length")
                     .and_then(Value::as_int)
                     .filter(|&l| l >= 0)
-                    .ok_or_else(|| bad("file without valid length"))? as u64;
+                    .ok_or_else(|| bad("file without valid length"))?
+                    as u64;
                 let path: Vec<String> = f
                     .get("path.utf-8")
                     .or_else(|| f.get("path"))
@@ -109,8 +113,15 @@ impl Info {
                     .get("attr")
                     .and_then(Value::as_bytes)
                     .is_some_and(|a| a.contains(&b'p'));
-                files.push(FileEntry { path, length, offset, pad });
-                offset = offset.checked_add(length).ok_or_else(|| bad("total length overflow"))?;
+                files.push(FileEntry {
+                    path,
+                    length,
+                    offset,
+                    pad,
+                });
+                offset = offset
+                    .checked_add(length)
+                    .ok_or_else(|| bad("total length overflow"))?;
             }
         } else {
             multi_file = false;
@@ -119,7 +130,12 @@ impl Info {
                 .and_then(Value::as_int)
                 .filter(|&l| l > 0)
                 .ok_or_else(|| bad("missing length"))? as u64;
-            files.push(FileEntry { path: vec![name.clone()], length, offset: 0, pad: false });
+            files.push(FileEntry {
+                path: vec![name.clone()],
+                length,
+                offset: 0,
+                pad: false,
+            });
             offset = length;
         }
 
@@ -136,7 +152,16 @@ impl Info {
             )));
         }
 
-        Ok(Self { name, piece_length, pieces, files, multi_file, total_length, private, raw })
+        Ok(Self {
+            name,
+            piece_length,
+            pieces,
+            files,
+            multi_file,
+            total_length,
+            private,
+            raw,
+        })
     }
 
     pub fn info_hash(&self) -> InfoHash {
@@ -184,7 +209,9 @@ impl Metainfo {
     pub fn from_bytes(data: &[u8]) -> Result<Self> {
         let root = bencode::decode(data)?;
         let info_raw = bencode::raw_value_span(data, b"info")?;
-        let info_val = root.get("info").ok_or_else(|| Error::Metainfo("missing info".into()))?;
+        let info_val = root
+            .get("info")
+            .ok_or_else(|| Error::Metainfo("missing info".into()))?;
         let info = Info::from_value(info_val, info_raw.to_vec())?;
         let info_hash = info.info_hash();
 
@@ -195,14 +222,18 @@ impl Metainfo {
                 tiers
                     .iter()
                     .filter_map(Value::as_list)
-                    .map(|tier| tier.iter().filter_map(Value::as_string_lossy).collect::<Vec<_>>())
+                    .map(|tier| {
+                        tier.iter()
+                            .filter_map(Value::as_string_lossy)
+                            .collect::<Vec<_>>()
+                    })
                     .collect()
             })
             .unwrap_or_default();
-        if let Some(a) = root.get("announce").and_then(Value::as_string_lossy) {
-            if !trackers.iter().flatten().any(|t| t == &a) {
-                trackers.insert(0, vec![a]);
-            }
+        if let Some(a) = root.get("announce").and_then(Value::as_string_lossy)
+            && !trackers.iter().flatten().any(|t| t == &a)
+        {
+            trackers.insert(0, vec![a]);
         }
 
         Ok(Self {
@@ -237,7 +268,13 @@ impl Metainfo {
             let tiers = self
                 .trackers
                 .iter()
-                .map(|t| Value::List(t.iter().map(|u| Value::Bytes(u.as_bytes().to_vec())).collect()))
+                .map(|t| {
+                    Value::List(
+                        t.iter()
+                            .map(|u| Value::Bytes(u.as_bytes().to_vec()))
+                            .collect(),
+                    )
+                })
                 .collect();
             d = d.value("announce-list", Value::List(tiers));
         }
@@ -251,7 +288,9 @@ impl Metainfo {
             d = d.int("creation date", c);
         }
         // Encode with a placeholder then splice the raw info dict in sorted position.
-        let Value::Dict(mut map) = d.build() else { unreachable!() };
+        let Value::Dict(mut map) = d.build() else {
+            unreachable!()
+        };
         map.insert(b"info".to_vec(), Value::Bytes(Vec::new()));
         let mut out = vec![b'd'];
         for (k, v) in &map {
@@ -280,7 +319,9 @@ pub fn normalize_tiers(tiers: Vec<Vec<String>>) -> Vec<Vec<String>> {
             tier.into_iter()
                 .map(|u| u.trim().to_string())
                 .filter(|u| {
-                    (u.starts_with("http://") || u.starts_with("https://") || u.starts_with("udp://"))
+                    (u.starts_with("http://")
+                        || u.starts_with("https://")
+                        || u.starts_with("udp://"))
                         && seen.insert(u.clone())
                 })
                 .collect::<Vec<_>>()
@@ -367,7 +408,14 @@ pub fn create_torrent(
             .map(|(rel, _, len)| {
                 DictBuilder::new()
                     .int("length", *len as i64)
-                    .value("path", Value::List(rel.iter().map(|c| Value::Bytes(c.as_bytes().to_vec())).collect()))
+                    .value(
+                        "path",
+                        Value::List(
+                            rel.iter()
+                                .map(|c| Value::Bytes(c.as_bytes().to_vec()))
+                                .collect(),
+                        ),
+                    )
                     .build()
             })
             .collect();
@@ -386,7 +434,12 @@ pub fn create_torrent(
         top = top.bytes("announce", first.as_bytes());
         top = top.value(
             "announce-list",
-            Value::List(trackers.iter().map(|t| Value::List(vec![Value::Bytes(t.as_bytes().to_vec())])).collect()),
+            Value::List(
+                trackers
+                    .iter()
+                    .map(|t| Value::List(vec![Value::Bytes(t.as_bytes().to_vec())]))
+                    .collect(),
+            ),
         );
     }
     Ok(top.build().encode())
@@ -417,7 +470,10 @@ mod tests {
         assert_eq!(m.info.name, "hello.txt");
         assert_eq!(m.info.num_pieces(), 3);
         assert_eq!(m.info.piece_size(2), 2);
-        assert_eq!(m.trackers, vec![vec!["udp://tracker.example:80".to_string()]]);
+        assert_eq!(
+            m.trackers,
+            vec![vec!["udp://tracker.example:80".to_string()]]
+        );
         let again = Metainfo::from_bytes(&m.to_torrent_bytes()).unwrap();
         assert_eq!(again.info_hash, m.info_hash);
     }

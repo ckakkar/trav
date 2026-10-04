@@ -7,8 +7,8 @@
 
 use std::collections::{BTreeMap, HashMap};
 use std::net::{SocketAddr, SocketAddrV4};
-use std::sync::atomic::{AtomicU16, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU16, Ordering};
 use std::time::{Duration, Instant};
 
 use futures::stream::{FuturesUnordered, StreamExt};
@@ -62,13 +62,19 @@ fn distance(a: &NodeId, b: &NodeId) -> NodeId {
 
 fn bucket_index(own: &NodeId, id: &NodeId) -> Option<usize> {
     let d = distance(own, id);
-    let lz = d.iter().position(|&b| b != 0).map(|i| i * 8 + d[i].leading_zeros() as usize)?;
+    let lz = d
+        .iter()
+        .position(|&b| b != 0)
+        .map(|i| i * 8 + d[i].leading_zeros() as usize)?;
     Some(lz.min(159))
 }
 
 impl Table {
     fn new(own: NodeId) -> Self {
-        Self { own, buckets: vec![Vec::new(); 160] }
+        Self {
+            own,
+            buckets: vec![Vec::new(); 160],
+        }
     }
 
     fn len(&self) -> usize {
@@ -79,7 +85,9 @@ impl Table {
         if addr.port() == 0 || addr.ip().is_unspecified() {
             return;
         }
-        let Some(bi) = bucket_index(&self.own, &id) else { return };
+        let Some(bi) = bucket_index(&self.own, &id) else {
+            return;
+        };
         let bucket = &mut self.buckets[bi];
         if let Some(n) = bucket.iter_mut().find(|n| n.id == id) {
             n.addr = addr;
@@ -87,10 +95,18 @@ impl Table {
             n.fails = 0;
             return;
         }
-        let node = Node { id, addr, last_seen: Instant::now(), fails: 0 };
+        let node = Node {
+            id,
+            addr,
+            last_seen: Instant::now(),
+            fails: 0,
+        };
         if bucket.len() < K {
             bucket.push(node);
-        } else if let Some(slot) = bucket.iter_mut().find(|n| n.fails >= 2 || n.last_seen.elapsed() > STALE) {
+        } else if let Some(slot) = bucket
+            .iter_mut()
+            .find(|n| n.fails >= 2 || n.last_seen.elapsed() > STALE)
+        {
             *slot = node;
         }
     }
@@ -108,13 +124,23 @@ impl Table {
     }
 
     fn closest(&self, target: &NodeId, n: usize) -> Vec<Node> {
-        let mut all: Vec<&Node> = self.buckets.iter().flatten().filter(|n| n.fails < 2).collect();
+        let mut all: Vec<&Node> = self
+            .buckets
+            .iter()
+            .flatten()
+            .filter(|n| n.fails < 2)
+            .collect();
         all.sort_by_key(|node| distance(&node.id, target));
         all.into_iter().take(n).cloned().collect()
     }
 
     fn all_addrs(&self) -> Vec<SocketAddrV4> {
-        self.buckets.iter().flatten().filter(|n| n.fails == 0).map(|n| n.addr).collect()
+        self.buckets
+            .iter()
+            .flatten()
+            .filter(|n| n.fails == 0)
+            .map(|n| n.addr)
+            .collect()
     }
 }
 
@@ -138,7 +164,9 @@ fn decode_nodes(b: &[u8]) -> impl Iterator<Item = (NodeId, SocketAddrV4)> + '_ {
 }
 
 fn id_of(v: &Value) -> Option<NodeId> {
-    v.get("id").and_then(Value::as_bytes).and_then(|b| b.try_into().ok())
+    v.get("id")
+        .and_then(Value::as_bytes)
+        .and_then(|b| b.try_into().ok())
 }
 
 struct Inner {
@@ -162,6 +190,9 @@ struct LookupResult {
     /// Closest responsive nodes with their announce tokens.
     closest: Vec<(SocketAddrV4, Vec<u8>)>,
 }
+
+/// Lookup candidate: (node id, address, state, announce token).
+type Cand = (NodeId, SocketAddrV4, CandState, Option<Vec<u8>>);
 
 #[derive(PartialEq, Eq, Clone, Copy)]
 enum CandState {
@@ -224,7 +255,7 @@ impl Dht {
                     info!("DHT bootstrapped: {} nodes", dht.node_count());
                 }
                 rounds += 1;
-                if rounds % 5 == 0 {
+                if rounds.is_multiple_of(5) {
                     let mut s = dht.inner.secrets.lock();
                     s.1 = s.0;
                     s.0 = rand::random();
@@ -240,7 +271,11 @@ impl Dht {
     }
 
     pub fn port(&self) -> u16 {
-        self.inner.socket.local_addr().map(|a| a.port()).unwrap_or(0)
+        self.inner
+            .socket
+            .local_addr()
+            .map(|a| a.port())
+            .unwrap_or(0)
     }
 
     pub fn node_count(&self) -> usize {
@@ -248,13 +283,21 @@ impl Dht {
     }
 
     pub fn known_nodes(&self) -> Vec<SocketAddr> {
-        self.inner.table.lock().all_addrs().into_iter().map(SocketAddr::V4).collect()
+        self.inner
+            .table
+            .lock()
+            .all_addrs()
+            .into_iter()
+            .map(SocketAddr::V4)
+            .collect()
     }
 
     /// Seed the routing table from a peer's BEP 5 `port` message.
     pub async fn ping(&self, addr: SocketAddr) {
         let SocketAddr::V4(a) = addr else { return };
-        let args = DictBuilder::new().bytes("id", self.inner.id.to_vec()).build();
+        let args = DictBuilder::new()
+            .bytes("id", self.inner.id.to_vec())
+            .build();
         let _ = self.query(a, "ping", args).await;
     }
 
@@ -267,7 +310,9 @@ impl Dht {
             })
             .collect();
         for host in BOOTSTRAP {
-            if let Ok(Ok(addrs)) = tokio::time::timeout(Duration::from_secs(5), tokio::net::lookup_host(*host)).await {
+            if let Ok(Ok(addrs)) =
+                tokio::time::timeout(Duration::from_secs(5), tokio::net::lookup_host(*host)).await
+            {
                 targets.extend(addrs.filter_map(|a| match a {
                     SocketAddr::V4(a) => Some(a),
                     _ => None,
@@ -281,7 +326,10 @@ impl Dht {
             .map(|addr| {
                 let me = self.clone();
                 async move {
-                    let args = DictBuilder::new().bytes("id", own.to_vec()).bytes("target", own.to_vec()).build();
+                    let args = DictBuilder::new()
+                        .bytes("id", own.to_vec())
+                        .bytes("target", own.to_vec())
+                        .build();
                     me.query(addr, "find_node", args).await
                 }
             })
@@ -291,7 +339,11 @@ impl Dht {
     }
 
     /// Find peers for `info_hash`; when `announce_port` is set, also announce ourselves.
-    pub async fn get_peers(&self, info_hash: NodeId, announce_port: Option<u16>) -> Vec<SocketAddr> {
+    pub async fn get_peers(
+        &self,
+        info_hash: NodeId,
+        announce_port: Option<u16>,
+    ) -> Vec<SocketAddr> {
         if self.node_count() == 0 {
             self.bootstrap(Vec::new()).await;
         }
@@ -319,9 +371,12 @@ impl Dht {
 
     async fn lookup(&self, target: NodeId, get_peers: bool) -> LookupResult {
         let started = Instant::now();
-        let mut cands: BTreeMap<NodeId, (NodeId, SocketAddrV4, CandState, Option<Vec<u8>>)> = BTreeMap::new();
+        let mut cands: BTreeMap<NodeId, Cand> = BTreeMap::new();
         for n in self.inner.table.lock().closest(&target, K * 2) {
-            cands.insert(distance(&n.id, &target), (n.id, n.addr, CandState::New, None));
+            cands.insert(
+                distance(&n.id, &target),
+                (n.id, n.addr, CandState::New, None),
+            );
         }
         let mut result = LookupResult::default();
         let mut seen_peers = std::collections::HashSet::new();
@@ -356,7 +411,9 @@ impl Dht {
             if inflight.is_empty() || started.elapsed() > LOOKUP_DEADLINE {
                 break;
             }
-            let Some((dist, resp)) = inflight.next().await else { break };
+            let Some((dist, resp)) = inflight.next().await else {
+                break;
+            };
             match resp {
                 Ok(r) => {
                     if let Some(c) = cands.get_mut(&dist) {
@@ -377,7 +434,12 @@ impl Dht {
                             if id == self.inner.id {
                                 continue;
                             }
-                            cands.entry(distance(&id, &target)).or_insert((id, addr, CandState::New, None));
+                            cands.entry(distance(&id, &target)).or_insert((
+                                id,
+                                addr,
+                                CandState::New,
+                                None,
+                            ));
                         }
                     }
                 }
@@ -434,7 +496,12 @@ impl Dht {
             Err(_) => {
                 // We may not know the id (bootstrap routers); match by address.
                 let mut t = self.inner.table.lock();
-                let id = t.buckets.iter().flatten().find(|n| n.addr == addr).map(|n| n.id);
+                let id = t
+                    .buckets
+                    .iter()
+                    .flatten()
+                    .find(|n| n.addr == addr)
+                    .map(|n| n.id);
                 if let Some(id) = id {
                     t.failed(&id);
                 }
@@ -444,11 +511,17 @@ impl Dht {
     }
 
     async fn on_packet(&self, data: &[u8], from: SocketAddrV4) {
-        let Ok(msg) = bencode::decode(data) else { return };
-        let Some(t) = msg.get("t").and_then(Value::as_bytes) else { return };
+        let Ok(msg) = bencode::decode(data) else {
+            return;
+        };
+        let Some(t) = msg.get("t").and_then(Value::as_bytes) else {
+            return;
+        };
         match msg.get("y").and_then(Value::as_str) {
             Some("r") | Some("e") => {
-                let Ok(tid) = <[u8; 2]>::try_from(t).map(u16::from_be_bytes) else { return };
+                let Ok(tid) = <[u8; 2]>::try_from(t).map(u16::from_be_bytes) else {
+                    return;
+                };
                 if let Some(tx) = self.inner.pending.lock().remove(&tid) {
                     let res = match msg.get("r") {
                         Some(r) => Ok(r.clone()),
@@ -460,7 +533,11 @@ impl Dht {
             Some("q") => {
                 let t = t.to_vec();
                 if let Some(reply) = self.answer(&msg, from) {
-                    let out = DictBuilder::new().value("r", reply).bytes("t", t).bytes("y", "r").build();
+                    let out = DictBuilder::new()
+                        .value("r", reply)
+                        .bytes("t", t)
+                        .bytes("y", "r")
+                        .build();
                     let _ = self.inner.socket.send_to(&out.encode(), from).await;
                 }
             }
@@ -490,12 +567,20 @@ impl Dht {
             "ping" => Some(DictBuilder::new().bytes("id", own).build()),
             "find_node" => {
                 let target: NodeId = a.get("target")?.as_bytes()?.try_into().ok()?;
-                Some(DictBuilder::new().bytes("id", own).bytes("nodes", closest(&target)).build())
+                Some(
+                    DictBuilder::new()
+                        .bytes("id", own)
+                        .bytes("nodes", closest(&target))
+                        .build(),
+                )
             }
             "get_peers" => {
                 let ih: NodeId = a.get("info_hash")?.as_bytes()?.try_into().ok()?;
                 let token = self.token_for(&self.inner.secrets.lock().0, from.ip());
-                let mut d = DictBuilder::new().bytes("id", own).bytes("token", token).bytes("nodes", closest(&ih));
+                let mut d = DictBuilder::new()
+                    .bytes("id", own)
+                    .bytes("token", token)
+                    .bytes("nodes", closest(&ih));
                 if let Some(peers) = self.inner.store.lock().get(&ih) {
                     let vals = peers
                         .iter()
@@ -515,14 +600,18 @@ impl Dht {
                 let ih: NodeId = a.get("info_hash")?.as_bytes()?.try_into().ok()?;
                 let token = a.get("token")?.as_bytes()?;
                 let (cur, prev) = *self.inner.secrets.lock();
-                if token != self.token_for(&cur, from.ip()) && token != self.token_for(&prev, from.ip()) {
+                if token != self.token_for(&cur, from.ip())
+                    && token != self.token_for(&prev, from.ip())
+                {
                     return None;
                 }
                 let implied = a.get("implied_port").and_then(Value::as_int) == Some(1);
                 let port = if implied {
                     from.port()
                 } else {
-                    a.get("port").and_then(Value::as_int).and_then(|p| u16::try_from(p).ok())?
+                    a.get("port")
+                        .and_then(Value::as_int)
+                        .and_then(|p| u16::try_from(p).ok())?
                 };
                 let peer = SocketAddrV4::new(*from.ip(), port);
                 let mut store = self.inner.store.lock();

@@ -12,8 +12,8 @@ mod peer;
 use std::collections::{HashMap, HashSet};
 use std::net::{IpAddr, SocketAddr};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::time::{Duration, Instant};
 
 use base64::Engine as _;
@@ -31,7 +31,9 @@ use crate::message::Event;
 use crate::metainfo::{Info, InfoHash, Metainfo};
 use crate::peer::handshake::{self, Handshake};
 use crate::picker::{BlockReq, PeerKey, Picker};
-use crate::snapshot::{FileInfo, PeerInfo, TorrentDetails, TorrentStatus, TorrentSummary, TrackerInfo};
+use crate::snapshot::{
+    FileInfo, PeerInfo, TorrentDetails, TorrentStatus, TorrentSummary, TrackerInfo,
+};
 use crate::storage::Storage;
 use crate::tracker::{self, AnnounceEvent, AnnounceRequest, AnnounceResponse};
 
@@ -199,6 +201,8 @@ pub(crate) struct State {
     user_paused: bool,
     queued: bool,
     ratio_stopped: bool,
+    /// User resumed a ratio-stopped torrent: keep seeding regardless of the limit.
+    ratio_override: bool,
     peers: HashMap<PeerKey, PeerState>,
     candidates: HashMap<SocketAddr, Candidate>,
     connecting: usize,
@@ -236,12 +240,26 @@ pub(crate) enum Cmd {
     SetFilePriorities(Vec<u8>),
     SetSequential(bool),
     AddPeers(Vec<SocketAddr>, PeerSource),
-    Shutdown { delete_files: bool, done: oneshot::Sender<()> },
+    Shutdown {
+        delete_files: bool,
+        done: oneshot::Sender<()>,
+    },
     ConnectFailed(SocketAddr),
-    Announced { idx: usize, res: Result<AnnounceResponse, String> },
+    Announced {
+        idx: usize,
+        res: Result<AnnounceResponse, String>,
+    },
     DhtDone(Vec<SocketAddr>),
-    CheckDone { have: Bitfield, generation: u64 },
-    PieceDone { piece: u32, ok: bool, contributors: Vec<PeerKey>, write_err: Option<String> },
+    CheckDone {
+        have: Bitfield,
+        generation: u64,
+    },
+    PieceDone {
+        piece: u32,
+        ok: bool,
+        contributors: Vec<PeerKey>,
+        write_err: Option<String>,
+    },
     MetadataDone(Vec<u8>),
 }
 
@@ -297,6 +315,7 @@ impl Torrent {
             user_paused: init.paused,
             queued: false,
             ratio_stopped: false,
+            ratio_override: false,
             peers: HashMap::new(),
             candidates: HashMap::new(),
             connecting: 0,
@@ -324,7 +343,12 @@ impl Torrent {
             queue_pos: init.queue_pos,
             dirty: true,
         };
-        let t = Arc::new(Self { info_hash, ctx, st: Mutex::new(st), tx });
+        let t = Arc::new(Self {
+            info_hash,
+            ctx,
+            st: Mutex::new(st),
+            tx,
+        });
         {
             let mut st = t.st.lock();
             if let Some(meta) = init.meta {
@@ -376,6 +400,9 @@ impl Torrent {
             }
             Cmd::Resume => {
                 st.user_paused = false;
+                if st.ratio_stopped {
+                    st.ratio_override = true;
+                }
                 st.ratio_stopped = false;
                 if matches!(st.phase, Phase::Error(_)) {
                     st.phase = Phase::Paused;
@@ -405,22 +432,22 @@ impl Torrent {
                 st.dht_next = now;
             }
             Cmd::SetFilePriorities(prio) => {
-                if let Some(meta) = st.meta.clone() {
-                    if prio.len() == meta.info.files.len() {
-                        let was_complete = st.picker.as_ref().is_some_and(Picker::wanted_complete);
-                        st.file_priorities = prio;
-                        let piece_prio = piece_priorities(&meta.info, &st.file_priorities);
-                        if let Some(p) = st.picker.as_mut() {
-                            p.set_piece_priorities(piece_prio);
-                        }
-                        st.dirty = true;
-                        if was_complete && !st.picker.as_ref().is_some_and(Picker::wanted_complete) {
-                            st.ratio_stopped = false;
-                            st.completed_at = None;
-                            self.update_phase(&mut st);
-                        }
-                        broadcast(&st, || PeerCmd::Refresh);
+                if let Some(meta) = st.meta.clone()
+                    && prio.len() == meta.info.files.len()
+                {
+                    let was_complete = st.picker.as_ref().is_some_and(Picker::wanted_complete);
+                    st.file_priorities = prio;
+                    let piece_prio = piece_priorities(&meta.info, &st.file_priorities);
+                    if let Some(p) = st.picker.as_mut() {
+                        p.set_piece_priorities(piece_prio);
                     }
+                    st.dirty = true;
+                    if was_complete && !st.picker.as_ref().is_some_and(Picker::wanted_complete) {
+                        st.ratio_stopped = false;
+                        st.completed_at = None;
+                        self.update_phase(&mut st);
+                    }
+                    broadcast(&st, || PeerCmd::Refresh);
                 }
             }
             Cmd::SetSequential(on) => {
@@ -433,6 +460,9 @@ impl Torrent {
             Cmd::AddPeers(addrs, src) => {
                 for a in addrs {
                     add_candidate(&mut st, a, src);
+                }
+                if st.phase.is_active() {
+                    self.connect_more(&mut st);
                 }
             }
             Cmd::ConnectFailed(addr) => {
@@ -450,8 +480,16 @@ impl Torrent {
                 for p in peers {
                     add_candidate(&mut st, p, PeerSource::Dht);
                 }
+                if st.phase.is_active() {
+                    self.connect_more(&mut st);
+                }
                 let few = st.peers.len() < 10;
-                st.dht_next = Instant::now() + if few { Duration::from_secs(120) } else { Duration::from_secs(900) };
+                st.dht_next = Instant::now()
+                    + if few {
+                        Duration::from_secs(120)
+                    } else {
+                        Duration::from_secs(900)
+                    };
                 debug!("{}: DHT returned {n} peers", st.name);
             }
             Cmd::CheckDone { have, generation } => {
@@ -460,16 +498,21 @@ impl Torrent {
                     let meta = st.meta.clone().expect("checking implies metadata");
                     self.install_picker(&mut st, &meta);
                     st.dirty = true;
-                    if st.picker.as_ref().is_some_and(Picker::wanted_complete) && st.completed_at.is_none() {
+                    if st.picker.as_ref().is_some_and(Picker::wanted_complete)
+                        && st.completed_at.is_none()
+                    {
                         st.completed_at = Some(now_unix());
                     }
                     st.phase = Phase::Paused;
                     self.update_phase(&mut st);
                 }
             }
-            Cmd::PieceDone { piece, ok, contributors, write_err } => {
-                self.on_piece_done(&mut st, piece, ok, contributors, write_err)
-            }
+            Cmd::PieceDone {
+                piece,
+                ok,
+                contributors,
+                write_err,
+            } => self.on_piece_done(&mut st, piece, ok, contributors, write_err),
             Cmd::MetadataDone(raw) => self.on_metadata(&mut st, raw),
             Cmd::Shutdown { .. } => unreachable!("handled in run loop"),
         }
@@ -501,17 +544,39 @@ impl Torrent {
             // Metadata present but never checked/installed.
             let meta = st.meta.clone().expect("checked above");
             let storage_has_files = st.storage.as_ref().is_some_and(|s| s.any_file_exists());
+            let consistent = match (st.pending_have.as_ref(), st.storage.as_ref()) {
+                (Some(h), Some(s)) => s.consistent_with(h, meta.info.piece_length),
+                _ => true,
+            };
             match st.pending_have.as_ref() {
                 Some(h) if h.count_ones() > 0 && !storage_has_files => {
                     // Resume data claims pieces but the files are gone.
                     warn!("{}: payload missing on disk, starting over", st.name);
                     st.pending_have = None;
                     self.install_picker(st, &meta);
-                    if st.queued { Phase::Queued } else { Phase::Active }
+                    if st.queued {
+                        Phase::Queued
+                    } else {
+                        Phase::Active
+                    }
+                }
+                Some(_) if !consistent => {
+                    // Some files were moved or truncated behind our back: verify what is left.
+                    warn!("{}: files changed on disk, rechecking", st.name);
+                    st.pending_have = None;
+                    if was_active {
+                        self.enter_inactive(st);
+                    }
+                    self.start_check(st);
+                    return;
                 }
                 Some(_) => {
                     self.install_picker(st, &meta);
-                    if st.queued { Phase::Queued } else { Phase::Active }
+                    if st.queued {
+                        Phase::Queued
+                    } else {
+                        Phase::Active
+                    }
                 }
                 None if storage_has_files => {
                     if was_active {
@@ -522,7 +587,11 @@ impl Torrent {
                 }
                 None => {
                     self.install_picker(st, &meta);
-                    if st.queued { Phase::Queued } else { Phase::Active }
+                    if st.queued {
+                        Phase::Queued
+                    } else {
+                        Phase::Active
+                    }
                 }
             }
         } else {
@@ -560,7 +629,11 @@ impl Torrent {
                 s.close();
             });
         }
-        let left = st.picker.as_ref().map(Picker::wanted_bytes_left).unwrap_or(0);
+        let left = st
+            .picker
+            .as_ref()
+            .map(Picker::wanted_bytes_left)
+            .unwrap_or(0);
         for t in st.trackers.iter_mut().filter(|t| t.started) {
             t.started = false;
             t.status = TrackerStatus::Idle;
@@ -579,13 +652,19 @@ impl Torrent {
             let url = t.url.clone();
             let http = self.ctx.http.clone();
             tokio::spawn(async move {
-                let _ = tokio::time::timeout(Duration::from_secs(5), tracker::announce(&url, &req, &http)).await;
+                let _ = tokio::time::timeout(
+                    Duration::from_secs(5),
+                    tracker::announce(&url, &req, &http),
+                )
+                .await;
             });
         }
     }
 
     fn start_check(self: &Arc<Self>, st: &mut State) {
-        let (Some(meta), Some(storage)) = (st.meta.clone(), st.storage.clone()) else { return };
+        let (Some(meta), Some(storage)) = (st.meta.clone(), st.storage.clone()) else {
+            return;
+        };
         st.phase = Phase::Checking;
         st.check_gen += 1;
         let generation = st.check_gen;
@@ -649,11 +728,18 @@ impl Torrent {
             Ok(info) => {
                 let trackers = st.extra_trackers.clone();
                 let meta = Arc::new(Metainfo::from_info(info, trackers));
-                if let Err(e) = self.ctx.store.save_torrent(&self.info_hash, &meta.to_torrent_bytes()) {
+                if let Err(e) = self
+                    .ctx
+                    .store
+                    .save_torrent(&self.info_hash, &meta.to_torrent_bytes())
+                {
                     warn!("could not persist metadata: {e}");
                 }
                 self.install_metadata(st, meta, true);
-                self.ctx.emit(Event::MetadataReceived { info_hash: hex::encode(self.info_hash), name: st.name.clone() });
+                self.ctx.emit(Event::MetadataReceived {
+                    info_hash: hex::encode(self.info_hash),
+                    name: st.name.clone(),
+                });
                 self.update_phase(st);
             }
             Err(e) => {
@@ -701,7 +787,11 @@ impl Torrent {
     }
 
     fn rebuild_trackers(&self, st: &mut State) {
-        let mut tiers: Vec<Vec<String>> = st.meta.as_ref().map(|m| m.trackers.clone()).unwrap_or_default();
+        let mut tiers: Vec<Vec<String>> = st
+            .meta
+            .as_ref()
+            .map(|m| m.trackers.clone())
+            .unwrap_or_default();
         tiers.extend(st.extra_trackers.iter().cloned());
         let tiers = crate::metainfo::normalize_tiers(tiers);
         let mut fresh = Vec::new();
@@ -710,7 +800,10 @@ impl Torrent {
                 let existing = st.trackers.iter().position(|t| t.url == url);
                 fresh.push(match existing {
                     Some(i) => {
-                        let mut t = std::mem::replace(&mut st.trackers[i], TrackerState::new(String::new(), 0));
+                        let mut t = std::mem::replace(
+                            &mut st.trackers[i],
+                            TrackerState::new(String::new(), 0),
+                        );
                         t.tier = tier;
                         t
                     }
@@ -729,7 +822,13 @@ impl Torrent {
     }
 
     /// Adopt an established connection (either direction).
-    pub(crate) fn attach(self: &Arc<Self>, stream: TcpStream, hs: Handshake, addr: SocketAddr, source: PeerSource) {
+    pub(crate) fn attach(
+        self: &Arc<Self>,
+        stream: TcpStream,
+        hs: Handshake,
+        addr: SocketAddr,
+        source: PeerSource,
+    ) {
         let incoming = source == PeerSource::Incoming;
         let max = self.ctx.settings.read().max_peers_per_torrent;
         let mut st = self.st.lock();
@@ -739,7 +838,10 @@ impl Torrent {
         let reject = !st.phase.is_active()
             || st.peers.len() >= max
             || st.banned.contains(&addr.ip())
-            || st.peers.values().any(|p| p.peer_id == hs.peer_id || (!incoming && p.addr == addr));
+            || st
+                .peers
+                .values()
+                .any(|p| p.peer_id == hs.peer_id || (!incoming && p.addr == addr));
         if let Some(c) = st.candidates.get_mut(&addr) {
             c.connecting = false;
             c.connected = !reject;
@@ -789,7 +891,9 @@ impl Torrent {
 
     fn peer_gone(&self, key: PeerKey) {
         let mut st = self.st.lock();
-        let Some(p) = st.peers.remove(&key) else { return };
+        let Some(p) = st.peers.remove(&key) else {
+            return;
+        };
         self.ctx.connections.fetch_sub(1, Ordering::Relaxed);
         if let Some(pk) = st.picker.as_mut() {
             pk.release_peer(key);
@@ -824,10 +928,12 @@ impl Torrent {
             (s.max_peers_per_torrent, s.max_peers_global)
         };
         let room = per_torrent.saturating_sub(st.peers.len() + st.connecting);
-        let global_room = global.saturating_sub(self.ctx.connections.load(Ordering::Relaxed) + st.connecting);
-        let n = room.min(global_room).min(10).min(
-            self.ctx.half_open.available_permits().max(1),
-        );
+        let global_room =
+            global.saturating_sub(self.ctx.connections.load(Ordering::Relaxed) + st.connecting);
+        let n = room
+            .min(global_room)
+            .min(10)
+            .min(self.ctx.half_open.available_permits().max(1));
         if n == 0 {
             return;
         }
@@ -837,7 +943,11 @@ impl Torrent {
             .candidates
             .iter()
             .filter(|(a, c)| {
-                !c.connected && !c.connecting && c.next_attempt <= now && !(complete && c.seed) && !st.banned.contains(&a.ip())
+                !c.connected
+                    && !c.connecting
+                    && c.next_attempt <= now
+                    && !(complete && c.seed)
+                    && !st.banned.contains(&a.ip())
             })
             .map(|(a, c)| {
                 let rank = match c.source {
@@ -863,7 +973,13 @@ impl Torrent {
                 let _permit = sem.acquire_owned().await;
                 match handshake::connect(addr, &ours).await {
                     Ok((stream, hs)) => {
-                        let src = me.st.lock().candidates.get(&addr).map(|c| c.source).unwrap_or(PeerSource::Tracker);
+                        let src = me
+                            .st
+                            .lock()
+                            .candidates
+                            .get(&addr)
+                            .map(|c| c.source)
+                            .unwrap_or(PeerSource::Tracker);
                         me.attach(stream, hs, addr, src);
                     }
                     Err(e) => {
@@ -878,12 +994,19 @@ impl Torrent {
     // ── Pieces ───────────────────────────────────────────────────────────────
 
     /// Hash and persist a completed piece off the reactor, then report back.
-    pub(crate) fn spawn_verify(self: &Arc<Self>, piece: u32, data: Vec<u8>, contributors: Vec<PeerKey>) {
+    pub(crate) fn spawn_verify(
+        self: &Arc<Self>,
+        piece: u32,
+        data: Vec<u8>,
+        contributors: Vec<PeerKey>,
+    ) {
         let (meta, storage) = {
             let st = self.st.lock();
             (st.meta.clone(), st.storage.clone())
         };
-        let (Some(meta), Some(storage)) = (meta, storage) else { return };
+        let (Some(meta), Some(storage)) = (meta, storage) else {
+            return;
+        };
         let me = self.clone();
         tokio::spawn(async move {
             let expected = meta.info.pieces[piece as usize];
@@ -899,7 +1022,12 @@ impl Torrent {
             })
             .await;
             let (ok, write_err) = res.unwrap_or((false, Some("verification task failed".into())));
-            me.send(Cmd::PieceDone { piece, ok, contributors, write_err });
+            me.send(Cmd::PieceDone {
+                piece,
+                ok,
+                contributors,
+                write_err,
+            });
         });
     }
 
@@ -911,7 +1039,9 @@ impl Torrent {
         contributors: Vec<PeerKey>,
         write_err: Option<String>,
     ) {
-        let Some(picker) = st.picker.as_mut() else { return };
+        let Some(picker) = st.picker.as_mut() else {
+            return;
+        };
         if let Some(err) = write_err {
             picker.verified(piece, false);
             let msg = format!("disk write failed: {err}");
@@ -983,7 +1113,10 @@ impl Torrent {
             }
         }
         broadcast(st, || PeerCmd::Refresh);
-        self.ctx.emit(Event::TorrentCompleted { info_hash: hex::encode(self.info_hash), name: st.name.clone() });
+        self.ctx.emit(Event::TorrentCompleted {
+            info_hash: hex::encode(self.info_hash),
+            name: st.name.clone(),
+        });
     }
 
     // ── Trackers & DHT ───────────────────────────────────────────────────────
@@ -992,7 +1125,11 @@ impl Torrent {
         let now = Instant::now();
         let left = match st.picker.as_ref() {
             Some(p) => p.wanted_bytes_left(),
-            None => st.meta.as_ref().map(|m| m.info.total_length).unwrap_or(1 << 30),
+            None => st
+                .meta
+                .as_ref()
+                .map(|m| m.info.total_length)
+                .unwrap_or(1 << 30),
         };
         let port = self.ctx.listen_port.load(Ordering::Relaxed);
         let want_peers = st.peers.len() < self.ctx.settings.read().max_peers_per_torrent;
@@ -1026,20 +1163,29 @@ impl Torrent {
             let http = self.ctx.http.clone();
             let me = self.clone();
             tokio::spawn(async move {
-                let res = tracker::announce(&url, &req, &http).await.map_err(|e| match e {
-                    crate::error::Error::Tracker(m) => m,
-                    other => other.to_string(),
-                });
+                let res = tracker::announce(&url, &req, &http)
+                    .await
+                    .map_err(|e| match e {
+                        crate::error::Error::Tracker(m) => m,
+                        other => other.to_string(),
+                    });
                 me.send(Cmd::Announced { idx, res });
             });
         }
     }
 
-    fn on_announced(self: &Arc<Self>, st: &mut State, idx: usize, res: Result<AnnounceResponse, String>) {
+    fn on_announced(
+        self: &Arc<Self>,
+        st: &mut State,
+        idx: usize,
+        res: Result<AnnounceResponse, String>,
+    ) {
         let few_peers = st.peers.len() < 15;
         let complete = st.picker.as_ref().is_some_and(Picker::wanted_complete);
         let active = st.phase.is_active();
-        let Some(t) = st.trackers.get_mut(idx) else { return };
+        let Some(t) = st.trackers.get_mut(idx) else {
+            return;
+        };
         let now = Instant::now();
         let mut found = Vec::new();
         match res {
@@ -1054,9 +1200,14 @@ impl Torrent {
                 if r.tracker_id.is_some() {
                     t.tracker_id = r.tracker_id;
                 }
-                let mut wait = r.interval.clamp(Duration::from_secs(60), Duration::from_secs(3 * 3600));
+                let mut wait = r
+                    .interval
+                    .clamp(Duration::from_secs(60), Duration::from_secs(3 * 3600));
                 if few_peers && !complete {
-                    let floor = t.min_interval.unwrap_or(Duration::from_secs(120)).max(Duration::from_secs(120));
+                    let floor = t
+                        .min_interval
+                        .unwrap_or(Duration::from_secs(120))
+                        .max(Duration::from_secs(120));
                     wait = wait.min(floor.max(Duration::from_secs(300)));
                 }
                 t.next = now + wait;
@@ -1076,11 +1227,16 @@ impl Torrent {
         for p in found {
             add_candidate(st, p, PeerSource::Tracker);
         }
+        self.connect_more(st);
     }
 
     fn dht_due(self: &Arc<Self>, st: &mut State) {
         let private = st.meta.as_ref().is_some_and(|m| m.info.private);
-        if private || st.dht_running || Instant::now() < st.dht_next || !self.ctx.settings.read().enable_dht {
+        if private
+            || st.dht_running
+            || Instant::now() < st.dht_next
+            || !self.ctx.settings.read().enable_dht
+        {
             return;
         }
         let Some(dht) = self.ctx.dht() else { return };
@@ -1106,12 +1262,20 @@ impl Torrent {
             .filter(|(_, p)| p.peer_interested)
             .map(|(k, p)| (*k, if seeding { p.up.rate() } else { p.down.rate() }))
             .collect();
-        ranked.sort_by(|a, b| b.1.cmp(&a.1));
-        let regular: HashSet<PeerKey> = ranked.iter().take(slots.saturating_sub(1)).map(|r| r.0).collect();
+        ranked.sort_by_key(|r| std::cmp::Reverse(r.1));
+        let regular: HashSet<PeerKey> = ranked
+            .iter()
+            .take(slots.saturating_sub(1))
+            .map(|r| r.0)
+            .collect();
 
         let mut optimistic = st.peers.iter().find(|(_, p)| p.optimistic).map(|(k, _)| *k);
         if now.duration_since(st.last_optimistic) >= OPTIMISTIC_INTERVAL || optimistic.is_none() {
-            let pool: Vec<PeerKey> = ranked.iter().map(|r| r.0).filter(|k| !regular.contains(k)).collect();
+            let pool: Vec<PeerKey> = ranked
+                .iter()
+                .map(|r| r.0)
+                .filter(|k| !regular.contains(k))
+                .collect();
             optimistic = (!pool.is_empty()).then(|| pool[rand::random::<usize>() % pool.len()]);
             st.last_optimistic = now;
         }
@@ -1142,14 +1306,22 @@ impl Torrent {
     }
 
     fn send_pex(&self, st: &mut State) {
-        if !self.ctx.settings.read().enable_pex || st.meta.as_ref().is_some_and(|m| m.info.private) {
+        if !self.ctx.settings.read().enable_pex || st.meta.as_ref().is_some_and(|m| m.info.private)
+        {
             return;
         }
-        let current: Vec<(PeerKey, SocketAddr)> =
-            st.peers.iter().filter_map(|(k, p)| p.dialable().map(|a| (*k, a))).collect();
+        let current: Vec<(PeerKey, SocketAddr)> = st
+            .peers
+            .iter()
+            .filter_map(|(k, p)| p.dialable().map(|a| (*k, a)))
+            .collect();
         for (k, p) in st.peers.iter_mut() {
             let Some(id) = p.ext_pex else { continue };
-            let now: HashSet<SocketAddr> = current.iter().filter(|(ck, _)| ck != k).map(|(_, a)| *a).collect();
+            let now: HashSet<SocketAddr> = current
+                .iter()
+                .filter(|(ck, _)| ck != k)
+                .map(|(_, a)| *a)
+                .collect();
             let added: Vec<SocketAddr> = now.difference(&p.pex_sent).copied().take(50).collect();
             let dropped: Vec<SocketAddr> = p.pex_sent.difference(&now).copied().take(50).collect();
             if added.is_empty() && dropped.is_empty() {
@@ -1194,9 +1366,18 @@ impl Torrent {
                 self.send_pex(&mut st);
             }
             let limit = self.ctx.settings.read().seed_ratio_limit;
-            let size = st.picker.as_ref().map(Picker::wanted_bytes_total).unwrap_or(0);
+            let size = st
+                .picker
+                .as_ref()
+                .map(Picker::wanted_bytes_total)
+                .unwrap_or(0);
             let done = st.picker.as_ref().is_some_and(Picker::wanted_complete);
-            if done && limit > 0.0 && size > 0 && st.uploaded as f64 / size as f64 >= limit {
+            if done
+                && !st.ratio_override
+                && limit > 0.0
+                && size > 0
+                && st.uploaded as f64 / size as f64 >= limit
+            {
                 info!("{}: ratio {limit} reached, stopping", st.name);
                 st.ratio_stopped = true;
                 st.dirty = true;
@@ -1265,7 +1446,11 @@ impl Torrent {
             _ => (String::new(), String::new()),
         };
         let files = match meta {
-            Some(m) => file_progress(&m.info, st.picker.as_ref().map(Picker::have), &st.file_priorities),
+            Some(m) => file_progress(
+                &m.info,
+                st.picker.as_ref().map(Picker::have),
+                &st.file_priorities,
+            ),
             None => Vec::new(),
         };
         let now = Instant::now();
@@ -1300,7 +1485,11 @@ impl Torrent {
                     addr: p.addr.to_string(),
                     client: p.client.clone(),
                     flags,
-                    progress: if p.bitfield.is_empty() { 0.0 } else { p.bitfield.count_ones() as f64 / p.bitfield.len() as f64 },
+                    progress: if p.bitfield.is_empty() {
+                        0.0
+                    } else {
+                        p.bitfield.count_ones() as f64 / p.bitfield.len() as f64
+                    },
                     download_rate: p.down.rate(),
                     upload_rate: p.up.rate(),
                     downloaded: p.down.total(),
@@ -1354,10 +1543,14 @@ impl Torrent {
             peers,
             trackers,
             magnet,
-            content_path: st.storage.as_ref().map(|s| s.content_root().display().to_string()),
+            content_path: st
+                .storage
+                .as_ref()
+                .map(|s| s.content_root().display().to_string()),
             wasted: st.wasted,
             hash_fails: st.hash_fails,
-            dht_enabled: self.ctx.settings.read().enable_dht && !meta.is_some_and(|m| m.info.private),
+            dht_enabled: self.ctx.settings.read().enable_dht
+                && !meta.is_some_and(|m| m.info.private),
         }
     }
 
@@ -1410,7 +1603,11 @@ fn summarize(ih: &InfoHash, st: &State) -> TorrentSummary {
     let done_bytes = size - left;
     let progress = match status {
         TorrentStatus::Checking => st.check_progress.load(Ordering::Relaxed) as f64 / 10_000.0,
-        TorrentStatus::Metadata => st.metadata.as_ref().map(MetadataAssembly::progress).unwrap_or(0.0),
+        TorrentStatus::Metadata => st
+            .metadata
+            .as_ref()
+            .map(MetadataAssembly::progress)
+            .unwrap_or(0.0),
         _ if size > 0 => {
             let partial = st.picker.as_ref().map(Picker::partial_bytes).unwrap_or(0);
             ((done_bytes + partial.min(left)) as f64 / size as f64).min(1.0)
@@ -1418,7 +1615,11 @@ fn summarize(ih: &InfoHash, st: &State) -> TorrentSummary {
         _ => 0.0,
     };
     let rate = st.down.rate();
-    let seeds = st.peers.values().filter(|p| !p.bitfield.is_empty() && p.bitfield.all()).count();
+    let seeds = st
+        .peers
+        .values()
+        .filter(|p| !p.bitfield.is_empty() && p.bitfield.all())
+        .count();
     TorrentSummary {
         info_hash: hex::encode(ih),
         name: st.name.clone(),
@@ -1432,7 +1633,11 @@ fn summarize(ih: &InfoHash, st: &State) -> TorrentSummary {
         download_rate: rate,
         upload_rate: st.up.rate(),
         eta: (status == TorrentStatus::Downloading && rate > 0).then(|| left / rate),
-        ratio: if done_bytes > 0 { st.uploaded as f64 / size.max(1) as f64 } else { 0.0 },
+        ratio: if done_bytes > 0 {
+            st.uploaded as f64 / size.max(1) as f64
+        } else {
+            0.0
+        },
         peers: st.peers.len() - seeds,
         seeds,
         swarm_peers: st.trackers.iter().filter_map(|t| t.leechers).max(),
@@ -1448,7 +1653,11 @@ fn summarize(ih: &InfoHash, st: &State) -> TorrentSummary {
         has_metadata: st.meta.is_some(),
         sequential: st.sequential,
         private: st.meta.as_ref().is_some_and(|m| m.info.private),
-        availability: st.picker.as_ref().map(Picker::distributed_copies).unwrap_or(0.0),
+        availability: st
+            .picker
+            .as_ref()
+            .map(Picker::distributed_copies)
+            .unwrap_or(0.0),
     }
 }
 
@@ -1532,7 +1741,11 @@ fn file_progress(info: &Info, have: Option<&Bitfield>, prio: &[u8]) -> Vec<FileI
             path: f.display_path(),
             size: f.length,
             done: done[i],
-            progress: if f.length == 0 { 1.0 } else { done[i] as f64 / f.length as f64 },
+            progress: if f.length == 0 {
+                1.0
+            } else {
+                done[i] as f64 / f.length as f64
+            },
             priority: prio.get(i).copied().unwrap_or(1),
         })
         .collect()

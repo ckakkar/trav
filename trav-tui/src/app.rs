@@ -3,7 +3,9 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
-use crossterm::event::{Event as CEvent, EventStream, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+use crossterm::event::{
+    Event as CEvent, EventStream, KeyCode, KeyEvent, KeyEventKind, KeyModifiers,
+};
 use futures::StreamExt;
 use ratatui::widgets::TableState;
 use trav_core::snapshot::{EngineSnapshot, TorrentDetails, TorrentStatus};
@@ -21,7 +23,13 @@ pub(crate) enum Tab {
 }
 
 impl Tab {
-    pub const ALL: [Tab; 5] = [Tab::General, Tab::Files, Tab::Peers, Tab::Trackers, Tab::Log];
+    pub const ALL: [Tab; 5] = [
+        Tab::General,
+        Tab::Files,
+        Tab::Peers,
+        Tab::Trackers,
+        Tab::Log,
+    ];
 
     pub fn title(self) -> &'static str {
         match self {
@@ -79,7 +87,10 @@ impl TuiApp {
     }
 
     pub(crate) fn selected_hash(&self) -> Option<String> {
-        self.table.selected().and_then(|i| self.snap.torrents.get(i)).map(|t| t.info_hash.clone())
+        self.table
+            .selected()
+            .and_then(|i| self.snap.torrents.get(i))
+            .map(|t| t.info_hash.clone())
     }
 
     fn note(&mut self, msg: impl Into<String>, error: bool) {
@@ -110,7 +121,10 @@ impl TuiApp {
         let mut events = self.h.events();
         let mut redraw = tokio::time::interval(Duration::from_millis(250));
         let mut sample = tokio::time::interval(Duration::from_secs(1));
-        self.note(format!("engine up · listening on {}", self.h.listen_port()), false);
+        self.note(
+            format!("engine up · listening on {}", self.h.listen_port()),
+            false,
+        );
 
         let res: Result<()> = async {
             loop {
@@ -146,7 +160,9 @@ impl TuiApp {
             Event::TorrentAdded { name, .. } => self.note(format!("added  {name}"), false),
             Event::MetadataReceived { name, .. } => self.note(format!("metadata  {name}"), false),
             Event::TorrentCompleted { name, .. } => self.note(format!("complete  {name}"), false),
-            Event::TorrentError { name, message, .. } => self.note(format!("error  {name}: {message}"), true),
+            Event::TorrentError { name, message, .. } => {
+                self.note(format!("error  {name}: {message}"), true)
+            }
             Event::TorrentRemoved { .. } => self.note("removed", false),
         }
     }
@@ -177,19 +193,21 @@ impl TuiApp {
                 KeyCode::Backspace => {
                     self.input.pop();
                 }
-                KeyCode::Char('u') if k.modifiers.contains(KeyModifiers::CONTROL) => self.input.clear(),
+                KeyCode::Char('u') if k.modifiers.contains(KeyModifiers::CONTROL) => {
+                    self.input.clear()
+                }
                 KeyCode::Char(c) => self.input.push(c),
                 _ => {}
             },
             Mode::Confirm { delete } => {
                 self.mode = Mode::Normal;
-                if matches!(k.code, KeyCode::Char('y') | KeyCode::Char('Y')) {
-                    if let Some(h) = self.selected_hash() {
-                        match self.h.remove(&h, delete).await {
-                            Ok(()) if delete => self.note("removed torrent and data", false),
-                            Ok(()) => {}
-                            Err(e) => self.note(format!("remove failed: {e}"), true),
-                        }
+                if matches!(k.code, KeyCode::Char('y') | KeyCode::Char('Y'))
+                    && let Some(h) = self.selected_hash()
+                {
+                    match self.h.remove(&h, delete).await {
+                        Ok(()) if delete => self.note("removed torrent and data", false),
+                        Ok(()) => {}
+                        Err(e) => self.note(format!("remove failed: {e}"), true),
                     }
                 }
             }
@@ -201,7 +219,11 @@ impl TuiApp {
     async fn on_normal_key(&mut self, k: KeyEvent) -> bool {
         let n = self.snap.torrents.len();
         let sel = self.selected_hash();
-        let sel_status = self.table.selected().and_then(|i| self.snap.torrents.get(i)).map(|t| t.status);
+        let sel_status = self
+            .table
+            .selected()
+            .and_then(|i| self.snap.torrents.get(i))
+            .map(|t| t.status);
         match k.code {
             KeyCode::Char('q') | KeyCode::Esc => return true,
             KeyCode::Char('?') => self.mode = Mode::Help,
@@ -218,7 +240,9 @@ impl TuiApp {
             KeyCode::Char('g') | KeyCode::Home if n > 0 => self.table.select(Some(0)),
             KeyCode::Char('G') | KeyCode::End if n > 0 => self.table.select(Some(n - 1)),
             KeyCode::PageDown | KeyCode::Char('J') => self.detail_scroll += 5,
-            KeyCode::PageUp | KeyCode::Char('K') => self.detail_scroll = self.detail_scroll.saturating_sub(5),
+            KeyCode::PageUp | KeyCode::Char('K') => {
+                self.detail_scroll = self.detail_scroll.saturating_sub(5)
+            }
             KeyCode::Tab | KeyCode::Right | KeyCode::Char('l') => self.cycle_tab(1),
             KeyCode::BackTab | KeyCode::Left | KeyCode::Char('h') => self.cycle_tab(-1),
             KeyCode::Char(c @ '1'..='5') => {
@@ -231,7 +255,10 @@ impl TuiApp {
             }
             KeyCode::Char(' ') | KeyCode::Char('p') => {
                 if let (Some(h), Some(s)) = (sel, sel_status) {
-                    let r = if matches!(s, TorrentStatus::Paused | TorrentStatus::Finished | TorrentStatus::Error) {
+                    let r = if matches!(
+                        s,
+                        TorrentStatus::Paused | TorrentStatus::Finished | TorrentStatus::Error
+                    ) {
                         self.h.resume(&h)
                     } else {
                         self.h.pause(&h)
@@ -262,10 +289,22 @@ impl TuiApp {
                 }
             }
             KeyCode::Char('s') => {
-                if let (Some(h), Some(t)) = (sel, self.table.selected().and_then(|i| self.snap.torrents.get(i))) {
+                if let (Some(h), Some(t)) = (
+                    sel,
+                    self.table
+                        .selected()
+                        .and_then(|i| self.snap.torrents.get(i)),
+                ) {
                     let on = !t.sequential;
                     let _ = self.h.set_sequential(&h, on);
-                    self.note(if on { "sequential on" } else { "sequential off" }, false);
+                    self.note(
+                        if on {
+                            "sequential on"
+                        } else {
+                            "sequential off"
+                        },
+                        false,
+                    );
                 }
             }
             KeyCode::Char('d') if sel.is_some() => self.mode = Mode::Confirm { delete: false },

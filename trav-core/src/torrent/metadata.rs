@@ -18,7 +18,11 @@ pub(crate) struct MetadataAssembly {
 impl MetadataAssembly {
     pub fn new(size: usize) -> Self {
         let n = size.div_ceil(METADATA_PIECE);
-        Self { size, pieces: vec![None; n], requested: vec![None; n] }
+        Self {
+            size,
+            pieces: vec![None; n],
+            requested: vec![None; n],
+        }
     }
 
     pub fn progress(&self) -> f64 {

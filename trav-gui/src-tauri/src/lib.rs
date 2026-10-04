@@ -49,7 +49,10 @@ fn openable(arg: &str, cwd: Option<&Path>) -> Option<String> {
         return Some(a.to_string());
     }
     let path = if let Some(rest) = a.strip_prefix("file://") {
-        PathBuf::from(url::Url::parse(&format!("file://{rest}")).ok()?.to_file_path().ok()?)
+        url::Url::parse(&format!("file://{rest}"))
+            .ok()?
+            .to_file_path()
+            .ok()?
     } else {
         let p = PathBuf::from(a);
         match cwd {
@@ -57,7 +60,10 @@ fn openable(arg: &str, cwd: Option<&Path>) -> Option<String> {
             _ => p,
         }
     };
-    let is_torrent = path.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case("torrent"));
+    let is_torrent = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| e.eq_ignore_ascii_case("torrent"));
     (is_torrent && path.is_file()).then(|| path.to_string_lossy().into_owned())
 }
 
@@ -115,7 +121,11 @@ fn fmt_rate(b: u64) -> String {
         v /= 1024.0;
         i += 1;
     }
-    if i == 0 { format!("{b} B/s") } else { format!("{v:.1} {}", U[i]) }
+    if i == 0 {
+        format!("{b} B/s")
+    } else {
+        format!("{v:.1} {}", U[i])
+    }
 }
 
 fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
@@ -136,8 +146,14 @@ fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
             &quit_i,
         ],
     )?;
+    // macOS: monochrome template glyph tinted by the menu bar. Elsewhere: the app icon.
+    #[cfg(target_os = "macos")]
+    let icon = tauri::include_image!("icons/tray.png");
+    #[cfg(not(target_os = "macos"))]
+    let icon = app.default_window_icon().cloned().expect("bundle icon");
     let tray = TrayIconBuilder::with_id("main")
-        .icon(app.default_window_icon().cloned().expect("bundle icon"))
+        .icon(icon)
+        .icon_as_template(cfg!(target_os = "macos"))
         .tooltip("Trav")
         .menu(&menu)
         .show_menu_on_left_click(false)
@@ -160,7 +176,12 @@ fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
             }
         })
         .on_tray_icon_event(|tray, e| {
-            if let TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } = e {
+            if let TrayIconEvent::Click {
+                button: MouseButton::Left,
+                button_state: MouseButtonState::Up,
+                ..
+            } = e
+            {
                 toggle(tray.app_handle());
             }
         })
@@ -171,9 +192,15 @@ fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
     tauri::async_runtime::spawn(async move {
         loop {
             tokio::time::sleep(Duration::from_secs(2)).await;
-            let Some(engine) = app.state::<Arc<Shell>>().engine.get().cloned() else { continue };
+            let Some(engine) = app.state::<Arc<Shell>>().engine.get().cloned() else {
+                continue;
+            };
             let s = engine.snapshot();
-            let line = format!("↓ {} · ↑ {}", fmt_rate(s.stats.download_rate), fmt_rate(s.stats.upload_rate));
+            let line = format!(
+                "↓ {} · ↑ {}",
+                fmt_rate(s.stats.download_rate),
+                fmt_rate(s.stats.upload_rate)
+            );
             let _ = tray.set_tooltip(Some(format!("Trav — {line}")));
             let _ = speed_i.set_text(&line);
         }
@@ -190,7 +217,12 @@ fn forward_events(app: AppHandle, engine: EngineHandle) {
                     let _ = app.emit("trav://event", &ev);
                     if let Event::TorrentCompleted { name, .. } = &ev {
                         if app.state::<Arc<Shell>>().notify.load(Ordering::Relaxed) {
-                            let _ = app.notification().builder().title("Download complete").body(name).show();
+                            let _ = app
+                                .notification()
+                                .builder()
+                                .title("Download complete")
+                                .body(name)
+                                .show();
                         }
                     }
                 }
@@ -205,23 +237,33 @@ fn state_dir() -> PathBuf {
     // Shared with the `trav` CLI so both front-ends see the same library.
     std::env::var_os("TRAV_STATE_DIR")
         .map(PathBuf::from)
-        .unwrap_or_else(|| dirs::data_dir().unwrap_or_else(|| PathBuf::from(".")).join("trav"))
+        .unwrap_or_else(|| {
+            dirs::data_dir()
+                .unwrap_or_else(|| PathBuf::from("."))
+                .join("trav")
+        })
 }
 
 pub fn run() {
     let _ = tracing_subscriber::fmt()
-        .with_env_filter(tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info,hyper=warn,reqwest=warn".into()))
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| "info,hyper=warn,reqwest=warn".into()),
+        )
         .try_init();
 
-    let shell = Arc::new(Shell { notify: AtomicBool::new(true), ..Default::default() });
+    let shell = Arc::new(Shell {
+        notify: AtomicBool::new(true),
+        ..Default::default()
+    });
 
     // Initial argv (Windows/Linux file association, CLI use).
     let cwd = std::env::current_dir().ok();
-    shell
-        .pending
-        .lock()
-        .unwrap()
-        .extend(std::env::args().skip(1).filter_map(|a| openable(&a, cwd.as_deref())));
+    shell.pending.lock().unwrap().extend(
+        std::env::args()
+            .skip(1)
+            .filter_map(|a| openable(&a, cwd.as_deref())),
+    );
 
     let mut builder = tauri::Builder::default();
     #[cfg(any(target_os = "macos", windows, target_os = "linux"))]
@@ -229,7 +271,11 @@ pub fn run() {
         // Must be first: a second launch forwards its args here and exits.
         builder = builder.plugin(tauri_plugin_single_instance::init(|app, argv, cwd| {
             let cwd = PathBuf::from(cwd);
-            let items: Vec<String> = argv.iter().skip(1).filter_map(|a| openable(a, Some(&cwd))).collect();
+            let items: Vec<String> = argv
+                .iter()
+                .skip(1)
+                .filter_map(|a| openable(a, Some(&cwd)))
+                .collect();
             if items.is_empty() {
                 show(app);
             } else {
@@ -244,7 +290,11 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())
         .manage(shell.clone())
-        .invoke_handler(tauri::generate_handler![rpc, take_pending_opens, set_notify])
+        .invoke_handler(tauri::generate_handler![
+            rpc,
+            take_pending_opens,
+            set_notify
+        ])
         .setup(move |app| {
             let handle = app.handle().clone();
             let dir = state_dir();
@@ -254,7 +304,10 @@ pub fn run() {
                     let _ = shell.engine.set(engine);
                 }
                 Err(e) => {
-                    let msg = format!("Trav's engine could not start:\n\n{e}\n\nState directory: {}", dir.display());
+                    let msg = format!(
+                        "Trav's engine could not start:\n\n{e}\n\nState directory: {}",
+                        dir.display()
+                    );
                     handle
                         .dialog()
                         .message(msg)
@@ -271,12 +324,19 @@ pub fn run() {
                 let _ = app.deep_link().register_all();
             }
             if let Ok(Some(urls)) = app.deep_link().get_current() {
-                let items: Vec<String> = urls.iter().filter_map(|u| openable(u.as_str(), None)).collect();
+                let items: Vec<String> = urls
+                    .iter()
+                    .filter_map(|u| openable(u.as_str(), None))
+                    .collect();
                 shell.pending.lock().unwrap().extend(items);
             }
             let h = handle.clone();
             app.deep_link().on_open_url(move |e| {
-                let items: Vec<String> = e.urls().iter().filter_map(|u| openable(u.as_str(), None)).collect();
+                let items: Vec<String> = e
+                    .urls()
+                    .iter()
+                    .filter_map(|u| openable(u.as_str(), None))
+                    .collect();
                 hand_over(&h, items);
             });
 
@@ -286,7 +346,12 @@ pub fn run() {
         .on_window_event(|window, event| {
             // Closing the window keeps seeding in the tray, like µTorrent.
             if let WindowEvent::CloseRequested { api, .. } = event {
-                if !window.app_handle().state::<Arc<Shell>>().quitting.load(Ordering::SeqCst) {
+                if !window
+                    .app_handle()
+                    .state::<Arc<Shell>>()
+                    .quitting
+                    .load(Ordering::SeqCst)
+                {
                     api.prevent_close();
                     let _ = window.hide();
                 }
@@ -296,13 +361,12 @@ pub fn run() {
         .expect("error while building Trav");
 
     app.run(|app, event| match event {
-        RunEvent::ExitRequested { api, code, .. } => {
+        RunEvent::ExitRequested { api, code, .. }
             // Cmd+Q / OS shutdown: flush state first, then exit for real.
-            if code.is_none() && !app.state::<Arc<Shell>>().quitting.load(Ordering::SeqCst) {
+            if code.is_none() && !app.state::<Arc<Shell>>().quitting.load(Ordering::SeqCst) => {
                 api.prevent_exit();
                 quit(app);
             }
-        }
         #[cfg(target_os = "macos")]
         RunEvent::Opened { urls } => {
             let items: Vec<String> = urls.iter().filter_map(|u| openable(u.as_str(), None)).collect();

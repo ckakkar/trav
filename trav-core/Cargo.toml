@@ -23,6 +23,7 @@ rand = "0.8"
 base64 = "0.22"
 fs4 = "0.13"
 igd-next = { version = "0.16", features = ["aio_tokio"] }
+socket2 = "0.6.5"
 
 [dev-dependencies]
 tempfile = "3"

@@ -6,7 +6,7 @@ use std::net::{IpAddr, SocketAddr};
 use bytes::Bytes;
 
 use crate::bencode::{self, DictBuilder, Value};
-use crate::error::{proto, Result};
+use crate::error::{Result, proto};
 use crate::tracker::{encode_compact, parse_compact_v4, parse_compact_v6};
 
 /// Our local extension ids (what peers must use when messaging us).
@@ -32,18 +32,21 @@ impl ExtHandshake {
         let mut m = HashMap::new();
         if let Some(d) = v.get("m").and_then(Value::as_dict) {
             for (k, id) in d {
-                if let (Ok(name), Some(id)) = (std::str::from_utf8(k), id.as_int()) {
-                    if (1..=255).contains(&id) {
-                        m.insert(name.to_string(), id as u8);
-                    }
+                if let (Ok(name), Some(id)) = (std::str::from_utf8(k), id.as_int())
+                    && (1..=255).contains(&id)
+                {
+                    m.insert(name.to_string(), id as u8);
                 }
             }
         }
-        let your_ip = v.get("yourip").and_then(Value::as_bytes).and_then(|b| match b.len() {
-            4 => Some(IpAddr::from(<[u8; 4]>::try_from(b).ok()?)),
-            16 => Some(IpAddr::from(<[u8; 16]>::try_from(b).ok()?)),
-            _ => None,
-        });
+        let your_ip = v
+            .get("yourip")
+            .and_then(Value::as_bytes)
+            .and_then(|b| match b.len() {
+                4 => Some(IpAddr::from(<[u8; 4]>::try_from(b).ok()?)),
+                16 => Some(IpAddr::from(<[u8; 16]>::try_from(b).ok()?)),
+                _ => None,
+            });
         Ok(Self {
             m,
             metadata_size: v
@@ -52,13 +55,26 @@ impl ExtHandshake {
                 .filter(|&s| s > 0 && s as usize <= MAX_METADATA_SIZE)
                 .map(|s| s as usize),
             client: v.get("v").and_then(Value::as_string_lossy),
-            reqq: v.get("reqq").and_then(Value::as_int).filter(|&r| r > 0).map(|r| r.min(2000) as u32),
-            listen_port: v.get("p").and_then(Value::as_int).and_then(|p| u16::try_from(p).ok()).filter(|&p| p != 0),
+            reqq: v
+                .get("reqq")
+                .and_then(Value::as_int)
+                .filter(|&r| r > 0)
+                .map(|r| r.min(2000) as u32),
+            listen_port: v
+                .get("p")
+                .and_then(Value::as_int)
+                .and_then(|p| u16::try_from(p).ok())
+                .filter(|&p| p != 0),
             your_ip,
         })
     }
 
-    pub fn ours(metadata_size: Option<usize>, listen_port: u16, peer_ip: IpAddr, pex: bool) -> Bytes {
+    pub fn ours(
+        metadata_size: Option<usize>,
+        listen_port: u16,
+        peer_ip: IpAddr,
+        pex: bool,
+    ) -> Bytes {
         let mut m = DictBuilder::new().int("ut_metadata", UT_METADATA as i64);
         if pex {
             m = m.int("ut_pex", UT_PEX as i64);
@@ -82,15 +98,26 @@ impl ExtHandshake {
 
 #[derive(Debug)]
 pub enum MetadataMsg {
-    Request { piece: u32 },
-    Data { piece: u32, total_size: usize, data: Bytes },
-    Reject { piece: u32 },
+    Request {
+        piece: u32,
+    },
+    Data {
+        piece: u32,
+        total_size: usize,
+        data: Bytes,
+    },
+    Reject {
+        piece: u32,
+    },
 }
 
 impl MetadataMsg {
     pub fn decode(payload: &Bytes) -> Result<Self> {
         let (v, used) = bencode::decode_prefix(payload)?;
-        let ty = v.get("msg_type").and_then(Value::as_int).ok_or_else(|| proto("ut_metadata without msg_type"))?;
+        let ty = v
+            .get("msg_type")
+            .and_then(Value::as_int)
+            .ok_or_else(|| proto("ut_metadata without msg_type"))?;
         let piece = v
             .get("piece")
             .and_then(Value::as_int)
@@ -100,7 +127,11 @@ impl MetadataMsg {
             0 => Self::Request { piece },
             1 => Self::Data {
                 piece,
-                total_size: v.get("total_size").and_then(Value::as_int).unwrap_or(0).max(0) as usize,
+                total_size: v
+                    .get("total_size")
+                    .and_then(Value::as_int)
+                    .unwrap_or(0)
+                    .max(0) as usize,
                 data: payload.slice(used..),
             },
             _ => Self::Reject { piece },
@@ -109,12 +140,18 @@ impl MetadataMsg {
 
     pub fn encode(&self) -> Bytes {
         let mut out = match self {
-            Self::Request { piece } => DictBuilder::new().int("msg_type", 0).int("piece", *piece as i64),
-            Self::Data { piece, total_size, .. } => DictBuilder::new()
+            Self::Request { piece } => DictBuilder::new()
+                .int("msg_type", 0)
+                .int("piece", *piece as i64),
+            Self::Data {
+                piece, total_size, ..
+            } => DictBuilder::new()
                 .int("msg_type", 1)
                 .int("piece", *piece as i64)
                 .int("total_size", *total_size as i64),
-            Self::Reject { piece } => DictBuilder::new().int("msg_type", 2).int("piece", *piece as i64),
+            Self::Reject { piece } => DictBuilder::new()
+                .int("msg_type", 2)
+                .int("piece", *piece as i64),
         }
         .build()
         .encode();
@@ -188,9 +225,17 @@ mod tests {
 
     #[test]
     fn metadata_roundtrip() {
-        let m = MetadataMsg::Data { piece: 2, total_size: 40000, data: Bytes::from_static(b"xyz") };
+        let m = MetadataMsg::Data {
+            piece: 2,
+            total_size: 40000,
+            data: Bytes::from_static(b"xyz"),
+        };
         match MetadataMsg::decode(&m.encode()).unwrap() {
-            MetadataMsg::Data { piece, total_size, data } => {
+            MetadataMsg::Data {
+                piece,
+                total_size,
+                data,
+            } => {
                 assert_eq!((piece, total_size, &data[..]), (2, 40000, &b"xyz"[..]));
             }
             other => panic!("{other:?}"),
@@ -199,7 +244,10 @@ mod tests {
 
     #[test]
     fn pex_roundtrip() {
-        let p = PexMsg { added: vec!["1.2.3.4:5".parse().unwrap(), "[::1]:7".parse().unwrap()], dropped: vec![] };
+        let p = PexMsg {
+            added: vec!["1.2.3.4:5".parse().unwrap(), "[::1]:7".parse().unwrap()],
+            dropped: vec![],
+        };
         let d = PexMsg::decode(&p.encode()).unwrap();
         assert_eq!(d.added, p.added);
     }

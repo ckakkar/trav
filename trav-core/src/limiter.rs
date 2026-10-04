@@ -13,7 +13,10 @@ pub struct RateLimiter {
 
 impl RateLimiter {
     pub fn new(rate: u64) -> Self {
-        Self { rate: AtomicU64::new(rate), state: Mutex::new((0.0, Instant::now())) }
+        Self {
+            rate: AtomicU64::new(rate),
+            state: Mutex::new((0.0, Instant::now())),
+        }
     }
 
     pub fn set_rate(&self, rate: u64) {
@@ -38,7 +41,11 @@ impl RateLimiter {
             st.0 = (st.0 + now.duration_since(st.1).as_secs_f64() * rate as f64).min(burst);
             st.1 = now;
             st.0 -= n as f64;
-            if st.0 < 0.0 { Duration::from_secs_f64(-st.0 / rate as f64) } else { Duration::ZERO }
+            if st.0 < 0.0 {
+                Duration::from_secs_f64(-st.0 / rate as f64)
+            } else {
+                Duration::ZERO
+            }
         };
         if !wait.is_zero() {
             tokio::time::sleep(wait).await;
@@ -69,7 +76,11 @@ impl RateMeter {
         let inst = (self.total - self.last_total) as f64 / dt.max(1e-3);
         self.last_total = self.total;
         // α≈0.4 balances responsiveness with a calm readout.
-        self.rate = if self.rate == 0.0 { inst } else { self.rate * 0.6 + inst * 0.4 };
+        self.rate = if self.rate == 0.0 {
+            inst
+        } else {
+            self.rate * 0.6 + inst * 0.4
+        };
         if self.rate < 1.0 {
             self.rate = 0.0;
         }
@@ -92,6 +103,10 @@ mod tests {
             l.acquire(25_000).await;
         }
         // 250 KB at 100 KB/s minus the initial burst ≈ 2.25 s.
-        assert!(t.elapsed() >= Duration::from_millis(2000), "{:?}", t.elapsed());
+        assert!(
+            t.elapsed() >= Duration::from_millis(2000),
+            "{:?}",
+            t.elapsed()
+        );
     }
 }

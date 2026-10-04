@@ -3,7 +3,7 @@
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use tokio_util::codec::{Decoder, Encoder};
 
-use crate::error::{proto, Error};
+use crate::error::{Error, proto};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum PeerMessage {
@@ -12,15 +12,38 @@ pub enum PeerMessage {
     Unchoke,
     Interested,
     NotInterested,
-    Have { piece_index: u32 },
-    Bitfield { payload: Bytes },
-    Request { index: u32, begin: u32, length: u32 },
-    Piece { index: u32, begin: u32, block: Bytes },
-    Cancel { index: u32, begin: u32, length: u32 },
-    Port { listen_port: u16 },
-    Extended { extended_id: u8, payload: Bytes },
+    Have {
+        piece_index: u32,
+    },
+    Bitfield {
+        payload: Bytes,
+    },
+    Request {
+        index: u32,
+        begin: u32,
+        length: u32,
+    },
+    Piece {
+        index: u32,
+        begin: u32,
+        block: Bytes,
+    },
+    Cancel {
+        index: u32,
+        begin: u32,
+        length: u32,
+    },
+    Port {
+        listen_port: u16,
+    },
+    Extended {
+        extended_id: u8,
+        payload: Bytes,
+    },
     /// Any message id we do not implement; payload is discarded.
-    Unknown { id: u8 },
+    Unknown {
+        id: u8,
+    },
 }
 
 /// Largest frame accepted: a 16 KiB block plus generous room for bitfields of huge torrents.
@@ -54,7 +77,13 @@ impl Decoder for PeerCodec {
         let mut body = src.split_to(length).freeze();
         let id = body.get_u8();
         let n = body.len();
-        let need = |want: usize| if n == want { Ok(()) } else { Err(proto(format!("bad length {n} for message {id}"))) };
+        let need = |want: usize| {
+            if n == want {
+                Ok(())
+            } else {
+                Err(proto(format!("bad length {n} for message {id}")))
+            }
+        };
 
         let msg = match id {
             0 => PeerMessage::Choke,
@@ -63,16 +92,26 @@ impl Decoder for PeerCodec {
             3 => PeerMessage::NotInterested,
             4 => {
                 need(4)?;
-                PeerMessage::Have { piece_index: body.get_u32() }
+                PeerMessage::Have {
+                    piece_index: body.get_u32(),
+                }
             }
             5 => PeerMessage::Bitfield { payload: body },
             6 | 8 => {
                 need(12)?;
                 let (index, begin, length) = (body.get_u32(), body.get_u32(), body.get_u32());
                 if id == 6 {
-                    PeerMessage::Request { index, begin, length }
+                    PeerMessage::Request {
+                        index,
+                        begin,
+                        length,
+                    }
                 } else {
-                    PeerMessage::Cancel { index, begin, length }
+                    PeerMessage::Cancel {
+                        index,
+                        begin,
+                        length,
+                    }
                 }
             }
             7 => {
@@ -81,18 +120,27 @@ impl Decoder for PeerCodec {
                 }
                 let index = body.get_u32();
                 let begin = body.get_u32();
-                PeerMessage::Piece { index, begin, block: body }
+                PeerMessage::Piece {
+                    index,
+                    begin,
+                    block: body,
+                }
             }
             9 => {
                 need(2)?;
-                PeerMessage::Port { listen_port: body.get_u16() }
+                PeerMessage::Port {
+                    listen_port: body.get_u16(),
+                }
             }
             20 => {
                 if n < 1 {
                     return Err(proto("empty extended message"));
                 }
                 let extended_id = body.get_u8();
-                PeerMessage::Extended { extended_id, payload: body }
+                PeerMessage::Extended {
+                    extended_id,
+                    payload: body,
+                }
             }
             id => PeerMessage::Unknown { id },
         };
@@ -125,15 +173,32 @@ impl Encoder<PeerMessage> for PeerCodec {
                 dst.put_u8(5);
                 dst.put_slice(&payload);
             }
-            PeerMessage::Request { index, begin, length } | PeerMessage::Cancel { index, begin, length } => {
-                let id = if matches!(item, PeerMessage::Request { .. }) { 6 } else { 8 };
+            PeerMessage::Request {
+                index,
+                begin,
+                length,
+            }
+            | PeerMessage::Cancel {
+                index,
+                begin,
+                length,
+            } => {
+                let id = if matches!(item, PeerMessage::Request { .. }) {
+                    6
+                } else {
+                    8
+                };
                 dst.put_u32(13);
                 dst.put_u8(id);
                 dst.put_u32(index);
                 dst.put_u32(begin);
                 dst.put_u32(length);
             }
-            PeerMessage::Piece { index, begin, block } => {
+            PeerMessage::Piece {
+                index,
+                begin,
+                block,
+            } => {
                 dst.reserve(13 + block.len());
                 dst.put_u32(9 + block.len() as u32);
                 dst.put_u8(7);
@@ -146,7 +211,10 @@ impl Encoder<PeerMessage> for PeerCodec {
                 dst.put_u8(9);
                 dst.put_u16(listen_port);
             }
-            PeerMessage::Extended { extended_id, payload } => {
+            PeerMessage::Extended {
+                extended_id,
+                payload,
+            } => {
                 dst.reserve(6 + payload.len());
                 dst.put_u32(2 + payload.len() as u32);
                 dst.put_u8(20);
@@ -169,11 +237,28 @@ mod tests {
             PeerMessage::KeepAlive,
             PeerMessage::Unchoke,
             PeerMessage::Have { piece_index: 7 },
-            PeerMessage::Bitfield { payload: Bytes::from_static(&[0xf0]) },
-            PeerMessage::Request { index: 1, begin: 16384, length: 16384 },
-            PeerMessage::Piece { index: 1, begin: 0, block: Bytes::from_static(b"data") },
-            PeerMessage::Cancel { index: 1, begin: 0, length: 4 },
-            PeerMessage::Extended { extended_id: 0, payload: Bytes::from_static(b"de") },
+            PeerMessage::Bitfield {
+                payload: Bytes::from_static(&[0xf0]),
+            },
+            PeerMessage::Request {
+                index: 1,
+                begin: 16384,
+                length: 16384,
+            },
+            PeerMessage::Piece {
+                index: 1,
+                begin: 0,
+                block: Bytes::from_static(b"data"),
+            },
+            PeerMessage::Cancel {
+                index: 1,
+                begin: 0,
+                length: 4,
+            },
+            PeerMessage::Extended {
+                extended_id: 0,
+                payload: Bytes::from_static(b"de"),
+            },
         ];
         let mut buf = BytesMut::new();
         for m in &msgs {

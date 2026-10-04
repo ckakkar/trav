@@ -41,7 +41,8 @@ impl Value {
 
     /// Lossy UTF-8 view — torrent metadata frequently carries legacy encodings.
     pub fn as_string_lossy(&self) -> Option<String> {
-        self.as_bytes().map(|b| String::from_utf8_lossy(b).into_owned())
+        self.as_bytes()
+            .map(|b| String::from_utf8_lossy(b).into_owned())
     }
 
     pub fn as_list(&self) -> Option<&[Value]> {
@@ -160,7 +161,10 @@ pub fn raw_value_span<'a>(data: &'a [u8], key: &[u8]) -> Result<&'a [u8]> {
             return Ok(&data[start..p.pos]);
         }
     }
-    Err(Error::Bencode(format!("key '{}' not found", String::from_utf8_lossy(key))))
+    Err(Error::Bencode(format!(
+        "key '{}' not found",
+        String::from_utf8_lossy(key)
+    )))
 }
 
 struct Parser<'a> {
@@ -203,7 +207,10 @@ impl<'a> Parser<'a> {
                 Ok(Value::Dict(map))
             }
             b'0'..=b'9' => Ok(Value::Bytes(self.bytes()?.to_vec())),
-            c => Err(Error::Bencode(format!("unexpected byte 0x{c:02x} at {}", self.pos))),
+            c => Err(Error::Bencode(format!(
+                "unexpected byte 0x{c:02x} at {}",
+                self.pos
+            ))),
         }
     }
 
@@ -242,7 +249,9 @@ impl<'a> Parser<'a> {
             .ok_or_else(|| Error::Bencode("unterminated int".into()))?;
         let s = std::str::from_utf8(&self.data[self.pos..self.pos + end])
             .map_err(|_| Error::Bencode("non-ascii int".into()))?;
-        let v = s.parse::<i64>().map_err(|_| Error::Bencode(format!("bad int '{s}'")))?;
+        let v = s
+            .parse::<i64>()
+            .map_err(|_| Error::Bencode(format!("bad int '{s}'")))?;
         self.pos += end + 1;
         Ok(v)
     }

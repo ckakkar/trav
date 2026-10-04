@@ -79,7 +79,11 @@ pub struct EngineSnapshot {
 
 impl EngineSnapshot {
     pub fn empty() -> Self {
-        Self { seq: 0, torrents: Vec::new(), stats: GlobalStats::default() }
+        Self {
+            seq: 0,
+            torrents: Vec::new(),
+            stats: GlobalStats::default(),
+        }
     }
 }
 

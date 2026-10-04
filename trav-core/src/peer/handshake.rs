@@ -6,7 +6,7 @@ use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 
-use crate::error::{proto, Error, Result};
+use crate::error::{Error, Result, proto};
 use crate::metainfo::InfoHash;
 
 pub const PSTR: &[u8; 19] = b"BitTorrent protocol";
@@ -26,7 +26,11 @@ impl Handshake {
         let mut reserved = [0u8; 8];
         reserved[5] |= 0x10; // BEP 10 extension protocol
         reserved[7] |= 0x01; // BEP 5 DHT
-        Self { reserved, info_hash, peer_id }
+        Self {
+            reserved,
+            info_hash,
+            peer_id,
+        }
     }
 
     pub fn supports_extensions(&self) -> bool {

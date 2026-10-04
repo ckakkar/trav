@@ -6,11 +6,21 @@ pub fn bytes(b: u64) -> String {
         v /= 1024.0;
         i += 1;
     }
-    if i == 0 { format!("{b} B") } else if v >= 100.0 { format!("{v:.0} {}", U[i]) } else { format!("{v:.1} {}", U[i]) }
+    if i == 0 {
+        format!("{b} B")
+    } else if v >= 100.0 {
+        format!("{v:.0} {}", U[i])
+    } else {
+        format!("{v:.1} {}", U[i])
+    }
 }
 
 pub fn rate(b: u64) -> String {
-    if b == 0 { "—".into() } else { format!("{}/s", bytes(b)) }
+    if b == 0 {
+        "—".into()
+    } else {
+        format!("{}/s", bytes(b))
+    }
 }
 
 pub fn eta(secs: Option<u64>) -> String {
@@ -45,5 +55,9 @@ pub fn ago(unix: i64) -> String {
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0);
     let d = (now - unix).max(0) as u64;
-    if d < 60 { "just now".into() } else { format!("{} ago", eta(Some(d))) }
+    if d < 60 {
+        "just now".into()
+    } else {
+        format!("{} ago", eta(Some(d)))
+    }
 }

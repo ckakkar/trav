@@ -30,7 +30,11 @@ pub fn sanitize_component(raw: &str) -> String {
         s.pop();
     }
     let trimmed = s.trim_start().to_string();
-    let mut s = if trimmed.is_empty() { "_".to_string() } else { trimmed };
+    let mut s = if trimmed.is_empty() {
+        "_".to_string()
+    } else {
+        trimmed
+    };
 
     let stem = s.split('.').next().unwrap_or("").to_ascii_uppercase();
     if RESERVED_WIN.contains(&stem.as_str()) {
@@ -48,7 +52,10 @@ pub fn sanitize_component(raw: &str) -> String {
 }
 
 /// Join sanitised components under `root`, asserting the result stays inside it.
-pub fn jail_join<'a>(root: &Path, components: impl IntoIterator<Item = &'a str>) -> Result<PathBuf> {
+pub fn jail_join<'a>(
+    root: &Path,
+    components: impl IntoIterator<Item = &'a str>,
+) -> Result<PathBuf> {
     let mut out = root.to_path_buf();
     let mut pushed = 0usize;
     for c in components {

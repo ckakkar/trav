@@ -1,8 +1,8 @@
 //! UPnP IGD port forwarding so peers behind home routers are reachable.
 
 use std::net::{IpAddr, SocketAddr};
-use std::sync::atomic::Ordering;
 use std::sync::Weak;
+use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use igd_next::aio::tokio::search_gateway;
@@ -66,10 +66,17 @@ fn set_status(ctx: &Weak<Ctx>, s: String) {
 }
 
 async fn map(port: u16) -> Result<IpAddr, String> {
-    let opts = SearchOptions { timeout: Some(Duration::from_secs(5)), ..Default::default() };
-    let gw = search_gateway(opts).await.map_err(|_| "no UPnP gateway found".to_string())?;
+    let opts = SearchOptions {
+        timeout: Some(Duration::from_secs(5)),
+        ..Default::default()
+    };
+    let gw = search_gateway(opts)
+        .await
+        .map_err(|_| "no UPnP gateway found".to_string())?;
     // Learn which local interface routes to the gateway.
-    let probe = tokio::net::UdpSocket::bind("0.0.0.0:0").await.map_err(|e| e.to_string())?;
+    let probe = tokio::net::UdpSocket::bind("0.0.0.0:0")
+        .await
+        .map_err(|e| e.to_string())?;
     probe.connect(gw.addr).await.map_err(|e| e.to_string())?;
     let local_ip = probe.local_addr().map_err(|e| e.to_string())?.ip();
     let local = SocketAddr::new(local_ip, port);

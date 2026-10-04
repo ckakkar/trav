@@ -66,11 +66,26 @@ fn auto_piece_size(total: u64) -> u32 {
     target.next_power_of_two().min(16 << 20) as u32
 }
 
-fn create(path: &std::path::Path, output: Option<PathBuf>, trackers: &[String], private: bool) -> Result<()> {
+fn create(
+    path: &std::path::Path,
+    output: Option<PathBuf>,
+    trackers: &[String],
+    private: bool,
+) -> Result<()> {
     let total = if path.is_dir() {
         fn walk(p: &std::path::Path) -> u64 {
             std::fs::read_dir(p)
-                .map(|rd| rd.flatten().map(|e| if e.path().is_dir() { walk(&e.path()) } else { e.metadata().map(|m| m.len()).unwrap_or(0) }).sum())
+                .map(|rd| {
+                    rd.flatten()
+                        .map(|e| {
+                            if e.path().is_dir() {
+                                walk(&e.path())
+                            } else {
+                                e.metadata().map(|m| m.len()).unwrap_or(0)
+                            }
+                        })
+                        .sum()
+                })
                 .unwrap_or(0)
         }
         walk(path)
@@ -79,11 +94,20 @@ fn create(path: &std::path::Path, output: Option<PathBuf>, trackers: &[String], 
     };
     let piece = auto_piece_size(total);
     let bytes = trav_core::metainfo::create_torrent(path, piece, trackers, private)?;
-    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "torrent".into());
+    let name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "torrent".into());
     let out = output.unwrap_or_else(|| PathBuf::from(format!("{name}.torrent")));
     std::fs::write(&out, &bytes)?;
     let meta = trav_core::metainfo::Metainfo::from_bytes(&bytes)?;
-    println!("{}  {}  ({} pieces × {} KiB)", hex_hash(&meta.info_hash), out.display(), meta.info.num_pieces(), piece / 1024);
+    println!(
+        "{}  {}  ({} pieces × {} KiB)",
+        hex_hash(&meta.info_hash),
+        out.display(),
+        meta.info.num_pieces(),
+        piece / 1024
+    );
     Ok(())
 }
 
@@ -92,7 +116,9 @@ fn hex_hash(h: &[u8; 20]) -> String {
 }
 
 fn default_state_dir() -> PathBuf {
-    dirs::data_dir().unwrap_or_else(|| PathBuf::from(".")).join("trav")
+    dirs::data_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("trav")
 }
 
 fn main() -> Result<()> {
@@ -101,21 +127,29 @@ fn main() -> Result<()> {
         return create(path, cli.output.clone(), &cli.trackers, cli.private);
     }
     let state_dir = cli.state_dir.clone().unwrap_or_else(default_state_dir);
-    std::fs::create_dir_all(&state_dir).with_context(|| format!("creating {}", state_dir.display()))?;
+    std::fs::create_dir_all(&state_dir)
+        .with_context(|| format!("creating {}", state_dir.display()))?;
 
     // The TUI owns the terminal, so log to a file there; the daemon logs to stderr.
-    let filter = tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info,hyper=warn,reqwest=warn".into());
+    let filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| "info,hyper=warn,reqwest=warn".into());
     let _guard = if cli.daemon {
         tracing_subscriber::fmt().with_env_filter(filter).init();
         None
     } else {
         let appender = tracing_appender::rolling::never(&state_dir, "trav.log");
         let (writer, guard) = tracing_appender::non_blocking(appender);
-        tracing_subscriber::fmt().with_env_filter(filter).with_ansi(false).with_writer(writer).init();
+        tracing_subscriber::fmt()
+            .with_env_filter(filter)
+            .with_ansi(false)
+            .with_writer(writer)
+            .init();
         Some(guard)
     };
 
-    let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build()?;
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?;
     rt.block_on(run(cli, state_dir))
 }
 
@@ -135,7 +169,9 @@ async fn run(cli: Cli, state_dir: PathBuf) -> Result<()> {
 
     for item in &cli.items {
         let src = match TorrentSource::from_input(item) {
-            TorrentSource::File(p) => TorrentSource::Bytes(std::fs::read(&p).with_context(|| format!("reading {}", p.display()))?),
+            TorrentSource::File(p) => TorrentSource::Bytes(
+                std::fs::read(&p).with_context(|| format!("reading {}", p.display()))?,
+            ),
             other => other,
         };
         match engine.add(AddTorrent::new(src)).await {
@@ -145,7 +181,11 @@ async fn run(cli: Cli, state_dir: PathBuf) -> Result<()> {
     }
 
     if cli.daemon {
-        println!("trav {} · web UI on http://{}", env!("CARGO_PKG_VERSION"), cli.web_bind);
+        println!(
+            "trav {} · web UI on http://{}",
+            env!("CARGO_PKG_VERSION"),
+            cli.web_bind
+        );
         tokio::select! {
             r = web::serve(engine.clone(), cli.web_bind, cli.token.clone()) => r?,
             _ = shutdown_signal() => {}
@@ -171,7 +211,8 @@ async fn shutdown_signal() {
     let ctrl_c = tokio::signal::ctrl_c();
     #[cfg(unix)]
     {
-        let mut term = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()).expect("signal handler");
+        let mut term = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+            .expect("signal handler");
         tokio::select! {
             _ = ctrl_c => {}
             _ = term.recv() => {}

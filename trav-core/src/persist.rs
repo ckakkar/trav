@@ -2,7 +2,7 @@
 
 use std::path::{Path, PathBuf};
 
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 use crate::metainfo::InfoHash;
 
@@ -34,14 +34,21 @@ pub struct Store {
 impl Store {
     pub fn new(root: PathBuf) -> std::io::Result<Self> {
         std::fs::create_dir_all(root.join("torrents"))?;
-        let f = std::fs::OpenOptions::new().create(true).truncate(false).write(true).open(root.join(".lock"))?;
+        let f = std::fs::OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .write(true)
+            .open(root.join(".lock"))?;
         if f.try_lock().is_err() {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::WouldBlock,
                 format!("another Trav instance is using {}", root.display()),
             ));
         }
-        Ok(Self { root, lock: parking_lot::Mutex::new(Some(f)) })
+        Ok(Self {
+            root,
+            lock: parking_lot::Mutex::new(Some(f)),
+        })
     }
 
     pub fn unlock(&self) {
@@ -55,7 +62,9 @@ impl Store {
     }
 
     fn torrent_path(&self, ih: &InfoHash, ext: &str) -> PathBuf {
-        self.root.join("torrents").join(format!("{}.{ext}", hex::encode(ih)))
+        self.root
+            .join("torrents")
+            .join(format!("{}.{ext}", hex::encode(ih)))
     }
 
     pub fn save_torrent(&self, ih: &InfoHash, bytes: &[u8]) -> std::io::Result<()> {
@@ -79,7 +88,9 @@ impl Store {
     /// All persisted torrents, in queue order.
     pub fn load_all(&self) -> Vec<(InfoHash, ResumeData)> {
         let mut out = Vec::new();
-        let Ok(rd) = std::fs::read_dir(self.root.join("torrents")) else { return out };
+        let Ok(rd) = std::fs::read_dir(self.root.join("torrents")) else {
+            return out;
+        };
         for e in rd.flatten() {
             let p = e.path();
             if p.extension().and_then(|x| x.to_str()) != Some("json") {
