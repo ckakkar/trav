@@ -400,4 +400,83 @@ mod tests {
             .build();
         assert!(parse_http_response(&f).is_err());
     }
+
+    /// BEP 15 mock: answers connect, then announce, ignoring a stray datagram first.
+    #[tokio::test]
+    async fn udp_announce_against_mock() {
+        let srv = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let addr = srv.local_addr().unwrap();
+        tokio::spawn(async move {
+            let mut buf = [0u8; 1500];
+            let conn_id = 0xdead_beef_u64;
+            loop {
+                let (n, from) = srv.recv_from(&mut buf).await.unwrap();
+                let mut b = &buf[..n];
+                if n == 16 {
+                    assert_eq!(b.get_u64(), UDP_MAGIC);
+                    assert_eq!(b.get_u32(), 0);
+                    let tid = b.get_u32();
+                    // A reply with the wrong transaction id must be ignored.
+                    let mut junk = BytesMut::new();
+                    junk.put_u32(0);
+                    junk.put_u32(tid.wrapping_add(9));
+                    junk.put_u64(1);
+                    srv.send_to(&junk, from).await.unwrap();
+                    let mut r = BytesMut::new();
+                    r.put_u32(0);
+                    r.put_u32(tid);
+                    r.put_u64(conn_id);
+                    srv.send_to(&r, from).await.unwrap();
+                } else {
+                    assert_eq!(n, 98);
+                    assert_eq!(b.get_u64(), conn_id);
+                    assert_eq!(b.get_u32(), 1);
+                    let tid = b.get_u32();
+                    let mut r = BytesMut::new();
+                    r.put_u32(1);
+                    r.put_u32(tid);
+                    r.put_u32(900);
+                    r.put_u32(3);
+                    r.put_u32(7);
+                    r.put_slice(&[10, 0, 0, 1, 0x1a, 0xe1, 10, 0, 0, 2, 0x1a, 0xe2]);
+                    srv.send_to(&r, from).await.unwrap();
+                }
+            }
+        });
+        let req = AnnounceRequest {
+            info_hash: [1; 20],
+            peer_id: [2; 20],
+            port: 6881,
+            uploaded: 0,
+            downloaded: 0,
+            left: 100,
+            event: AnnounceEvent::Started,
+            num_want: 50,
+            key: 9,
+            tracker_id: None,
+        };
+        let url = format!("udp://127.0.0.1:{}/announce", addr.port());
+        let r = announce(&url, &req, &http_client()).await.unwrap();
+        assert_eq!(r.interval, Duration::from_secs(900));
+        assert_eq!((r.seeders, r.leechers), (Some(7), Some(3)));
+        assert_eq!(r.peers.len(), 2);
+        assert_eq!(r.peers[0], "10.0.0.1:6881".parse().unwrap());
+    }
+
+    #[tokio::test]
+    async fn rejects_unknown_scheme() {
+        let req = AnnounceRequest {
+            info_hash: [0; 20],
+            peer_id: [0; 20],
+            port: 1,
+            uploaded: 0,
+            downloaded: 0,
+            left: 0,
+            event: AnnounceEvent::None,
+            num_want: 0,
+            key: 0,
+            tracker_id: None,
+        };
+        assert!(announce("wss://x/y", &req, &http_client()).await.is_err());
+    }
 }

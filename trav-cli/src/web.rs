@@ -52,21 +52,38 @@ pub async fn serve(
     if token.is_none() && !bind.ip().is_loopback() {
         anyhow::bail!("refusing to expose the web UI on {bind} without --token");
     }
-    let state = AppState {
-        engine,
-        token: token.map(Arc::from),
-    };
-    let app = Router::new()
-        .route("/api/rpc", post(rpc))
-        .route("/api/events", get(events))
-        .route("/api/health", get(|| async { "ok" }))
-        .fallback(get(static_file))
-        .layer(middleware::from_fn_with_state(state.clone(), guard))
-        .with_state(state);
+    let app = router(engine, token);
     let listener = tokio::net::TcpListener::bind(bind).await?;
     tracing::info!("web UI on http://{bind}");
     axum::serve(listener, app).await?;
     Ok(())
+}
+
+/// Largest RPC body accepted: base64 of a very large `.torrent` (multi-GB, many files).
+const MAX_BODY: usize = 64 * 1024 * 1024;
+
+/// The full HTTP surface, separated from socket binding so it can be tested in-process.
+pub fn router(engine: EngineHandle, token: Option<String>) -> Router {
+    let state = AppState {
+        engine,
+        token: token.map(Arc::from),
+    };
+    Router::new()
+        .route("/api/rpc", post(rpc))
+        .route("/api/events", get(events))
+        .route("/api/health", get(|| async { "ok" }))
+        .fallback(get(static_file))
+        .layer(axum::extract::DefaultBodyLimit::max(MAX_BODY))
+        .layer(middleware::from_fn_with_state(state.clone(), guard))
+        .with_state(state)
+}
+
+/// Compare secrets without leaking the matching prefix length through timing.
+fn ct_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
 }
 
 fn loopback_host(host: &str) -> bool {
@@ -108,18 +125,29 @@ async fn guard(State(st): State<AppState>, req: Request, next: Next) -> Response
         return cors(StatusCode::NO_CONTENT.into_response(), origin);
     }
 
-    let host_ok = req
+    let host = req
         .headers()
         .get(header::HOST)
         .and_then(|h| h.to_str().ok())
-        .is_some_and(loopback_host);
+        .unwrap_or("")
+        .to_string();
+    let host_ok = loopback_host(&host);
+    // CSRF: a browser request from another site carries a foreign Origin. Only
+    // same-origin and local dev servers may drive the API.
+    let origin_ok = match origin.as_ref().and_then(|o| o.to_str().ok()) {
+        None => true,
+        Some(o) => local_origin || o == format!("http://{host}") || o == format!("https://{host}"),
+    };
     let is_api = req.uri().path().starts_with("/api/");
+    if is_api && !origin_ok {
+        return (StatusCode::FORBIDDEN, "cross-origin request refused").into_response();
+    }
     match &st.token {
         None if !host_ok => return (StatusCode::FORBIDDEN, "forbidden host").into_response(),
         Some(t)
             if is_api
                 && req.uri().path() != "/api/health"
-                && presented_token(&req).as_deref() != Some(&**t) =>
+                && !presented_token(&req).is_some_and(|p| ct_eq(p.as_bytes(), t.as_bytes())) =>
         {
             return (
                 StatusCode::UNAUTHORIZED,
@@ -129,7 +157,17 @@ async fn guard(State(st): State<AppState>, req: Request, next: Next) -> Response
         }
         _ => {}
     }
-    let res = next.run(req).await;
+    let mut res = next.run(req).await;
+    let h = res.headers_mut();
+    h.insert(
+        header::X_CONTENT_TYPE_OPTIONS,
+        HeaderValue::from_static("nosniff"),
+    );
+    h.insert(header::X_FRAME_OPTIONS, HeaderValue::from_static("DENY"));
+    h.insert(
+        header::REFERRER_POLICY,
+        HeaderValue::from_static("no-referrer"),
+    );
     if local_origin { cors(res, origin) } else { res }
 }
 
@@ -205,5 +243,158 @@ async fn static_file(uri: Uri) -> Response {
             "Web UI not built. Run `npm run build` in trav-gui, then rebuild trav (the API is live at /api/rpc).",
         )
             .into_response(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::body::to_bytes;
+    use axum::http::Request as HttpRequest;
+    use tower::ServiceExt;
+    use trav_core::{Engine, Settings};
+
+    async fn engine(dir: &std::path::Path) -> EngineHandle {
+        let s = Settings {
+            download_dir: dir.join("dl"),
+            listen_port: 0,
+            enable_dht: false,
+            enable_upnp: false,
+            ..Settings::default()
+        };
+        Engine::start_with(dir.join("state"), Some(s))
+            .await
+            .unwrap()
+    }
+
+    fn rpc_req(host: &str, body: &str) -> HttpRequest<Body> {
+        HttpRequest::post("/api/rpc")
+            .header(header::HOST, host)
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(body.to_string()))
+            .unwrap()
+    }
+
+    async fn json(res: Response) -> Value {
+        serde_json::from_slice(&to_bytes(res.into_body(), usize::MAX).await.unwrap()).unwrap()
+    }
+
+    #[tokio::test]
+    async fn rpc_roundtrip_on_loopback() {
+        let tmp = tempfile::tempdir().unwrap();
+        let app = router(engine(tmp.path()).await, None);
+        let res = app
+            .clone()
+            .oneshot(rpc_req("127.0.0.1:9696", r#"{"method":"snapshot"}"#))
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        assert_eq!(res.headers()[header::X_FRAME_OPTIONS], "DENY");
+        let v = json(res).await;
+        assert_eq!(v["ok"], true);
+        assert!(v["result"]["torrents"].as_array().unwrap().is_empty());
+
+        let magnet = r#"{"method":"add","params":{"magnet":"magnet:?xt=urn:btih:c12fe1c06bba254a9dc9f519b335aa7c1367a88a&dn=x","paused":true}}"#;
+        let v = json(
+            app.clone()
+                .oneshot(rpc_req("localhost", magnet))
+                .await
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(
+            v["result"]["infoHash"],
+            "c12fe1c06bba254a9dc9f519b335aa7c1367a88a"
+        );
+
+        let res = app
+            .oneshot(rpc_req("localhost", r#"{"method":"nope"}"#))
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+        assert!(
+            json(res).await["error"]
+                .as_str()
+                .unwrap()
+                .contains("unknown method")
+        );
+    }
+
+    #[tokio::test]
+    async fn blocks_dns_rebinding_and_cross_origin() {
+        let tmp = tempfile::tempdir().unwrap();
+        let app = router(engine(tmp.path()).await, None);
+        let res = app
+            .clone()
+            .oneshot(rpc_req("evil.example:9696", r#"{"method":"snapshot"}"#))
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::FORBIDDEN);
+
+        let mut req = rpc_req("127.0.0.1:9696", r#"{"method":"pauseAll"}"#);
+        req.headers_mut().insert(
+            header::ORIGIN,
+            HeaderValue::from_static("https://evil.example"),
+        );
+        assert_eq!(
+            app.clone().oneshot(req).await.unwrap().status(),
+            StatusCode::FORBIDDEN
+        );
+
+        let mut req = rpc_req("127.0.0.1:9696", r#"{"method":"snapshot"}"#);
+        req.headers_mut().insert(
+            header::ORIGIN,
+            HeaderValue::from_static("http://127.0.0.1:9696"),
+        );
+        assert_eq!(app.oneshot(req).await.unwrap().status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn token_is_enforced() {
+        let tmp = tempfile::tempdir().unwrap();
+        let app = router(engine(tmp.path()).await, Some("s3cret".into()));
+        let body = r#"{"method":"snapshot"}"#;
+        let res = app
+            .clone()
+            .oneshot(rpc_req("10.0.0.5:9696", body))
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+
+        let mut req = rpc_req("10.0.0.5:9696", body);
+        req.headers_mut().insert(
+            header::AUTHORIZATION,
+            HeaderValue::from_static("Bearer wrong!"),
+        );
+        assert_eq!(
+            app.clone().oneshot(req).await.unwrap().status(),
+            StatusCode::UNAUTHORIZED
+        );
+
+        let mut req = rpc_req("10.0.0.5:9696", body);
+        req.headers_mut().insert(
+            header::AUTHORIZATION,
+            HeaderValue::from_static("Bearer s3cret"),
+        );
+        assert_eq!(
+            app.clone().oneshot(req).await.unwrap().status(),
+            StatusCode::OK
+        );
+
+        let health = HttpRequest::get("/api/health")
+            .header(header::HOST, "10.0.0.5")
+            .body(Body::empty())
+            .unwrap();
+        assert_eq!(app.oneshot(health).await.unwrap().status(), StatusCode::OK);
+    }
+
+    #[test]
+    fn helpers() {
+        assert!(loopback_host("localhost:9696"));
+        assert!(loopback_host("[::1]:80"));
+        assert!(!loopback_host("localhost.evil.com"));
+        assert!(ct_eq(b"abc", b"abc"));
+        assert!(!ct_eq(b"abc", b"abd"));
+        assert!(!ct_eq(b"abc", b"ab"));
     }
 }

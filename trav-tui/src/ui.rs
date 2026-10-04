@@ -603,3 +603,66 @@ fn draw_help(f: &mut Frame) {
         r,
     );
 }
+
+#[cfg(test)]
+mod tests {
+    use ratatui::Terminal;
+    use ratatui::backend::TestBackend;
+    use trav_core::{AddTorrent, Engine, Settings, TorrentSource};
+
+    use crate::app::{Mode, TuiApp};
+
+    fn text(t: &Terminal<TestBackend>) -> String {
+        let b = t.backend().buffer();
+        (0..b.area.height)
+            .map(|y| {
+                (0..b.area.width)
+                    .map(|x| b[(x, y)].symbol())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    #[tokio::test]
+    async fn renders_library_and_overlays() {
+        let tmp = tempfile::tempdir().unwrap();
+        let s = Settings {
+            download_dir: tmp.path().join("dl"),
+            listen_port: 0,
+            enable_dht: false,
+            enable_upnp: false,
+            ..Settings::default()
+        };
+        let h = Engine::start_with(tmp.path().join("state"), Some(s))
+            .await
+            .unwrap();
+        let mut app = TuiApp::new(h.clone());
+        let mut term = Terminal::new(TestBackend::new(140, 40)).unwrap();
+
+        term.draw(|f| super::draw(f, &mut app)).unwrap();
+        assert!(text(&term).contains("nothing in the swarm"));
+
+        let mut req = AddTorrent::new(TorrentSource::Magnet(
+            "magnet:?xt=urn:btih:c12fe1c06bba254a9dc9f519b335aa7c1367a88a&dn=Sintel".into(),
+        ));
+        req.paused = true;
+        h.add(req).await.unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(700)).await;
+        app.snap = h.snapshot();
+        app.table.select(Some(0));
+        term.draw(|f| super::draw(f, &mut app)).unwrap();
+        let screen = text(&term);
+        assert!(screen.contains("Sintel"), "{screen}");
+        assert!(screen.contains("PAUSE"));
+
+        app.mode = Mode::Help;
+        term.draw(|f| super::draw(f, &mut app)).unwrap();
+        assert!(text(&term).contains("remove torrent and delete data"));
+
+        // Tiny terminals must not panic.
+        let mut tiny = Terminal::new(TestBackend::new(20, 6)).unwrap();
+        tiny.draw(|f| super::draw(f, &mut app)).unwrap();
+        h.shutdown().await;
+    }
+}

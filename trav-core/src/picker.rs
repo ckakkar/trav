@@ -542,4 +542,94 @@ mod tests {
         assert!(out.iter().all(|r| r.piece == 1));
         assert_eq!(p.wanted_bytes_left(), BLOCK_SIZE as u64);
     }
+
+    /// Random interleavings of pick / receive / release / verify must keep the
+    /// `free` counters exact and eventually complete every wanted piece.
+    #[test]
+    fn randomized_invariants() {
+        let mut x = 0x2545_f491_4f6c_dd1du64;
+        let mut rnd = |n: usize| {
+            x ^= x << 13;
+            x ^= x >> 7;
+            x ^= x << 17;
+            (x % n as u64) as usize
+        };
+        let pieces = 24;
+        let inf = info(
+            pieces,
+            BLOCK_SIZE * 3,
+            (BLOCK_SIZE * 3) as u64 * pieces as u64 - 5000,
+        );
+        let mut p = Picker::new(&inf, Bitfield::new(pieces));
+        let peers: Vec<(PeerKey, Bitfield)> = (1..=5)
+            .map(|k| {
+                let mut bf = Bitfield::new(pieces);
+                for i in 0..pieces {
+                    if (i + k as usize) % 3 != 0 || k == 5 {
+                        bf.set(i);
+                    }
+                }
+                (k, bf)
+            })
+            .collect();
+        for (_, bf) in &peers {
+            p.add_bitfield(bf);
+        }
+        let mut outstanding: Vec<(PeerKey, BlockReq)> = Vec::new();
+        for step in 0..20_000 {
+            if p.is_complete() {
+                break;
+            }
+            match rnd(10) {
+                0..=3 => {
+                    let (k, bf) = &peers[rnd(peers.len())];
+                    let mut out = vec![];
+                    p.pick(*k, bf, 1 + rnd(6), &mut out);
+                    outstanding.extend(out.into_iter().map(|r| (*k, r)));
+                }
+                4..=7 if !outstanding.is_empty() => {
+                    let (k, r) = outstanding.swap_remove(rnd(outstanding.len()));
+                    let data = vec![0u8; r.len as usize];
+                    if let OnBlock::Complete { piece, .. } = p.on_block(k, r.piece, r.begin, &data)
+                    {
+                        // Occasionally fail the hash check to exercise re-download.
+                        p.verified(piece, rnd(8) != 0);
+                    }
+                }
+                8 if !outstanding.is_empty() => {
+                    let (k, r) = outstanding.swap_remove(rnd(outstanding.len()));
+                    p.release(k, &r);
+                }
+                9 => {
+                    let k = peers[rnd(peers.len())].0;
+                    outstanding.retain(|(pk, _)| *pk != k);
+                    p.release_peer(k);
+                }
+                _ => {}
+            }
+            for (idx, part) in &p.partial {
+                let free = part
+                    .blocks
+                    .iter()
+                    .filter(|b| matches!(b, Block::Free))
+                    .count() as u32;
+                assert_eq!(
+                    part.free, free,
+                    "free count drifted on piece {idx} at step {step}"
+                );
+                let done = part
+                    .blocks
+                    .iter()
+                    .filter(|b| matches!(b, Block::Done))
+                    .count() as u32;
+                assert_eq!(part.done, done);
+            }
+        }
+        assert!(
+            p.is_complete(),
+            "picker stalled: {} of {pieces}",
+            p.have().count_ones()
+        );
+        assert_eq!(p.wanted_bytes_left(), 0);
+    }
 }
