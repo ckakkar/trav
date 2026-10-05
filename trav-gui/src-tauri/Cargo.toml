@@ -27,7 +27,7 @@ tokio = { version = "1", features = ["sync", "time"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing-appender = "0.2"
-dirs = "6"
+dirs = "7"
 url = "2"
 trav-core = { path = "../../trav-core" }
 
