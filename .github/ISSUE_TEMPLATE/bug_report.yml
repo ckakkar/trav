@@ -1,0 +1,24 @@
+name: Bug report
+description: Something isn't working
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: Steps to reproduce, expected vs actual behaviour.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version and platform
+      placeholder: "Trav 0.2.0, macOS 15.1 (desktop) / trav --daemon in Docker"
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: "Desktop: <state dir>/logs/trav-desktop.*.log · CLI: <state dir>/logs/trav.*.log · daemon: stderr"
+      render: text

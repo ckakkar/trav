@@ -1,0 +1,178 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  # Tauri's Linux system libraries, needed wherever the desktop crate compiles.
+  TAURI_DEPS: libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev
+
+jobs:
+  versions:
+    name: Versions in sync
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: scripts/check-versions.sh
+
+  lint:
+    name: Format & clippy (incl. desktop)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y $TAURI_DEPS
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+      # The desktop crate's build script expects the frontend export to exist.
+      - run: mkdir -p trav-gui/out && echo '<!doctype html>' > trav-gui/out/index.html
+      - run: cargo fmt --all --check
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+
+  test:
+    name: Tests (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --locked
+
+  msrv:
+    name: MSRV (1.90)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y $TAURI_DEPS
+      - uses: dtolnay/rust-toolchain@1.90
+      - uses: Swatinem/rust-cache@v2
+      - run: mkdir -p trav-gui/out && echo '<!doctype html>' > trav-gui/out/index.html
+      - run: cargo check --workspace --all-targets --locked
+
+  deny:
+    name: Supply chain (cargo-deny)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check advisories bans licenses sources
+
+  coverage:
+    name: Coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+      - uses: taiki-e/install-action@cargo-llvm-cov
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo llvm-cov --locked --lcov --output-path lcov.info
+      - run: |
+          echo '## Rust coverage' >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          cargo llvm-cov report --summary-only >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lcov
+          path: lcov.info
+
+  ui:
+    name: UI typecheck, unit tests, build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: trav-gui
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: trav-gui/package-lock.json
+      - run: npm ci
+      - run: npm audit --omit=dev --audit-level=high
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ui-export
+          path: trav-gui/out
+
+  e2e:
+    name: End-to-end (Playwright vs real daemons)
+    needs: ui
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: ui-export
+          path: trav-gui/out
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --locked -p trav-cli
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: trav-gui/package-lock.json
+      - run: npm ci
+        working-directory: trav-gui
+      - run: npx playwright install --with-deps chromium
+        working-directory: trav-gui
+      - run: npx playwright test
+        working-directory: trav-gui
+        env:
+          CI: "1"
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            trav-gui/playwright-report
+            trav-gui/test-results
+            /tmp/trav-e2e/*.log
+
+  docker:
+    name: Docker image builds
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          load: true
+          tags: trav:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Smoke test the image
+        run: |
+          docker run -d --name trav -e TRAV_TOKEN=ci -p 9696:9696 trav:ci
+          for i in $(seq 1 30); do curl -fsS http://127.0.0.1:9696/api/health && break; sleep 1; done
+          curl -fsS -H 'Authorization: Bearer ci' -H 'content-type: application/json' \
+            -d '{"method":"snapshot"}' http://127.0.0.1:9696/api/rpc | grep -q '"ok":true'
+          test "$(curl -s -o /dev/null -w '%{http_code}' -d '{"method":"snapshot"}' -H 'content-type: application/json' http://127.0.0.1:9696/api/rpc)" = 401
+          docker logs trav

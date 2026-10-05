@@ -1,229 +1,482 @@
-use serde::Deserialize;
-use std::net::Ipv4Addr;
+//! HTTP (BEP 3/23) and UDP (BEP 15) tracker announces.
+
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::time::Duration;
-use reqwest::Client;
 
-use crate::error::{BitTorrentError, Result};
-
-#[derive(Debug, Clone)]
-pub struct PeerInfo {
-    pub ip: Ipv4Addr,
-    pub port: u16,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct TrackerResponse {
-    pub interval: u64,
-    #[serde(with = "serde_bytes")]
-    pub peers: Vec<u8>,
-}
-
-impl TrackerResponse {
-    pub fn parse_peers(&self) -> Vec<PeerInfo> {
-        self.peers
-            .chunks_exact(6)
-            .map(|chunk| PeerInfo {
-                ip: Ipv4Addr::new(chunk[0], chunk[1], chunk[2], chunk[3]),
-                port: u16::from_be_bytes([chunk[4], chunk[5]]),
-            })
-            .collect()
-    }
-}
-
-pub struct TrackerClient {
-    client: Client,
-    peer_id: String,
-    port: u16,
-}
-
-impl TrackerClient {
-    pub fn new(peer_id: &str, port: u16) -> Self {
-        let client = Client::builder()
-            .timeout(Duration::from_secs(10))
-            .build()
-            .unwrap_or_default();
-        Self {
-            client,
-            peer_id: peer_id.to_string(),
-            port,
-        }
-    }
-
-    fn urlencode_bytes(bytes: &[u8]) -> String {
-        let mut encoded = String::with_capacity(bytes.len() * 3);
-        for &b in bytes {
-            match b {
-                b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
-                    encoded.push(b as char);
-                }
-                _ => encoded.push_str(&format!("%{:02x}", b)),
-            }
-        }
-        encoded
-    }
-
-    pub async fn announce(
-        &self,
-        announce_url: &str,
-        info_hash: &[u8; 20],
-        downloaded: u64,
-        uploaded: u64,
-        left: u64,
-    ) -> Result<TrackerResponse> {
-        let url = format!(
-            "{}?info_hash={}&peer_id={}&port={}&uploaded={}&downloaded={}&left={}&compact=1",
-            announce_url,
-            Self::urlencode_bytes(info_hash),
-            Self::urlencode_bytes(self.peer_id.as_bytes()),
-            self.port,
-            uploaded,
-            downloaded,
-            left,
-        );
-
-        let bytes = self
-            .client
-            .get(&url)
-            .send()
-            .await
-            .map_err(|e| BitTorrentError::Engine(e.to_string()))?
-            .bytes()
-            .await
-            .map_err(|e| BitTorrentError::Engine(e.to_string()))?;
-
-        let resp: TrackerResponse = serde_bencode::from_bytes(&bytes)?;
-        Ok(resp)
-    }
-}
-
-use tokio::net::UdpSocket;
 use bytes::{Buf, BufMut, BytesMut};
+use tokio::net::UdpSocket;
 use url::Url;
 
-const UDP_TIMEOUT: Duration = Duration::from_secs(8);
+use crate::bencode::{self, Value};
+use crate::error::{Error, Result};
+use crate::metainfo::InfoHash;
 
-pub struct UdpTrackerClient {
-    port: u16,
-    peer_id: String,
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AnnounceEvent {
+    None,
+    Started,
+    Completed,
+    Stopped,
 }
 
-impl UdpTrackerClient {
-    pub fn new(peer_id: &str, port: u16) -> Self {
-        Self {
-            peer_id: peer_id.to_string(),
-            port,
+impl AnnounceEvent {
+    fn http(self) -> Option<&'static str> {
+        match self {
+            Self::None => None,
+            Self::Started => Some("started"),
+            Self::Completed => Some("completed"),
+            Self::Stopped => Some("stopped"),
         }
     }
 
-    pub async fn announce(
-        &self,
-        announce_url: &str,
-        info_hash: &[u8; 20],
-        downloaded: u64,
-        uploaded: u64,
-        left: u64,
-    ) -> Result<TrackerResponse> {
-        let parsed = Url::parse(announce_url)
-            .map_err(|e| BitTorrentError::Engine(format!("Invalid UDP tracker URL: {}", e)))?;
-
-        let port = parsed.port().unwrap_or(6969); // UDP trackers default to 6969
-        let host = parsed.host_str().unwrap_or("");
-        let addr = format!("{}:{}", host, port);
-
-        let socket = UdpSocket::bind("0.0.0.0:0")
-            .await
-            .map_err(|e| BitTorrentError::Engine(e.to_string()))?;
-        socket
-            .connect(&addr)
-            .await
-            .map_err(|e| BitTorrentError::Engine(e.to_string()))?;
-
-        let transaction_id = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .subsec_nanos();
-
-        // 1. Connect request
-        let mut connect_req = BytesMut::with_capacity(16);
-        connect_req.put_u64(0x41727101980);
-        connect_req.put_u32(0);
-        connect_req.put_u32(transaction_id);
-
-        socket
-            .send(&connect_req)
-            .await
-            .map_err(|e| BitTorrentError::Engine(e.to_string()))?;
-
-        let mut buf = vec![0u8; 1024];
-        let n = tokio::time::timeout(UDP_TIMEOUT, socket.recv(&mut buf))
-            .await
-            .map_err(|_| BitTorrentError::Engine("UDP connect response timeout".into()))?
-            .map_err(|e| BitTorrentError::Engine(e.to_string()))?;
-
-        let mut response = &buf[..n];
-        if response.len() < 16 {
-            return Err(BitTorrentError::Engine("UDP connect response too short".into()));
+    fn udp(self) -> u32 {
+        match self {
+            Self::None => 0,
+            Self::Completed => 1,
+            Self::Started => 2,
+            Self::Stopped => 3,
         }
+    }
+}
 
-        let action = response.get_u32();
-        let res_tid = response.get_u32();
-        if action != 0 || res_tid != transaction_id {
-            return Err(BitTorrentError::Engine("Invalid UDP connect response".into()));
+#[derive(Debug, Clone)]
+pub struct AnnounceRequest {
+    pub info_hash: InfoHash,
+    pub peer_id: [u8; 20],
+    pub port: u16,
+    pub uploaded: u64,
+    pub downloaded: u64,
+    pub left: u64,
+    pub event: AnnounceEvent,
+    pub num_want: u32,
+    pub key: u32,
+    pub tracker_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct AnnounceResponse {
+    pub interval: Duration,
+    pub min_interval: Option<Duration>,
+    pub seeders: Option<u32>,
+    pub leechers: Option<u32>,
+    pub peers: Vec<SocketAddr>,
+    pub warning: Option<String>,
+    pub tracker_id: Option<String>,
+}
+
+pub fn http_client() -> reqwest::Client {
+    reqwest::Client::builder()
+        .timeout(Duration::from_secs(20))
+        .connect_timeout(Duration::from_secs(10))
+        .user_agent(concat!("Trav/", env!("CARGO_PKG_VERSION")))
+        .gzip(true)
+        .build()
+        .unwrap_or_default()
+}
+
+pub async fn announce(
+    url: &str,
+    req: &AnnounceRequest,
+    http: &reqwest::Client,
+) -> Result<AnnounceResponse> {
+    if url.starts_with("udp://") {
+        announce_udp(url, req).await
+    } else if url.starts_with("http://") || url.starts_with("https://") {
+        announce_http(url, req, http).await
+    } else {
+        Err(Error::Tracker(format!("unsupported tracker scheme: {url}")))
+    }
+}
+
+fn pct(bytes: &[u8]) -> String {
+    let mut s = String::with_capacity(bytes.len() * 3);
+    for &b in bytes {
+        if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.' | b'~') {
+            s.push(b as char);
+        } else {
+            s.push_str(&format!("%{b:02X}"));
         }
-        let connection_id = response.get_u64();
+    }
+    s
+}
 
-        // 2. Announce request
-        let ann_tid = transaction_id.wrapping_add(1);
-        let mut ann_req = BytesMut::with_capacity(98);
-        ann_req.put_u64(connection_id);
-        ann_req.put_u32(1);
-        ann_req.put_u32(ann_tid);
-        ann_req.put_slice(info_hash);
+async fn announce_http(
+    base: &str,
+    req: &AnnounceRequest,
+    http: &reqwest::Client,
+) -> Result<AnnounceResponse> {
+    let sep = if base.contains('?') { '&' } else { '?' };
+    let mut url = format!(
+        "{base}{sep}info_hash={}&peer_id={}&port={}&uploaded={}&downloaded={}&left={}&compact=1&no_peer_id=1&numwant={}&key={:08x}",
+        pct(&req.info_hash),
+        pct(&req.peer_id),
+        req.port,
+        req.uploaded,
+        req.downloaded,
+        req.left,
+        req.num_want,
+        req.key,
+    );
+    if let Some(ev) = req.event.http() {
+        url.push_str("&event=");
+        url.push_str(ev);
+    }
+    if let Some(id) = &req.tracker_id {
+        url.push_str("&trackerid=");
+        url.push_str(&pct(id.as_bytes()));
+    }
 
-        let mut peer_id_bytes = [0u8; 20];
-        let pid = self.peer_id.as_bytes();
-        peer_id_bytes[..pid.len().min(20)].copy_from_slice(&pid[..pid.len().min(20)]);
-        ann_req.put_slice(&peer_id_bytes);
-
-        ann_req.put_u64(downloaded);
-        ann_req.put_u64(left);
-        ann_req.put_u64(uploaded);
-        ann_req.put_u32(2); // event: started
-        ann_req.put_u32(0);
-        ann_req.put_u32(0);
-        ann_req.put_i32(-1);
-        ann_req.put_u16(self.port);
-
-        socket
-            .send(&ann_req)
-            .await
-            .map_err(|e| BitTorrentError::Engine(e.to_string()))?;
-
-        let mut buf = vec![0u8; 2048];
-        let n = tokio::time::timeout(UDP_TIMEOUT, socket.recv(&mut buf))
-            .await
-            .map_err(|_| BitTorrentError::Engine("UDP announce response timeout".into()))?
-            .map_err(|e| BitTorrentError::Engine(e.to_string()))?;
-
-        let mut response = &buf[..n];
-        if response.len() < 20 {
-            return Err(BitTorrentError::Engine("UDP announce response too short".into()));
+    let resp = http
+        .get(&url)
+        .send()
+        .await
+        .map_err(|e| Error::Tracker(short_reqwest(&e)))?;
+    let status = resp.status();
+    let body = resp
+        .bytes()
+        .await
+        .map_err(|e| Error::Tracker(short_reqwest(&e)))?;
+    let v = bencode::decode(&body).map_err(|_| {
+        if status.is_success() {
+            Error::Tracker("malformed tracker response".into())
+        } else {
+            Error::Tracker(format!("HTTP {status}"))
         }
+    })?;
+    parse_http_response(&v)
+}
 
-        let action = response.get_u32();
-        let res_tid = response.get_u32();
-        if action != 1 || res_tid != ann_tid {
-            return Err(BitTorrentError::Engine("Invalid UDP announce response".into()));
+fn short_reqwest(e: &reqwest::Error) -> String {
+    if e.is_timeout() {
+        "timed out".into()
+    } else if e.is_connect() {
+        "connection failed".into()
+    } else {
+        e.to_string()
+    }
+}
+
+pub(crate) fn parse_http_response(v: &Value) -> Result<AnnounceResponse> {
+    if let Some(f) = v.get("failure reason").and_then(Value::as_string_lossy) {
+        return Err(Error::Tracker(f));
+    }
+    let secs = |k: &str| {
+        v.get(k)
+            .and_then(Value::as_int)
+            .filter(|&i| i > 0)
+            .map(|i| Duration::from_secs(i as u64))
+    };
+    let mut peers = Vec::new();
+    match v.get("peers") {
+        Some(Value::Bytes(b)) => peers.extend(parse_compact_v4(b)),
+        Some(Value::List(list)) => {
+            for p in list {
+                let ip = p
+                    .get("ip")
+                    .and_then(Value::as_str)
+                    .and_then(|s| s.parse::<IpAddr>().ok());
+                let port = p
+                    .get("port")
+                    .and_then(Value::as_int)
+                    .and_then(|p| u16::try_from(p).ok());
+                if let (Some(ip), Some(port)) = (ip, port) {
+                    peers.push(SocketAddr::new(ip, port));
+                }
+            }
         }
+        _ => {}
+    }
+    if let Some(b) = v.get("peers6").and_then(Value::as_bytes) {
+        peers.extend(parse_compact_v6(b));
+    }
+    Ok(AnnounceResponse {
+        interval: secs("interval").unwrap_or(Duration::from_secs(1800)),
+        min_interval: secs("min interval"),
+        seeders: v
+            .get("complete")
+            .and_then(Value::as_int)
+            .map(|i| i.max(0) as u32),
+        leechers: v
+            .get("incomplete")
+            .and_then(Value::as_int)
+            .map(|i| i.max(0) as u32),
+        peers,
+        warning: v.get("warning message").and_then(Value::as_string_lossy),
+        tracker_id: v.get("tracker id").and_then(Value::as_string_lossy),
+    })
+}
 
-        let interval = response.get_u32();
-        let _leechers = response.get_u32();
-        let _seeders = response.get_u32();
-        let peers_bytes = response.to_vec();
+pub fn parse_compact_v4(b: &[u8]) -> impl Iterator<Item = SocketAddr> + '_ {
+    b.chunks_exact(6).filter_map(|c| {
+        let port = u16::from_be_bytes([c[4], c[5]]);
+        (port != 0).then(|| SocketAddr::new(Ipv4Addr::new(c[0], c[1], c[2], c[3]).into(), port))
+    })
+}
 
-        Ok(TrackerResponse {
-            interval: interval as u64,
-            peers: peers_bytes,
-        })
+pub fn parse_compact_v6(b: &[u8]) -> impl Iterator<Item = SocketAddr> + '_ {
+    b.chunks_exact(18).filter_map(|c| {
+        let ip: [u8; 16] = c[..16].try_into().ok()?;
+        let port = u16::from_be_bytes([c[16], c[17]]);
+        (port != 0).then(|| SocketAddr::new(Ipv6Addr::from(ip).into(), port))
+    })
+}
+
+pub fn encode_compact(addr: &SocketAddr, out: &mut Vec<u8>) {
+    match addr {
+        SocketAddr::V4(a) => out.extend_from_slice(&a.ip().octets()),
+        SocketAddr::V6(a) => out.extend_from_slice(&a.ip().octets()),
+    }
+    out.extend_from_slice(&addr.port().to_be_bytes());
+}
+
+const UDP_MAGIC: u64 = 0x0417_2710_1980;
+
+async fn announce_udp(url: &str, req: &AnnounceRequest) -> Result<AnnounceResponse> {
+    let parsed = Url::parse(url).map_err(|e| Error::Tracker(format!("bad URL: {e}")))?;
+    let host = parsed
+        .host_str()
+        .ok_or_else(|| Error::Tracker("missing host".into()))?;
+    let port = parsed
+        .port()
+        .ok_or_else(|| Error::Tracker("missing port".into()))?;
+    let host = host.trim_start_matches('[').trim_end_matches(']');
+
+    let addrs: Vec<SocketAddr> = tokio::time::timeout(
+        Duration::from_secs(10),
+        tokio::net::lookup_host((host, port)),
+    )
+    .await
+    .map_err(|_| Error::Tracker("DNS timed out".into()))?
+    .map_err(|_| Error::Tracker("DNS lookup failed".into()))?
+    .collect();
+    let addr = addrs
+        .iter()
+        .find(|a| a.is_ipv4())
+        .or_else(|| addrs.first())
+        .copied()
+        .ok_or_else(|| Error::Tracker("no address for host".into()))?;
+
+    let bind: SocketAddr = if addr.is_ipv4() {
+        "0.0.0.0:0".parse().unwrap()
+    } else {
+        "[::]:0".parse().unwrap()
+    };
+    let sock = UdpSocket::bind(bind).await?;
+    sock.connect(addr).await?;
+
+    let mut buf = vec![0u8; 4096];
+
+    // BEP 15 retransmission, shortened: 4s, 8s, 12s.
+    let conn_id = {
+        let mut out = None;
+        for attempt in 1..=3u64 {
+            let tid: u32 = rand::random();
+            let mut pkt = BytesMut::with_capacity(16);
+            pkt.put_u64(UDP_MAGIC);
+            pkt.put_u32(0);
+            pkt.put_u32(tid);
+            sock.send(&pkt).await?;
+            match recv_matching(&sock, &mut buf, tid, Duration::from_secs(4 * attempt)).await? {
+                Some((0, body)) if body.len() >= 8 => {
+                    out = Some((&body[..8]).get_u64());
+                    break;
+                }
+                Some((3, body)) => {
+                    return Err(Error::Tracker(String::from_utf8_lossy(&body).into_owned()));
+                }
+                _ => continue,
+            }
+        }
+        out.ok_or(Error::Tracker("timed out".into()))?
+    };
+
+    for attempt in 1..=3u64 {
+        let tid: u32 = rand::random();
+        let mut pkt = BytesMut::with_capacity(98);
+        pkt.put_u64(conn_id);
+        pkt.put_u32(1);
+        pkt.put_u32(tid);
+        pkt.put_slice(&req.info_hash);
+        pkt.put_slice(&req.peer_id);
+        pkt.put_u64(req.downloaded);
+        pkt.put_u64(req.left);
+        pkt.put_u64(req.uploaded);
+        pkt.put_u32(req.event.udp());
+        pkt.put_u32(0); // IP: default
+        pkt.put_u32(req.key);
+        pkt.put_i32(req.num_want.min(i32::MAX as u32) as i32);
+        pkt.put_u16(req.port);
+        sock.send(&pkt).await?;
+
+        match recv_matching(&sock, &mut buf, tid, Duration::from_secs(4 * attempt)).await? {
+            Some((1, body)) if body.len() >= 12 => {
+                let mut b = &body[..];
+                let interval = b.get_u32();
+                let leechers = b.get_u32();
+                let seeders = b.get_u32();
+                let peers = if addr.is_ipv4() {
+                    parse_compact_v4(b).collect()
+                } else {
+                    parse_compact_v6(b).collect()
+                };
+                return Ok(AnnounceResponse {
+                    interval: Duration::from_secs(interval.max(60) as u64),
+                    min_interval: None,
+                    seeders: Some(seeders),
+                    leechers: Some(leechers),
+                    peers,
+                    warning: None,
+                    tracker_id: None,
+                });
+            }
+            Some((3, body)) => {
+                return Err(Error::Tracker(String::from_utf8_lossy(&body).into_owned()));
+            }
+            _ => continue,
+        }
+    }
+    Err(Error::Tracker("timed out".into()))
+}
+
+/// Wait for a datagram carrying `tid`; returns (action, body-after-header).
+async fn recv_matching(
+    sock: &UdpSocket,
+    buf: &mut [u8],
+    tid: u32,
+    wait: Duration,
+) -> Result<Option<(u32, Vec<u8>)>> {
+    let deadline = tokio::time::Instant::now() + wait;
+    loop {
+        let n = match tokio::time::timeout_at(deadline, sock.recv(buf)).await {
+            Err(_) => return Ok(None),
+            Ok(Err(e)) => return Err(Error::Tracker(format!("udp: {e}"))),
+            Ok(Ok(n)) => n,
+        };
+        if n < 8 {
+            continue;
+        }
+        let mut h = &buf[..8];
+        let action = h.get_u32();
+        if h.get_u32() == tid {
+            return Ok(Some((action, buf[8..n].to_vec())));
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::bencode::DictBuilder;
+
+    #[test]
+    fn parses_compact_and_dict_peers() {
+        let v = DictBuilder::new()
+            .int("interval", 900)
+            .int("complete", 5)
+            .bytes("peers", vec![127, 0, 0, 1, 0x1a, 0xe1])
+            .build();
+        let r = parse_http_response(&v).unwrap();
+        assert_eq!(r.peers, vec!["127.0.0.1:6881".parse().unwrap()]);
+        assert_eq!(r.seeders, Some(5));
+
+        let v = DictBuilder::new()
+            .value(
+                "peers",
+                Value::List(vec![
+                    DictBuilder::new()
+                        .bytes("ip", "10.0.0.2")
+                        .int("port", 51413)
+                        .build(),
+                ]),
+            )
+            .build();
+        assert_eq!(
+            parse_http_response(&v).unwrap().peers,
+            vec!["10.0.0.2:51413".parse().unwrap()]
+        );
+
+        let f = DictBuilder::new()
+            .bytes("failure reason", "unregistered torrent")
+            .build();
+        assert!(parse_http_response(&f).is_err());
+    }
+
+    /// BEP 15 mock: answers connect, then announce, ignoring a stray datagram first.
+    #[tokio::test]
+    async fn udp_announce_against_mock() {
+        let srv = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let addr = srv.local_addr().unwrap();
+        tokio::spawn(async move {
+            let mut buf = [0u8; 1500];
+            let conn_id = 0xdead_beef_u64;
+            loop {
+                let (n, from) = srv.recv_from(&mut buf).await.unwrap();
+                let mut b = &buf[..n];
+                if n == 16 {
+                    assert_eq!(b.get_u64(), UDP_MAGIC);
+                    assert_eq!(b.get_u32(), 0);
+                    let tid = b.get_u32();
+                    // A reply with the wrong transaction id must be ignored.
+                    let mut junk = BytesMut::new();
+                    junk.put_u32(0);
+                    junk.put_u32(tid.wrapping_add(9));
+                    junk.put_u64(1);
+                    srv.send_to(&junk, from).await.unwrap();
+                    let mut r = BytesMut::new();
+                    r.put_u32(0);
+                    r.put_u32(tid);
+                    r.put_u64(conn_id);
+                    srv.send_to(&r, from).await.unwrap();
+                } else {
+                    assert_eq!(n, 98);
+                    assert_eq!(b.get_u64(), conn_id);
+                    assert_eq!(b.get_u32(), 1);
+                    let tid = b.get_u32();
+                    let mut r = BytesMut::new();
+                    r.put_u32(1);
+                    r.put_u32(tid);
+                    r.put_u32(900);
+                    r.put_u32(3);
+                    r.put_u32(7);
+                    r.put_slice(&[10, 0, 0, 1, 0x1a, 0xe1, 10, 0, 0, 2, 0x1a, 0xe2]);
+                    srv.send_to(&r, from).await.unwrap();
+                }
+            }
+        });
+        let req = AnnounceRequest {
+            info_hash: [1; 20],
+            peer_id: [2; 20],
+            port: 6881,
+            uploaded: 0,
+            downloaded: 0,
+            left: 100,
+            event: AnnounceEvent::Started,
+            num_want: 50,
+            key: 9,
+            tracker_id: None,
+        };
+        let url = format!("udp://127.0.0.1:{}/announce", addr.port());
+        let r = announce(&url, &req, &http_client()).await.unwrap();
+        assert_eq!(r.interval, Duration::from_secs(900));
+        assert_eq!((r.seeders, r.leechers), (Some(7), Some(3)));
+        assert_eq!(r.peers.len(), 2);
+        assert_eq!(r.peers[0], "10.0.0.1:6881".parse().unwrap());
+    }
+
+    #[tokio::test]
+    async fn rejects_unknown_scheme() {
+        let req = AnnounceRequest {
+            info_hash: [0; 20],
+            peer_id: [0; 20],
+            port: 1,
+            uploaded: 0,
+            downloaded: 0,
+            left: 0,
+            event: AnnounceEvent::None,
+            num_want: 0,
+            key: 0,
+            tracker_id: None,
+        };
+        assert!(announce("wss://x/y", &req, &http_client()).await.is_err());
     }
 }

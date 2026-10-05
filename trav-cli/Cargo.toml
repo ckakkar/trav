@@ -1,7 +1,17 @@
 [package]
+publish = false
 name = "trav-cli"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Trav: terminal UI and headless daemon with web UI"
+
+[[bin]]
+name = "trav"
+path = "src/main.rs"
 
 [dependencies]
 trav-core = { path = "../trav-core" }
@@ -9,5 +19,18 @@ trav-tui = { path = "../trav-tui" }
 tokio.workspace = true
 anyhow.workspace = true
 tracing.workspace = true
-tracing-subscriber.workspace = true
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
 tracing-appender.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+futures = "0.3"
+tokio-stream = { workspace = true, features = ["sync"] }
+clap = { version = "4.6.7", features = ["derive", "env"] }
+axum = "0.8.9"
+rust-embed = "8.12.0"
+mime_guess = "2.0.5"
+dirs = "7.0.0"
+
+[dev-dependencies]
+tempfile = "3"
+tower = { version = "0.5", features = ["util"] }

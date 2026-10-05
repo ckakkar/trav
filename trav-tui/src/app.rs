@@ -1,178 +1,345 @@
-use ratatui::{
-    backend::CrosstermBackend,
-    Terminal,
-};
-use crossterm::{
-    event::{Event as CEvent, KeyCode, EventStream},
-    execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
-};
-use tokio::sync::{mpsc, broadcast};
-use tokio_stream::StreamExt;
-use std::io;
+use std::collections::VecDeque;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
 
-use trav_core::message::{Command, Event as CoreEvent};
 use anyhow::Result;
+use crossterm::event::{
+    Event as CEvent, EventStream, KeyCode, KeyEvent, KeyEventKind, KeyModifiers,
+};
+use futures::StreamExt;
+use ratatui::widgets::TableState;
+use trav_core::snapshot::{EngineSnapshot, TorrentDetails, TorrentStatus};
+use trav_core::{AddTorrent, EngineHandle, Event, TorrentSource};
 
-use std::sync::{Arc, RwLock};
-use trav_core::snapshot::EngineSnapshot;
-use crate::state::{TuiState, Status};
-use crate::widgets::table::draw_ui;
+use crate::ui;
 
-pub struct TuiApp {
-    command_tx: mpsc::Sender<Command>,
-    event_rx: broadcast::Receiver<CoreEvent>,
-    state: TuiState,
-    snapshot: Arc<RwLock<EngineSnapshot>>,
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Tab {
+    General,
+    Files,
+    Peers,
+    Trackers,
+    Log,
 }
 
-impl TuiApp {
-    pub fn new(
-        command_tx: mpsc::Sender<Command>,
-        event_rx: broadcast::Receiver<CoreEvent>,
-        snapshot: Arc<RwLock<EngineSnapshot>>,
-    ) -> Self {
-        Self {
-            command_tx,
-            event_rx,
-            state: TuiState::new(),
-            snapshot,
+impl Tab {
+    pub const ALL: [Tab; 5] = [
+        Tab::General,
+        Tab::Files,
+        Tab::Peers,
+        Tab::Trackers,
+        Tab::Log,
+    ];
+
+    pub fn title(self) -> &'static str {
+        match self {
+            Tab::General => "general",
+            Tab::Files => "files",
+            Tab::Peers => "peers",
+            Tab::Trackers => "trackers",
+            Tab::Log => "log",
         }
+    }
+}
+
+#[derive(Clone, PartialEq)]
+pub(crate) enum Mode {
+    Normal,
+    Add,
+    Confirm { delete: bool },
+    Help,
+}
+
+pub struct TuiApp {
+    pub(crate) h: EngineHandle,
+    pub(crate) snap: Arc<EngineSnapshot>,
+    pub(crate) details: Option<TorrentDetails>,
+    pub(crate) table: TableState,
+    pub(crate) tab: Tab,
+    pub(crate) mode: Mode,
+    pub(crate) input: String,
+    pub(crate) log: VecDeque<String>,
+    pub(crate) down_hist: VecDeque<u64>,
+    pub(crate) up_hist: VecDeque<u64>,
+    pub(crate) flash: Option<(String, bool, Instant)>,
+    pub(crate) detail_scroll: usize,
+}
+
+const HISTORY: usize = 240;
+
+impl TuiApp {
+    pub fn new(h: EngineHandle) -> Self {
+        let snap = h.snapshot();
+        Self {
+            h,
+            snap,
+            details: None,
+            table: TableState::default(),
+            tab: Tab::General,
+            mode: Mode::Normal,
+            input: String::new(),
+            log: VecDeque::with_capacity(200),
+            down_hist: VecDeque::from(vec![0; HISTORY]),
+            up_hist: VecDeque::from(vec![0; HISTORY]),
+            flash: None,
+            detail_scroll: 0,
+        }
+    }
+
+    pub(crate) fn selected_hash(&self) -> Option<String> {
+        self.table
+            .selected()
+            .and_then(|i| self.snap.torrents.get(i))
+            .map(|t| t.info_hash.clone())
+    }
+
+    fn note(&mut self, msg: impl Into<String>, error: bool) {
+        let msg = msg.into();
+        let ts = chrono_like_now();
+        if self.log.len() >= 200 {
+            self.log.pop_back();
+        }
+        self.log.push_front(format!("{ts}  {msg}"));
+        self.flash = Some((msg, error, Instant::now()));
+    }
+
+    fn refresh(&mut self) {
+        self.snap = self.h.snapshot();
+        let n = self.snap.torrents.len();
+        match self.table.selected() {
+            _ if n == 0 => self.table.select(None),
+            None => self.table.select(Some(0)),
+            Some(i) if i >= n => self.table.select(Some(n - 1)),
+            _ => {}
+        }
+        self.details = self.selected_hash().and_then(|h| self.h.details(&h));
     }
 
     pub async fn run(&mut self) -> Result<()> {
-        enable_raw_mode()?;
-        let mut stdout = io::stdout();
-        execute!(stdout, EnterAlternateScreen)?;
-        let backend = CrosstermBackend::new(stdout);
-        let mut terminal = Terminal::new(backend)?;
+        let mut terminal = ratatui::init();
+        let mut keys = EventStream::new();
+        let mut events = self.h.events();
+        let mut redraw = tokio::time::interval(Duration::from_millis(250));
+        let mut sample = tokio::time::interval(Duration::from_secs(1));
+        self.note(
+            format!("engine up · listening on {}", self.h.listen_port()),
+            false,
+        );
 
-        let mut crossterm_events = EventStream::new();
-        let mut tick = tokio::time::interval(std::time::Duration::from_millis(100));
-
-        self.state.log("Engine starting…".to_string());
-
-        loop {
-            terminal.draw(|f| draw_ui(f, &mut self.state))?;
-
-            tokio::select! {
-                _ = tick.tick() => {
-                    if let Ok(snap) = self.snapshot.read() {
-                        // Push global speed history
-                        self.state.global_down_history.push(snap.total_download_hz);
-                        self.state.global_up_history.push(snap.total_upload_hz);
-                        if self.state.global_down_history.len() > 120 {
-                            self.state.global_down_history.remove(0);
-                        }
-                        if self.state.global_up_history.len() > 120 {
-                            self.state.global_up_history.remove(0);
-                        }
-
-                        // Rebuild torrent list from snapshot
-                        self.state.torrents.clear();
-                        self.state.torrents_map.clear();
-                        self.state.peer_health_map.clear();
-
-                        let mut sorted: Vec<_> = snap.active_torrents.values().collect();
-                        sorted.sort_by(|a, b| a.name.cmp(&b.name));
-
-                        for (idx, st) in sorted.iter().enumerate() {
-                            let mut peer_health: Vec<crate::state::PeerHealthState> = st
-                                .peers
-                                .iter()
-                                .map(|p| crate::state::PeerHealthState {
-                                    addr: p.addr.to_string(),
-                                    penalty_score: p.penalty_score,
-                                    network_penalty: p.network_penalty,
-                                    data_penalty: p.data_penalty,
-                                    timeout_count: p.timeout_count,
-                                    bad_data_count: p.bad_data_count,
-                                    hash_fail_count: p.hash_fail_count,
-                                })
-                                .collect();
-                            peer_health.sort_by_key(|p| p.penalty_score);
-
-                            let worst = peer_health.iter().map(|p| p.penalty_score).max().unwrap_or(0);
-                            let health_badge = if worst >= 8 { "BAD" } else if worst >= 3 { "WARN" } else { "GOOD" };
-
-                            self.state.torrents_map.insert(st.info_hash, idx);
-                            self.state.torrents.push(crate::state::TorrentState {
-                                hash: st.info_hash,
-                                name: st.name.clone(),
-                                size_bytes: st.size_bytes,
-                                num_pieces: st.num_pieces,
-                                pieces_downloaded: st.pieces_downloaded,
-                                progress: st.progress,
-                                status: Status::from_str(&st.state),
-                                peers: st.peers.len(),
-                                download_hz: st.download_hz,
-                                upload_hz: st.upload_hz,
-                                health_badge: health_badge.to_string(),
-                            });
-                            self.state.peer_health_map.insert(st.info_hash, peer_health);
-                        }
-
-                        // Keep selection valid
-                        if self.state.torrents.is_empty() {
-                            self.state.table_state.select(None);
-                        } else if self.state.table_state.selected().is_none() {
-                            self.state.table_state.select(Some(0));
-                        }
+        let res: Result<()> = async {
+            loop {
+                self.refresh();
+                terminal.draw(|f| ui::draw(f, self))?;
+                tokio::select! {
+                    _ = redraw.tick() => {}
+                    _ = sample.tick() => {
+                        push(&mut self.down_hist, self.snap.stats.download_rate);
+                        push(&mut self.up_hist, self.snap.stats.upload_rate);
                     }
-                }
-
-                core_event = self.event_rx.recv() => {
-                    match core_event {
-                        Ok(CoreEvent::EngineStarted) => {
-                            self.state.log("Engine started.".to_string());
-                        }
-                        Ok(CoreEvent::TorrentAdded { name, size_bytes, .. }) => {
-                            self.state.log(format!(
-                                "Added: {} ({})",
-                                name,
-                                format_bytes(size_bytes)
-                            ));
-                        }
-                        Ok(CoreEvent::TorrentCompleted { .. }) => {
-                            self.state.log("Download complete!".to_string());
-                        }
-                        Ok(CoreEvent::Error(err)) => {
-                            self.state.log(format!("ERROR: {}", err));
-                        }
-                        _ => {}
-                    }
-                }
-
-                event = crossterm_events.next() => {
-                    if let Some(Ok(CEvent::Key(key))) = event {
-                        match key.code {
-                            KeyCode::Char('q') | KeyCode::Esc => {
-                                let _ = self.command_tx.send(Command::Quit).await;
+                    ev = events.recv() => if let Ok(ev) = ev { self.on_event(ev) },
+                    key = keys.next() => match key {
+                        Some(Ok(CEvent::Key(k))) if k.kind != KeyEventKind::Release => {
+                            if self.on_key(k).await {
                                 break;
                             }
-                            KeyCode::Down | KeyCode::Char('j') => self.state.next(),
-                            KeyCode::Up | KeyCode::Char('k') => self.state.previous(),
-                            _ => {}
                         }
+                        Some(Err(_)) | None => break,
+                        _ => {}
+                    },
+                }
+            }
+            Ok(())
+        }
+        .await;
+        ratatui::restore();
+        res
+    }
+
+    fn on_event(&mut self, ev: Event) {
+        match ev {
+            Event::TorrentAdded { name, .. } => self.note(format!("added  {name}"), false),
+            Event::MetadataReceived { name, .. } => self.note(format!("metadata  {name}"), false),
+            Event::TorrentCompleted { name, .. } => self.note(format!("complete  {name}"), false),
+            Event::TorrentError { name, message, .. } => {
+                self.note(format!("error  {name}: {message}"), true)
+            }
+            Event::TorrentRemoved { .. } => self.note("removed", false),
+        }
+    }
+
+    /// Returns true to quit.
+    async fn on_key(&mut self, k: KeyEvent) -> bool {
+        if k.modifiers.contains(KeyModifiers::CONTROL) && k.code == KeyCode::Char('c') {
+            return true;
+        }
+        match self.mode.clone() {
+            Mode::Help => self.mode = Mode::Normal,
+            Mode::Add => match k.code {
+                KeyCode::Esc => {
+                    self.mode = Mode::Normal;
+                    self.input.clear();
+                }
+                KeyCode::Enter => {
+                    let input = std::mem::take(&mut self.input);
+                    self.mode = Mode::Normal;
+                    let path = input.trim().trim_matches(['"', '\'']).to_string();
+                    if !path.is_empty() {
+                        let src = TorrentSource::from_input(&expand_home(&path));
+                        if let Err(e) = self.h.add(AddTorrent::new(src)).await {
+                            self.note(format!("add failed: {e}"), true);
+                        }
+                    }
+                }
+                KeyCode::Backspace => {
+                    self.input.pop();
+                }
+                KeyCode::Char('u') if k.modifiers.contains(KeyModifiers::CONTROL) => {
+                    self.input.clear()
+                }
+                KeyCode::Char(c) => self.input.push(c),
+                _ => {}
+            },
+            Mode::Confirm { delete } => {
+                self.mode = Mode::Normal;
+                if matches!(k.code, KeyCode::Char('y') | KeyCode::Char('Y'))
+                    && let Some(h) = self.selected_hash()
+                {
+                    match self.h.remove(&h, delete).await {
+                        Ok(()) if delete => self.note("removed torrent and data", false),
+                        Ok(()) => {}
+                        Err(e) => self.note(format!("remove failed: {e}"), true),
                     }
                 }
             }
+            Mode::Normal => return self.on_normal_key(k).await,
         }
+        false
+    }
 
-        disable_raw_mode()?;
-        execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
-        terminal.show_cursor()?;
-        Ok(())
+    async fn on_normal_key(&mut self, k: KeyEvent) -> bool {
+        let n = self.snap.torrents.len();
+        let sel = self.selected_hash();
+        let sel_status = self
+            .table
+            .selected()
+            .and_then(|i| self.snap.torrents.get(i))
+            .map(|t| t.status);
+        match k.code {
+            KeyCode::Char('q') | KeyCode::Esc => return true,
+            KeyCode::Char('?') => self.mode = Mode::Help,
+            KeyCode::Down | KeyCode::Char('j') if n > 0 => {
+                let i = self.table.selected().map_or(0, |i| (i + 1).min(n - 1));
+                self.table.select(Some(i));
+                self.detail_scroll = 0;
+            }
+            KeyCode::Up | KeyCode::Char('k') if n > 0 => {
+                let i = self.table.selected().map_or(0, |i| i.saturating_sub(1));
+                self.table.select(Some(i));
+                self.detail_scroll = 0;
+            }
+            KeyCode::Char('g') | KeyCode::Home if n > 0 => self.table.select(Some(0)),
+            KeyCode::Char('G') | KeyCode::End if n > 0 => self.table.select(Some(n - 1)),
+            KeyCode::PageDown | KeyCode::Char('J') => self.detail_scroll += 5,
+            KeyCode::PageUp | KeyCode::Char('K') => {
+                self.detail_scroll = self.detail_scroll.saturating_sub(5)
+            }
+            KeyCode::Tab | KeyCode::Right | KeyCode::Char('l') => self.cycle_tab(1),
+            KeyCode::BackTab | KeyCode::Left | KeyCode::Char('h') => self.cycle_tab(-1),
+            KeyCode::Char(c @ '1'..='5') => {
+                self.tab = Tab::ALL[(c as u8 - b'1') as usize];
+                self.detail_scroll = 0;
+            }
+            KeyCode::Char('a') | KeyCode::Char('o') => {
+                self.mode = Mode::Add;
+                self.input.clear();
+            }
+            KeyCode::Char(' ') | KeyCode::Char('p') => {
+                if let (Some(h), Some(s)) = (sel, sel_status) {
+                    let r = if matches!(
+                        s,
+                        TorrentStatus::Paused | TorrentStatus::Finished | TorrentStatus::Error
+                    ) {
+                        self.h.resume(&h)
+                    } else {
+                        self.h.pause(&h)
+                    };
+                    if let Err(e) = r {
+                        self.note(e.to_string(), true);
+                    }
+                }
+            }
+            KeyCode::Char('P') => {
+                self.h.pause_all();
+                self.note("paused all", false);
+            }
+            KeyCode::Char('U') => {
+                self.h.resume_all();
+                self.note("resumed all", false);
+            }
+            KeyCode::Char('r') => {
+                if let Some(h) = sel {
+                    let _ = self.h.recheck(&h);
+                    self.note("rechecking", false);
+                }
+            }
+            KeyCode::Char('R') => {
+                if let Some(h) = sel {
+                    let _ = self.h.reannounce(&h);
+                    self.note("reannouncing", false);
+                }
+            }
+            KeyCode::Char('s') => {
+                if let (Some(h), Some(t)) = (
+                    sel,
+                    self.table
+                        .selected()
+                        .and_then(|i| self.snap.torrents.get(i)),
+                ) {
+                    let on = !t.sequential;
+                    let _ = self.h.set_sequential(&h, on);
+                    self.note(
+                        if on {
+                            "sequential on"
+                        } else {
+                            "sequential off"
+                        },
+                        false,
+                    );
+                }
+            }
+            KeyCode::Char('d') if sel.is_some() => self.mode = Mode::Confirm { delete: false },
+            KeyCode::Char('D') if sel.is_some() => self.mode = Mode::Confirm { delete: true },
+            _ => {}
+        }
+        false
+    }
+
+    fn cycle_tab(&mut self, d: i32) {
+        let i = Tab::ALL.iter().position(|t| *t == self.tab).unwrap_or(0) as i32;
+        self.tab = Tab::ALL[(i + d).rem_euclid(Tab::ALL.len() as i32) as usize];
+        self.detail_scroll = 0;
     }
 }
 
-fn format_bytes(bytes: u64) -> String {
-    let units = ["B", "KB", "MB", "GB", "TB"];
-    let mut idx = 0;
-    let mut val = bytes as f64;
-    while val >= 1024.0 && idx < units.len() - 1 {
-        val /= 1024.0;
-        idx += 1;
+fn push(q: &mut VecDeque<u64>, v: u64) {
+    if q.len() >= HISTORY {
+        q.pop_front();
     }
-    format!("{:.1} {}", val, units[idx])
+    q.push_back(v);
+}
+
+fn expand_home(p: &str) -> String {
+    match (p.strip_prefix("~/"), std::env::var("HOME")) {
+        (Some(rest), Ok(home)) => format!("{home}/{rest}"),
+        _ => p.to_string(),
+    }
+}
+
+/// HH:MM:SS (UTC) without pulling in a date crate.
+fn chrono_like_now() -> String {
+    let s = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    format!("{:02}:{:02}:{:02}", (s / 3600) % 24, (s / 60) % 60, s % 60)
 }
