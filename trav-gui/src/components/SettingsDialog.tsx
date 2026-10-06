@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Dices, FolderOpen } from "lucide-react";
 import type { GlobalStats, Settings } from "@/lib/types";
 import { bytes } from "@/lib/format";
@@ -70,15 +70,26 @@ export function SettingsDialog({
   const [section, setSection] = useState<Section>("Downloads");
   const [saving, setSaving] = useState(false);
 
+  // Load once per opening. Depending on `onError` re-fetched on every parent
+  // render (each 500 ms poll) and silently discarded unsaved edits.
+  const onErrorRef = useRef(onError);
+  useEffect(() => {
+    onErrorRef.current = onError;
+  });
   useEffect(() => {
     if (!open) return;
+    let live = true;
     call<Settings>("getSettings")
       .then((v) => {
+        if (!live) return;
         setS(v);
         setOrig(JSON.stringify(v));
       })
-      .catch((e) => onError(String(e?.message ?? e)));
-  }, [open, onError]);
+      .catch((e) => live && onErrorRef.current(String(e?.message ?? e)));
+    return () => {
+      live = false;
+    };
+  }, [open]);
 
   const set = <K extends keyof Settings>(k: K, v: Settings[K]) => setS((x) => (x ? { ...x, [k]: v } : x));
   const dirty = s && JSON.stringify(s) !== orig;

@@ -18,6 +18,7 @@ All notable changes to this project are documented here. The format follows
 - CI, releases and the Docker image build with Node 24 LTS; the image is based on Debian 13 (trixie); GitHub Actions on their current majors.
 
 ### Fixed
+- The Settings dialog discarded unsaved edits: it re-fetched the settings on every app re-render (each 500 ms poll), so typed values reverted.
 - Adding a magnet whose files were partly on disk already (or rechecking a torrent) dropped every peer and then backed off from them for a minute or more, stalling the download.
 - CI failed on current stable clippy (`chunks_exact_to_as_chunks`), and an HTTP tracker swarm test was flaky on macOS and Windows.
 - `scripts/check-versions.sh`, and with it `make check`, failed on macOS (GNU-only `sed` syntax).
