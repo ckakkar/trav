@@ -1287,7 +1287,7 @@ impl Torrent {
                 .map(|r| r.0)
                 .filter(|k| !regular.contains(k))
                 .collect();
-            optimistic = (!pool.is_empty()).then(|| pool[rand::random::<usize>() % pool.len()]);
+            optimistic = (!pool.is_empty()).then(|| pool[rand::random_range(0..pool.len())]);
             st.last_optimistic = now;
         }
         for (k, p) in st.peers.iter_mut() {

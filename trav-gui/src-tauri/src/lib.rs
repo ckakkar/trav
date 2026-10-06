@@ -215,15 +215,15 @@ fn forward_events(app: AppHandle, engine: EngineHandle) {
             match rx.recv().await {
                 Ok(ev) => {
                     let _ = app.emit("trav://event", &ev);
-                    if let Event::TorrentCompleted { name, .. } = &ev {
-                        if app.state::<Arc<Shell>>().notify.load(Ordering::Relaxed) {
-                            let _ = app
-                                .notification()
-                                .builder()
-                                .title("Download complete")
-                                .body(name)
-                                .show();
-                        }
+                    if let Event::TorrentCompleted { name, .. } = &ev
+                        && app.state::<Arc<Shell>>().notify.load(Ordering::Relaxed)
+                    {
+                        let _ = app
+                            .notification()
+                            .builder()
+                            .title("Download complete")
+                            .body(name)
+                            .show();
                     }
                 }
                 Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
@@ -382,16 +382,15 @@ pub fn run() {
         })
         .on_window_event(|window, event| {
             // Closing the window keeps seeding in the tray, like µTorrent.
-            if let WindowEvent::CloseRequested { api, .. } = event {
-                if !window
+            if let WindowEvent::CloseRequested { api, .. } = event
+                && !window
                     .app_handle()
                     .state::<Arc<Shell>>()
                     .quitting
                     .load(Ordering::SeqCst)
-                {
-                    api.prevent_close();
-                    let _ = window.hide();
-                }
+            {
+                api.prevent_close();
+                let _ = window.hide();
             }
         })
         .build(tauri::generate_context!())

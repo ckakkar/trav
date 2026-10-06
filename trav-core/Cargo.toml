@@ -22,12 +22,12 @@ url.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 futures = "0.3"
-sha1 = "0.10"
+sha1 = "0.11"
 parking_lot = "0.12"
-rand = "0.8"
-base64 = "0.22"
-fs4 = "0.13"
-igd-next = { version = "0.16", features = ["aio_tokio"] }
+rand = "0.10"
+base64 = "0.23"
+fs4 = "1.1"
+igd-next = { version = "0.18", features = ["aio_tokio"] }
 socket2 = "0.6.5"
 
 [dev-dependencies]
