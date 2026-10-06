@@ -75,10 +75,7 @@ impl Info {
         if pieces_raw.is_empty() || pieces_raw.len() % 20 != 0 {
             return Err(bad("pieces length is not a multiple of 20"));
         }
-        let pieces: Vec<[u8; 20]> = pieces_raw
-            .chunks_exact(20)
-            .map(|c| c.try_into().expect("chunk is 20 bytes"))
-            .collect();
+        let pieces: Vec<[u8; 20]> = pieces_raw.as_chunks::<20>().0.to_vec();
 
         let private = v.get("private").and_then(Value::as_int) == Some(1);
 

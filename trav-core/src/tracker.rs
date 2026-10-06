@@ -207,14 +207,14 @@ pub(crate) fn parse_http_response(v: &Value) -> Result<AnnounceResponse> {
 }
 
 pub fn parse_compact_v4(b: &[u8]) -> impl Iterator<Item = SocketAddr> + '_ {
-    b.chunks_exact(6).filter_map(|c| {
+    b.as_chunks::<6>().0.iter().filter_map(|c| {
         let port = u16::from_be_bytes([c[4], c[5]]);
         (port != 0).then(|| SocketAddr::new(Ipv4Addr::new(c[0], c[1], c[2], c[3]).into(), port))
     })
 }
 
 pub fn parse_compact_v6(b: &[u8]) -> impl Iterator<Item = SocketAddr> + '_ {
-    b.chunks_exact(18).filter_map(|c| {
+    b.as_chunks::<18>().0.iter().filter_map(|c| {
         let ip: [u8; 16] = c[..16].try_into().ok()?;
         let port = u16::from_be_bytes([c[16], c[17]]);
         (port != 0).then(|| SocketAddr::new(Ipv6Addr::from(ip).into(), port))

@@ -19,22 +19,23 @@ authors = ["Cyrus Kakkar <cyrus@kkrwhofrags.xyz>"]
 repository = "https://github.com/ckakkar/trav"
 
 [workspace.dependencies]
-tokio = { version = "1.37", features = ["full"] }
-thiserror = "1.0"
+tokio = { version = "1.53", features = ["full"] }
+thiserror = "2.0"
 anyhow = "1.0"
-bytes = "1.5"
+bytes = "1.12"
 tracing = "0.1"
 tracing-subscriber = "0.3"
 tracing-appender = "0.2"
 hex = "0.4"
 tokio-stream = "0.1"
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "gzip"] }
+reqwest = { version = "0.13", default-features = false, features = ["rustls", "gzip"] }
 tokio-util = { version = "0.7", features = ["codec"] }
 urlencoding = "2.1"
 serde_bytes = "0.11"
 url = "2.5"
 serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
+dirs = "7.0"
 
 # Shipping builds: smaller, faster binaries. `cargo build --release`.
 [profile.release]

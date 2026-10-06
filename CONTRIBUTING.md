@@ -2,11 +2,12 @@
 
 ## Setup
 
-- Rust 1.90+ (`rustup`), Node 20+.
+- Rust 1.90+ (`rustup`), Node 24 LTS.
 - Desktop app only: [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/)
   (Linux: `libwebkit2gtk-4.1-dev librsvg2-dev libayatana-appindicator3-dev`).
 
 ```bash
+make            # list every task
 make setup      # npm ci
 make check      # everything CI runs, minus e2e
 make e2e        # Playwright against real daemons (builds first)

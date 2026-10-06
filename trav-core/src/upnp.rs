@@ -6,7 +6,7 @@ use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use igd_next::aio::tokio::search_gateway;
-use igd_next::{PortMappingProtocol, SearchOptions};
+use igd_next::{GatewayIpVersion, PortMappingProtocol, SearchOptions};
 use tracing::{debug, info};
 
 use crate::ctx::Ctx;
@@ -66,10 +66,10 @@ fn set_status(ctx: &Weak<Ctx>, s: String) {
 }
 
 async fn map(port: u16) -> Result<IpAddr, String> {
-    let opts = SearchOptions {
-        timeout: Some(Duration::from_secs(5)),
-        ..Default::default()
-    };
+    let mut opts = SearchOptions::default();
+    opts.timeout = Some(Duration::from_secs(5));
+    // IGD port mappings are IPv4-only, and the probe below binds an IPv4 socket.
+    opts.gateway_ip_version = GatewayIpVersion::V4;
     let gw = search_gateway(opts)
         .await
         .map_err(|_| "no UPnP gateway found".to_string())?;
