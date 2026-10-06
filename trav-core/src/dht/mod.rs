@@ -155,7 +155,7 @@ fn encode_nodes(nodes: &[Node]) -> Vec<u8> {
 }
 
 fn decode_nodes(b: &[u8]) -> impl Iterator<Item = (NodeId, SocketAddrV4)> + '_ {
-    b.chunks_exact(26).filter_map(|c| {
+    b.as_chunks::<26>().0.iter().filter_map(|c| {
         let id: NodeId = c[..20].try_into().ok()?;
         let ip = std::net::Ipv4Addr::new(c[20], c[21], c[22], c[23]);
         let port = u16::from_be_bytes([c[24], c[25]]);

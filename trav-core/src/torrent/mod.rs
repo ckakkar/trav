@@ -516,6 +516,12 @@ impl Torrent {
             Cmd::MetadataDone(raw) => self.on_metadata(&mut st, raw),
             Cmd::Shutdown { .. } => unreachable!("handled in run loop"),
         }
+        // Activation, completion and reannounce make announces due "now": send
+        // them immediately instead of waiting up to a second for the tick.
+        if st.phase.is_active() {
+            self.announce_due(&mut st);
+            self.dht_due(&mut st);
+        }
     }
 
     /// Recompute the phase from user intent and progress, connecting or disconnecting as needed.
@@ -1123,6 +1129,11 @@ impl Torrent {
 
     fn announce_due(self: &Arc<Self>, st: &mut State) {
         let now = Instant::now();
+        let due = |t: &TrackerState| t.status != TrackerStatus::Announcing && t.next <= now;
+        // Cheap exit first: this runs after every command, and `left` is O(pieces).
+        if !st.trackers.iter().any(due) {
+            return;
+        }
         let left = match st.picker.as_ref() {
             Some(p) => p.wanted_bytes_left(),
             None => st
@@ -1134,7 +1145,7 @@ impl Torrent {
         let port = self.ctx.listen_port.load(Ordering::Relaxed);
         let want_peers = st.peers.len() < self.ctx.settings.read().max_peers_per_torrent;
         for (idx, t) in st.trackers.iter_mut().enumerate() {
-            if t.status == TrackerStatus::Announcing || t.next > now {
+            if !due(t) {
                 continue;
             }
             let event = if !t.started {
