@@ -250,12 +250,14 @@ fn init_logging() -> Option<tracing_appender::non_blocking::WorkerGuard> {
     use tracing_subscriber::prelude::*;
     let filter = tracing_subscriber::EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| "info,hyper=warn,reqwest=warn".into());
+    let logs = state_dir().join("logs");
+    let _ = std::fs::create_dir_all(&logs);
     let file = tracing_appender::rolling::Builder::new()
         .rotation(tracing_appender::rolling::Rotation::DAILY)
         .filename_prefix("trav-desktop")
         .filename_suffix("log")
         .max_log_files(7)
-        .build(state_dir().join("logs"))
+        .build(logs)
         .ok();
     let (file_layer, guard) = match file {
         Some(appender) => {

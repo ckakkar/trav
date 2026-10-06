@@ -5934,6 +5934,7 @@ dependencies = [
  "anyhow",
  "axum",
  "clap",
+ "crossterm",
  "dirs",
  "futures",
  "mime_guess",
@@ -5949,6 +5950,7 @@ dependencies = [
  "tracing-subscriber",
  "trav-core",
  "trav-tui",
+ "unicode-width",
 ]
 
 [[package]]

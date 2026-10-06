@@ -121,6 +121,8 @@ pub(crate) struct PeerState {
     listen_port: Option<u16>,
     pex_sent: HashSet<SocketAddr>,
     hash_fails: u8,
+    /// We hung up on purpose (pause, recheck, seed-to-seed): not held against the peer.
+    kicked: bool,
 }
 
 impl PeerState {
@@ -626,7 +628,7 @@ impl Torrent {
 
     /// Disconnect everyone, tell trackers we stopped, release file handles.
     fn enter_inactive(self: &Arc<Self>, st: &mut State) {
-        broadcast(st, || PeerCmd::Disconnect);
+        disconnect_all(st);
         st.check_cancel.store(true, Ordering::Relaxed);
         if let Some(s) = &st.storage {
             let s = s.clone();
@@ -705,7 +707,7 @@ impl Torrent {
         if st.phase.is_active() {
             self.enter_inactive(&mut st);
         } else {
-            broadcast(&st, || PeerCmd::Disconnect);
+            disconnect_all(&mut st);
             st.check_cancel.store(true, Ordering::Relaxed);
         }
         st.phase = Phase::Paused;
@@ -888,6 +890,7 @@ impl Torrent {
                 listen_port: None,
                 pex_sent: HashSet::new(),
                 hash_fails: 0,
+                kicked: false,
             },
         );
         self.ctx.connections.fetch_add(1, Ordering::Relaxed);
@@ -921,10 +924,15 @@ impl Torrent {
             });
             c.connected = false;
             c.seed = is_seed;
-            if short {
-                c.fails += 1;
+            if p.kicked {
+                // Our decision, not a flaky peer: redial as soon as we are active again.
+                c.next_attempt = Instant::now();
+            } else {
+                if short {
+                    c.fails += 1;
+                }
+                c.next_attempt = Instant::now() + backoff(c.fails.max(1));
             }
-            c.next_attempt = Instant::now() + backoff(c.fails.max(1));
         }
     }
 
@@ -1112,8 +1120,9 @@ impl Torrent {
                 t.next = now;
             }
             // Seeds are useless to a seed.
-            for p in st.peers.values() {
+            for p in st.peers.values_mut() {
                 if p.bitfield.all() {
+                    p.kicked = true;
                     let _ = p.tx.send(PeerCmd::Disconnect);
                 }
             }
@@ -1669,6 +1678,14 @@ fn summarize(ih: &InfoHash, st: &State) -> TorrentSummary {
             .as_ref()
             .map(Picker::distributed_copies)
             .unwrap_or(0.0),
+    }
+}
+
+/// Hang up on every peer without penalising them in [`Torrent::peer_gone`].
+fn disconnect_all(st: &mut State) {
+    for p in st.peers.values_mut() {
+        p.kicked = true;
+        let _ = p.tx.send(PeerCmd::Disconnect);
     }
 }
 

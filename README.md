@@ -4,9 +4,32 @@ A fast, quiet BitTorrent client written in Rust. One headless async engine (`tra
 
 | Front-end | What it is | Run |
 |---|---|---|
-| **Nova** (desktop) | Tauri 2 app, Next 16 / React 19 UI | `cd trav-gui && npm i && npm run tauri dev` |
-| **Quantum** (terminal) | ratatui dashboard | `cargo run --release -p trav-cli` |
-| **Daemon** (web) | headless engine + the Nova UI over HTTP | `cargo run --release -p trav-cli -- --daemon` |
+| **Nova** (desktop) | Tauri 2 app, Next 16 / React 19 UI | `make install-app` (macOS), then open Trav |
+| **`trav get`** (one-shot) | download a torrent with a progress bar, then exit | `trav get file.torrent` |
+| **Quantum** (terminal) | ratatui dashboard for your library | `trav` |
+| **Daemon** (web) | headless engine + the Nova UI over HTTP | `trav --daemon` |
+
+## Quick start: I have a torrent
+
+Install once from a checkout (needs Rust and Node; see [Build](#build)):
+
+```bash
+make install        # the `trav` command, into ~/.cargo/bin
+make install-app    # macOS: Trav.app, into /Applications
+```
+
+Then any of these works:
+
+- **Double-click the `.torrent`** (or click a `magnet:` link in the browser). Trav opens with the add dialog, where you can untick files and pick a folder. Downloads keep seeding from the menu bar after you close the window.
+- **One command in a terminal.** It downloads into the current folder, shows progress and exits when done:
+
+  ```bash
+  trav get ~/Downloads/ubuntu-26.04-desktop-amd64.iso.torrent
+  trav get 'magnet:?xt=urn:btih:…' -o ~/Movies     # magnet link, chosen folder
+  ```
+
+  Ctrl-C stops it; run the same command again to resume (data already on disk is verified, not re-downloaded). `--seed` keeps sharing after the download completes, and `--sequential` fetches in order so a video can be previewed early. `trav get` runs on its own, so it works while the desktop app is open and leaves your library alone.
+- **Keep it in your library.** `trav file.torrent` opens the terminal UI with the torrent added (press `?` for keys), and `trav --daemon` serves the same UI as the desktop app at http://127.0.0.1:9696.
 
 The desktop app and the CLI share one library (`~/Library/Application Support/trav` on macOS, `~/.local/share/trav` on Linux, `%APPDATA%\trav` on Windows). The state directory is lock-protected, so only one of them runs the engine at a time.
 
@@ -63,7 +86,7 @@ Type is Geist / Geist Mono with a serif display face. Corners use a 3 px radius,
 Requirements:
 
 - Rust 1.90+ (edition 2024)
-- Node 20+
+- Node 24 LTS
 - For the desktop app, the [Tauri system dependencies](https://v2.tauri.app/start/prerequisites/). On Linux that means `libwebkit2gtk-4.1-dev librsvg2-dev libayatana-appindicator3-dev`.
 
 ```bash
@@ -85,10 +108,10 @@ make e2e       # Playwright against real daemons (seeder, leecher, token-locked)
 | Suite | What it covers |
 |---|---|
 | `trav-core` unit | bencode, metainfo, magnet, picker (incl. 20k-step randomized invariants), storage, wire codec, extensions, DHT, mock HTTP/UDP trackers, rate limiter |
-| `trav-core/tests/swarm.rs` | real engines over loopback: download, magnet metadata, resume, deleted-file recheck, selective download + HTTP tracker, pause, rate limit, 3-node swarm |
+| `trav-core/tests/swarm.rs` | real engines over loopback: download, magnet metadata, magnet over partial data, resume, deleted-file recheck, selective download + HTTP tracker, pause, rate limit, 3-node swarm |
 | `trav-core/tests/robustness.rs` | deterministic fuzzing of every untrusted-input parser; path-jail escapes |
 | `trav-core/tests/state.rs` | persistence, state-dir locking, settings, the full RPC surface |
-| `trav-cli` | HTTP API security (DNS rebinding, CSRF, token), CLI black-box (`--create`, health check, public-bind guard) |
+| `trav-cli` | HTTP API security (DNS rebinding, CSRF, token), CLI black-box (`--create`, `get` against a live seeder, health check, public-bind guard) |
 | `trav-tui` | rendering through ratatui's `TestBackend` |
 | `trav-gui` (vitest) | formatting, sorting/filters, transport, history ring |
 | `trav-gui/e2e` (Playwright) | add/skip/download, paste-a-magnet, context menu, keyboard, palette, themes, settings, remove + delete, token gate |
@@ -111,6 +134,7 @@ The web UI is then at `http://<host>:9696/?token=change-me`. The image refuses t
 |---|---|
 | Desktop | `<state dir>/logs/trav-desktop.YYYY-MM-DD.log` |
 | TUI | `<state dir>/logs/trav.YYYY-MM-DD.log` |
+| `trav get` | `<state dir>/logs/trav-get.YYYY-MM-DD.log` |
 | Daemon | stderr |
 
 Logs rotate daily and the last 7 are kept. Set `RUST_LOG=debug` for detail. Panics are logged with a backtrace.
@@ -118,6 +142,7 @@ Logs rotate daily and the last 7 are kept. Set `RUST_LOG=debug` for detail. Pani
 ### CLI
 
 ```bash
+trav get ubuntu.iso.torrent -o ~/Downloads   # download, show progress, exit
 trav                                         # terminal UI
 trav ubuntu.iso.torrent 'magnet:?xt=…'       # add on start
 trav --daemon                                # headless, web UI on http://127.0.0.1:9696
