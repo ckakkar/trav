@@ -9,7 +9,7 @@ All notable changes to this project are documented here. The format follows
 ### Added
 - `trav get <torrent|magnet>…`: download into the current folder (or `-o DIR`) with a live progress display, then exit. Works while the desktop app is open, leaves the library alone, resumes by verifying data already on disk; `--seed` and `--sequential` options.
 - `make install` (the `trav` command) and `make install-app` (macOS `Trav.app` in /Applications); bare `make` lists every task.
-- A README quick start for "I have a torrent".
+- A README quick start for "I have a torrent", and [USAGE.md](USAGE.md): a complete guide to every front-end, the settings, the library layout, the JSON API and troubleshooting.
 
 ### Changed
 - Announces that become due (start, completion, reannounce) go out immediately instead of on the next 1 s tick.

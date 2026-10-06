@@ -31,6 +31,8 @@ Then any of these works:
   Ctrl-C stops it; run the same command again to resume (data already on disk is verified, not re-downloaded). `--seed` keeps sharing after the download completes, and `--sequential` fetches in order so a video can be previewed early. `trav get` runs on its own, so it works while the desktop app is open and leaves your library alone.
 - **Keep it in your library.** `trav file.torrent` opens the terminal UI with the torrent added (press `?` for keys), and `trav --daemon` serves the same UI as the desktop app at http://127.0.0.1:9696.
 
+**[USAGE.md](USAGE.md)** is the full guide: every option and shortcut, settings, where files live, the JSON API and troubleshooting.
+
 The desktop app and the CLI share one library (`~/Library/Application Support/trav` on macOS, `~/.local/share/trav` on Linux, `%APPDATA%\trav` on Windows). The state directory is lock-protected, so only one of them runs the engine at a time.
 
 ## Engine
@@ -178,4 +180,4 @@ trav-gui/         Next.js UI (static export) + src-tauri desktop shell
 
 ## License
 
-[MIT](LICENSE) · see [CHANGELOG](CHANGELOG.md), [CONTRIBUTING](CONTRIBUTING.md), [SECURITY](SECURITY.md).
+[MIT](LICENSE) · see [USAGE](USAGE.md), [CHANGELOG](CHANGELOG.md), [CONTRIBUTING](CONTRIBUTING.md), [SECURITY](SECURITY.md).
