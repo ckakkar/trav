@@ -180,7 +180,7 @@ Press **a** (or **o**), paste a magnet link, an info-hash or a path to a `.torre
 | tab 1–5 · J K | detail panel tabs · scroll it |
 | q esc | quit (progress is saved) |
 
-The terminal UI and the desktop app share one library, but only one can have it open at a time (see [troubleshooting](#another-trav-instance-is-using)).
+The terminal UI and the desktop app share one library, but only one can have it open at a time (see [troubleshooting](#another-trav-instance-is-using-the-library)).
 
 ---
 
@@ -295,9 +295,9 @@ Live events (added, metadata received, completed, error, removed) stream as serv
 
 ## Troubleshooting
 
-### "another Trav instance is using …"
+### "Another Trav instance is using" the library
 
-Only one Trav can have the library open: the desktop app, the terminal UI or a daemon. Either add the torrent in the one that's running, quit it first (desktop: tray icon → **Quit Trav**; closing the window isn't enough), or use [`trav get`](#1-download-a-torrent-in-one-command-trav-get), which doesn't need the library.
+The error reads *another Trav instance is using …*. Only one Trav can have the library open: the desktop app, the terminal UI or a daemon. Either add the torrent in the one that's running, quit it first (desktop: tray icon → **Quit Trav**; closing the window isn't enough), or use [`trav get`](#1-download-a-torrent-in-one-command-trav-get), which doesn't need the library.
 
 ### Stuck on "looking for peers…" or 0 peers
 
