@@ -121,6 +121,8 @@ Any of these opens the **Add** dialog:
 
 In the Add dialog you can untick files you don't want, pick a different save folder, turn on **Sequential download**, and untick **Start immediately** to add it paused. If Trav is already running, opening a torrent from outside hands it to the open window.
 
+> **Torrents still open in another app (uTorrent, Transmission, …)?** Your system keeps whichever app was the default first. **macOS:** select any `.torrent` file in Finder, press ⌘I, choose Trav under **Open with** and click **Change All…**. macOS has no setting for `magnet:` links, so paste those into Trav with ⌘V, or uninstall the other app. **Windows:** Settings → Apps → Default apps, then set `.torrent` and `MAGNET` to Trav.
+
 ### The list and the detail panel
 
 Click a torrent to select it (⇧/⌘-click for several) and **right-click** for pause/resume, force recheck, reannounce, show in folder, copy magnet link or info-hash, queue order and remove. The panel below has five tabs:
