@@ -7,7 +7,7 @@
 #     ghcr.io/ckakkar/trav:latest
 
 # ── UI (static export, embedded into the binary) ─────────────────────────────
-FROM node:22-bookworm-slim AS ui
+FROM node:24-trixie-slim AS ui
 WORKDIR /src/trav-gui
 COPY trav-gui/package.json trav-gui/package-lock.json ./
 RUN npm ci --no-audit --no-fund
@@ -15,7 +15,7 @@ COPY trav-gui/ ./
 RUN npm run build
 
 # ── Engine + CLI ─────────────────────────────────────────────────────────────
-FROM rust:1-bookworm AS build
+FROM rust:1-trixie AS build
 WORKDIR /src
 COPY . .
 COPY --from=ui /src/trav-gui/out trav-gui/out
@@ -23,7 +23,7 @@ RUN cargo build --release --locked -p trav-cli \
  && install -Dm755 target/release/trav /out/trav
 
 # ── Runtime ──────────────────────────────────────────────────────────────────
-FROM debian:bookworm-slim
+FROM debian:trixie-slim
 RUN apt-get update \
  && apt-get install -y --no-install-recommends ca-certificates tini \
  && rm -rf /var/lib/apt/lists/* \

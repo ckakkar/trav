@@ -52,7 +52,7 @@ pub fn generate_peer_id() -> [u8; 20] {
     let prefix = format!("-TV{:0<4}-", &ver[..ver.len().min(4)]);
     id[..8].copy_from_slice(&prefix.as_bytes()[..8]);
     for b in &mut id[8..] {
-        *b = ALNUM[rand::random::<usize>() % ALNUM.len()];
+        *b = ALNUM[rand::random_range(0..ALNUM.len())];
     }
     id
 }

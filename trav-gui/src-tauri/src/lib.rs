@@ -215,15 +215,15 @@ fn forward_events(app: AppHandle, engine: EngineHandle) {
             match rx.recv().await {
                 Ok(ev) => {
                     let _ = app.emit("trav://event", &ev);
-                    if let Event::TorrentCompleted { name, .. } = &ev {
-                        if app.state::<Arc<Shell>>().notify.load(Ordering::Relaxed) {
-                            let _ = app
-                                .notification()
-                                .builder()
-                                .title("Download complete")
-                                .body(name)
-                                .show();
-                        }
+                    if let Event::TorrentCompleted { name, .. } = &ev
+                        && app.state::<Arc<Shell>>().notify.load(Ordering::Relaxed)
+                    {
+                        let _ = app
+                            .notification()
+                            .builder()
+                            .title("Download complete")
+                            .body(name)
+                            .show();
                     }
                 }
                 Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
@@ -250,12 +250,14 @@ fn init_logging() -> Option<tracing_appender::non_blocking::WorkerGuard> {
     use tracing_subscriber::prelude::*;
     let filter = tracing_subscriber::EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| "info,hyper=warn,reqwest=warn".into());
+    let logs = state_dir().join("logs");
+    let _ = std::fs::create_dir_all(&logs);
     let file = tracing_appender::rolling::Builder::new()
         .rotation(tracing_appender::rolling::Rotation::DAILY)
         .filename_prefix("trav-desktop")
         .filename_suffix("log")
         .max_log_files(7)
-        .build(state_dir().join("logs"))
+        .build(logs)
         .ok();
     let (file_layer, guard) = match file {
         Some(appender) => {
@@ -382,16 +384,15 @@ pub fn run() {
         })
         .on_window_event(|window, event| {
             // Closing the window keeps seeding in the tray, like µTorrent.
-            if let WindowEvent::CloseRequested { api, .. } = event {
-                if !window
+            if let WindowEvent::CloseRequested { api, .. } = event
+                && !window
                     .app_handle()
                     .state::<Arc<Shell>>()
                     .quitting
                     .load(Ordering::SeqCst)
-                {
-                    api.prevent_close();
-                    let _ = window.hide();
-                }
+            {
+                api.prevent_close();
+                let _ = window.hide();
             }
         })
         .build(tauri::generate_context!())

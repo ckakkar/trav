@@ -130,7 +130,11 @@ test("settings save to the engine", async ({ page }) => {
   await page.keyboard.press("Control+,");
   const dialog = page.getByRole("dialog", { name: "Settings" });
   await dialog.getByRole("button", { name: "Bandwidth" }).click();
-  await dialog.locator(".set-row", { hasText: "Download limit" }).locator("input").fill("512");
+  const limit = dialog.locator(".set-row", { hasText: "Download limit" }).locator("input");
+  await limit.fill("512");
+  // Edits must survive the app's periodic re-renders (they used to be reset).
+  await page.waitForTimeout(1500);
+  await expect(limit).toHaveValue("512");
   await dialog.getByRole("button", { name: "Save" }).click();
   await expect(page.locator(".toast", { hasText: "Settings saved" })).toBeVisible();
   await expect(page.locator(".statusbar")).toContainText("/ 512 KB/s");

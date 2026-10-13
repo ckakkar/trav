@@ -1,7 +1,8 @@
 //! Quantum — the terminal front-end for Trav.
 
 mod app;
-mod fmt;
+/// Human-friendly sizes, rates, ETAs and progress bars (shared with `trav get`).
+pub mod fmt;
 mod ui;
 
 pub use app::TuiApp;

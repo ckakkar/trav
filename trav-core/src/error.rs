@@ -18,9 +18,6 @@ pub enum Error {
     Engine(String),
 }
 
-/// Back-compat alias for the pre-0.2 name.
-pub type BitTorrentError = Error;
-
 pub type Result<T> = std::result::Result<T, Error>;
 
 pub(crate) fn proto(msg: impl Into<String>) -> Error {

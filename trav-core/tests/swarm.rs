@@ -212,6 +212,39 @@ async fn magnet_fetches_metadata_from_peer() {
     );
 }
 
+/// A magnet whose files are partly on disk already: the metadata arrives, the
+/// existing data is verified (which hangs up on every peer), and the download
+/// must then carry on with those same peers rather than backing off from them.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn magnet_resumes_over_partial_data() {
+    init_tracing();
+    let tmp = tempfile::tempdir().unwrap();
+    let (seed, hash, _torrent, content) = seeder(tmp.path(), &[]).await;
+
+    let dl_dir = tmp.path().join("dl");
+    std::fs::create_dir_all(dl_dir.join("album")).unwrap();
+    std::fs::copy(content.join("a.bin"), dl_dir.join("album/a.bin")).unwrap();
+    let leech = Engine::start_with(tmp.path().join("leech-state"), Some(settings(&dl_dir)))
+        .await
+        .unwrap();
+    let magnet = format!(
+        "magnet:?xt=urn:btih:{hash}&x.pe=127.0.0.1:{}",
+        seed.listen_port()
+    );
+    leech
+        .add(AddTorrent::new(TorrentSource::Magnet(magnet)))
+        .await
+        .unwrap();
+
+    // Peers dropped for the check used to be penalised with a 60 s+ backoff.
+    wait_for(&leech, &hash, TorrentStatus::Seeding, 20).await;
+    same_tree(&content, &dl_dir.join("album"));
+    assert!(
+        leech.snapshot().stats.session_downloaded < 1_400_000,
+        "a.bin was verified on disk, not downloaded again"
+    );
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn selective_download_and_http_tracker() {
     init_tracing();
@@ -272,10 +305,12 @@ async fn selective_download_and_http_tracker() {
     leech.add(req).await.unwrap();
 
     wait_for(&leech, &hash, TorrentStatus::Seeding, 30).await;
-    assert!(
-        hits.load(std::sync::atomic::Ordering::SeqCst) >= 2,
-        "both engines announced"
-    );
+    // The leecher can finish before the seeder's announce lands; give it a moment.
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while hits.load(std::sync::atomic::Ordering::SeqCst) < 2 {
+        assert!(Instant::now() < deadline, "both engines announced");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
     let got = std::fs::read(dl_dir.join("album/a.bin")).unwrap();
     assert_eq!(got, std::fs::read(content.join("a.bin")).unwrap());
     let d = leech.details(&hash).unwrap();

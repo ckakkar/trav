@@ -1,3 +1,4 @@
+mod get;
 mod web;
 
 use std::net::SocketAddr;
@@ -8,11 +9,23 @@ use clap::Parser;
 use tracing::info;
 use trav_core::{AddTorrent, Engine, Settings, TorrentSource};
 
-/// Trav — a fast, headless BitTorrent engine with a terminal UI and a web UI.
+const EXAMPLES: &str = "\
+Examples:
+  trav get ubuntu.iso.torrent           download into this folder, then exit
+  trav get 'magnet:?xt=urn:btih:…' -o ~/Downloads
+  trav                                  terminal UI for your library
+  trav ubuntu.iso.torrent               ...with this torrent added
+  trav --daemon                         headless; web UI on http://127.0.0.1:9696
+  trav --create ./folder -o out.torrent make a torrent";
+
+/// Trav — a fast, quiet BitTorrent client: terminal UI, web UI, or one-shot downloads.
 #[derive(Parser, Debug)]
-#[command(name = "trav", version, about)]
+#[command(name = "trav", version, about, after_help = EXAMPLES)]
 struct Cli {
-    /// .torrent files, magnet links or info-hashes to add on startup.
+    #[command(subcommand)]
+    command: Option<Command>,
+
+    /// .torrent files, magnet links or info-hashes to add to the library on startup.
     items: Vec<String>,
 
     /// Run headless and serve the web UI instead of the terminal UI.
@@ -62,6 +75,16 @@ struct Cli {
     /// Mark the created torrent private (no DHT/PEX).
     #[arg(long, requires = "create")]
     private: bool,
+}
+
+#[derive(clap::Subcommand, Debug)]
+enum Command {
+    /// Download torrents into a folder with a progress bar, then exit.
+    ///
+    /// Runs on its own, so it works while the desktop app or a daemon is open,
+    /// and leaves your library untouched. Re-run an interrupted download to resume it.
+    #[command(visible_alias = "download")]
+    Get(get::GetArgs),
 }
 
 /// Piece size targeting ~1500 pieces, clamped to 16 KiB–16 MiB.
@@ -169,10 +192,14 @@ fn main() -> Result<()> {
     std::fs::create_dir_all(&state_dir)
         .with_context(|| format!("creating {}", state_dir.display()))?;
 
-    // The TUI owns the terminal, so log to a file there; the daemon logs to stderr.
+    // The TUI and `get` own the terminal, so they log to a file; the daemon logs to stderr.
     let filter = tracing_subscriber::EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| "info,hyper=warn,reqwest=warn".into());
-    let _guard = if cli.daemon {
+    let log_prefix = match cli.command {
+        Some(Command::Get(_)) => "trav-get",
+        None => "trav",
+    };
+    let guard = if cli.daemon && cli.command.is_none() {
         tracing_subscriber::fmt()
             .with_env_filter(filter)
             // Plain text when piped (docker logs, journald).
@@ -181,10 +208,12 @@ fn main() -> Result<()> {
             .init();
         None
     } else {
-        // Daily files, last 7 kept: logs/trav.YYYY-MM-DD.log
+        // Daily files, last 7 kept: logs/trav.YYYY-MM-DD.log. The directory must
+        // exist up front, or the appender complains on stderr while pruning.
+        std::fs::create_dir_all(state_dir.join("logs"))?;
         let appender = tracing_appender::rolling::Builder::new()
             .rotation(tracing_appender::rolling::Rotation::DAILY)
-            .filename_prefix("trav")
+            .filename_prefix(log_prefix)
             .filename_suffix("log")
             .max_log_files(7)
             .build(state_dir.join("logs"))
@@ -203,11 +232,29 @@ fn main() -> Result<()> {
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?;
-    rt.block_on(run(cli, state_dir))
+    if let Some(Command::Get(args)) = cli.command {
+        let code = rt.block_on(get::run(args, &state_dir))?;
+        // process::exit skips destructors: stop the runtime and flush logs first.
+        drop(rt);
+        drop(guard);
+        std::process::exit(code);
+    }
+    let r = rt.block_on(run(cli, state_dir));
+    drop(guard);
+    r
 }
 
 async fn run(cli: Cli, state_dir: PathBuf) -> Result<()> {
-    let engine = Engine::start(&state_dir).await.context("starting engine")?;
+    let engine = match Engine::start(&state_dir).await {
+        Ok(e) => e,
+        Err(trav_core::Error::Io(e)) if e.kind() == std::io::ErrorKind::WouldBlock => {
+            anyhow::bail!(
+                "{e}.\nTrav is already running (the desktop app or `trav --daemon`): add the \
+                 torrent there, or download it on its own with `trav get <torrent>`."
+            )
+        }
+        Err(e) => return Err(e).context("starting engine"),
+    };
 
     if cli.save_path.is_some() || cli.port.is_some() {
         let mut s: Settings = engine.settings();
@@ -260,7 +307,7 @@ async fn run(cli: Cli, state_dir: PathBuf) -> Result<()> {
     Ok(())
 }
 
-async fn shutdown_signal() {
+pub(crate) async fn shutdown_signal() {
     let ctrl_c = tokio::signal::ctrl_c();
     #[cfg(unix)]
     {
