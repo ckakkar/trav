@@ -60,7 +60,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - run: sudo apt-get update && sudo apt-get install -y $TAURI_DEPS
-      - uses: dtolnay/rust-toolchain@1.90
+      - uses: dtolnay/rust-toolchain@1.120
       - uses: Swatinem/rust-cache@v2
       - run: mkdir -p trav-gui/out && echo '<!doctype html>' > trav-gui/out/index.html
       - run: cargo check --workspace --all-targets --locked
