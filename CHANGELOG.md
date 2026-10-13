@@ -14,7 +14,7 @@ All notable changes to this project are documented here. The format follows
 ### Changed
 - Announces that become due (start, completion, reannounce) go out immediately instead of on the next 1 s tick.
 - Starting the terminal UI while another Trav holds the library now says so and suggests `trav get`.
-- Dependencies upgraded to their latest stable releases: reqwest 0.13 (rustls + aws-lc-rs, OS trust store), rand 0.10, thiserror 2, sha1 0.11, igd-next 0.18, base64 0.23, fs4 1, dirs 7; Next 16.4, TypeScript 7, Playwright 1.63. The desktop crate moves to edition 2024.
+- Dependencies upgraded to their latest stable releases: reqwest 0.13 (rustls + aws-lc-rs, OS trust store), rand 0.10, thiserror 2, sha1 0.11, igd-next 0.18, base64 0.23, fs4 1, dirs 7; Next 16.4, TypeScript 7, Playwright 1.64, Tauri 2.12.3. The desktop crate moves to edition 2024.
 - CI, releases and the Docker image build with Node 24 LTS; the image is based on Debian 13 (trixie); GitHub Actions on their current majors.
 
 ### Fixed
