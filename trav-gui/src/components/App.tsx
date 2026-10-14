@@ -32,18 +32,24 @@ import type { EngineEvent, TorrentSummary } from "@/lib/types";
 import { useEngine } from "@/lib/engine";
 import {
   AuthError,
+  appVersion,
   call,
+  checkUpdate,
   copyText,
   fileToBase64,
   isDesktop,
   isMac,
   onEngineEvent,
+  onMenu as onMenuBar,
   onNativeDrop,
   onOpenRequest,
   pickTorrentFiles,
   reveal,
+  setKeepAwake,
+  setMenuState,
   setToken,
   takePendingOpens,
+  type UpdateInfo,
 } from "@/lib/rpc";
 import { bytes, looksLikeMagnet } from "@/lib/format";
 import { FILTER_TESTS, isPausedLike, visibleTorrents, type FilterId } from "@/lib/torrents";
@@ -58,6 +64,7 @@ import { Palette, type Command } from "./Palette";
 import { ContextMenu, type MenuEntry } from "./ContextMenu";
 import { Modal, ease } from "./Modal";
 import { useToast } from "./Toasts";
+import { UpdateDialog } from "./UpdateDialog";
 import { applyTheme, THEMES, type Theme } from "./theme";
 
 interface FilterSpec {
@@ -83,7 +90,10 @@ const FILTERS: FilterSpec[] = [
   { id: "error", label: "Errors", icon: <TriangleAlert size={15} />, test: FILTER_TESTS.error, hideEmpty: true },
 ];
 
-const DEFAULT_PREFS: UiPrefs = { theme: "ink", notify: true, confirmRemove: true, scanlines: true };
+const DEFAULT_PREFS: UiPrefs = { theme: "ink", notify: true, confirmRemove: true, scanlines: true, autoUpdate: true, keepAwake: true };
+
+/** ⌘-shortcuts the Mac app's menu bar owns (handled there, not here). */
+const MENU_KEYS = new Set(["k", "o", ",", "u", "r", "i", ".", "/", "f", "1", "2", "3", "4", "5", "6", "7"]);
 
 export default function App() {
   const toast = useToast();
@@ -109,6 +119,10 @@ export default function App() {
   const [mac, setMac] = useState(false);
   const [desktop, setDesktop] = useState(false);
   const [tokenInput, setTokenInput] = useState("");
+  const [version, setVersion] = useState("");
+  const [update, setUpdate] = useState<UpdateInfo | null>(null);
+  /** Versions the user said "Later" to: automatic checks don't ask again this session. */
+  const deferred = useRef(new Set<string>());
   const fileInput = useRef<HTMLInputElement>(null);
   const searchInput = useRef<HTMLInputElement>(null);
 
@@ -143,6 +157,10 @@ export default function App() {
   useEffect(() => {
     if (isDesktop()) import("@tauri-apps/api/core").then(({ invoke }) => invoke("set_notify", { enabled: prefs.notify }).catch(() => {}));
   }, [prefs.notify]);
+  useEffect(() => setKeepAwake(prefs.keepAwake), [prefs.keepAwake]);
+  useEffect(() => {
+    appVersion().then(setVersion).catch(() => {});
+  }, []);
 
   const cycleTheme = useCallback((e?: { clientX: number; clientY: number }) => {
     setPrefs((p) => {
@@ -184,6 +202,28 @@ export default function App() {
     if (e instanceof AuthError) return;
     toast(title, { body: String((e as Error)?.message ?? e), tone: "error" });
   }, [toast]);
+
+  const runUpdateCheck = useCallback(
+    async (manual: boolean) => {
+      try {
+        const u = await checkUpdate();
+        if (u && (manual || !deferred.current.has(u.version))) setUpdate(u);
+        else if (!u && manual) toast("You’re up to date", { body: version ? `Trav ${version} is the latest version.` : undefined, tone: "ok" });
+      } catch (e) {
+        if (manual) toast("Couldn’t check for updates", { body: String((e as Error)?.message ?? e), tone: "error" });
+      }
+    },
+    [toast, version],
+  );
+  useEffect(() => {
+    if (!isDesktop() || !prefs.autoUpdate) return;
+    const first = setTimeout(() => runUpdateCheck(false), 15_000);
+    const every = setInterval(() => runUpdateCheck(false), 6 * 3600_000);
+    return () => {
+      clearTimeout(first);
+      clearInterval(every);
+    };
+  }, [prefs.autoUpdate, runUpdateCheck]);
 
   const act = useCallback(
     async (method: string, hashes: string[], extra?: Record<string, unknown>) => {
@@ -400,6 +440,7 @@ export default function App() {
     const onKey = (e: KeyboardEvent) => {
       const mod = e.metaKey || e.ctrlKey;
       const typing = e.target instanceof Element && e.target.closest("input, textarea, select");
+      if (isDesktop() && mod && (MENU_KEYS.has(e.key.toLowerCase()) || e.key === "Backspace" || (e.shiftKey && e.key.toLowerCase() === "l"))) return;
       if (mod && e.key.toLowerCase() === "k") {
         e.preventDefault();
         setPaletteOpen((o) => !o);
@@ -456,6 +497,73 @@ export default function App() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [anyModal, openTorrentPicker, cycleTheme, visible, focus, toggleRun, selectedList, requestRemove, onOpen]);
+
+  // ── Mac menu bar ──────────────────────────────────────────────────────────
+  // Keep the Transfers menu in step with the selection.
+  const menuSel = useMemo(() => {
+    const ts = selectedList.map((h) => byHash.get(h)).filter(Boolean) as TorrentSummary[];
+    return { count: ts.length, allPaused: ts.length > 0 && ts.every(isPausedLike), sequential: ts.length === 1 && ts[0].sequential };
+  }, [selectedList, byHash]);
+  const { count: menuCount, allPaused: menuPaused, sequential: menuSequential } = menuSel;
+  useEffect(() => setMenuState({ count: menuCount, allPaused: menuPaused, sequential: menuSequential }), [menuCount, menuPaused, menuSequential]);
+
+  const onMenuItem = useRef<(id: string) => void>(() => {});
+  onMenuItem.current = (id: string) => {
+    const editing = !!(document.activeElement as Element | null)?.closest?.("input, textarea, select, [contenteditable]");
+    const one = selectedList.length === 1 ? selectedList[0] : null;
+    switch (id) {
+      case "open-torrent":
+        return void openTorrentPicker();
+      case "add-magnet":
+        return openMagnet();
+      case "settings":
+        return setSettingsOpen(true);
+      case "palette":
+        return setPaletteOpen((o) => !o);
+      case "find":
+        return searchInput.current?.focus();
+      case "toggle-details":
+        return setCollapsed((c) => !c);
+      case "theme":
+        return cycleTheme();
+      case "check-updates":
+        return void runUpdateCheck(true);
+      case "pause-all":
+        return void call("pauseAll").then(refresh).catch(fail);
+      case "resume-all":
+        return void call("resumeAll").then(refresh).catch(fail);
+    }
+    if (id.startsWith("filter:")) return setFilter(id.slice("filter:".length));
+    if (anyModal || !selectedList.length) return;
+    switch (id) {
+      case "toggle-run":
+        return toggleRun(selectedList);
+      case "reveal":
+        return selectedList.slice(0, 10).forEach(revealHash);
+      case "recheck":
+        return void act("recheck", selectedList);
+      case "reannounce":
+        return void act("reannounce", selectedList);
+      case "remove":
+      case "remove-data":
+        // ⌘⌫ while typing edits the text field, not the transfer list.
+        if (!editing) requestRemove(selectedList, id === "remove-data");
+        return;
+    }
+    if (!one) return;
+    switch (id) {
+      case "copy-magnet":
+        return void call<{ magnet: string } | null>("details", { hash: one }).then(async (d) => {
+          if (d && (await copyText(d.magnet))) toast("Magnet link copied");
+        });
+      case "sequential":
+        return void call("setSequential", { hash: one, enabled: !byHash.get(one)?.sequential }).then(refresh).catch(fail);
+      case "queue-top":
+      case "queue-bottom":
+        return void call("setQueuePosition", { hash: one, position: id === "queue-top" ? 0 : 1e6 }).then(refresh).catch(fail);
+    }
+  };
+  useEffect(() => onMenuBar((id) => onMenuItem.current(id)), []);
 
   // ── Panel resizing ────────────────────────────────────────────────────────
   const startResize = (e: React.PointerEvent) => {
@@ -517,7 +625,13 @@ export default function App() {
       { label: "Copy info-hash", icon: <Copy size={14} />, disabled: many, onSelect: () => copyText(hash).then(() => toast("Info-hash copied")) },
       "sep",
       { label: many ? `Remove ${hashes.length}` : "Remove", icon: <X size={14} />, hint: "Del", onSelect: () => requestRemove(hashes, false) },
-      { label: "Remove and delete data", icon: <Trash2 size={14} />, hint: "⇧Del", danger: true, onSelect: () => requestRemove(hashes, true) },
+      {
+        label: isDesktop() ? "Remove and move data to Trash" : "Remove and delete data",
+        icon: <Trash2 size={14} />,
+        hint: "⇧Del",
+        danger: true,
+        onSelect: () => requestRemove(hashes, true),
+      },
     ];
   };
 
@@ -528,11 +642,12 @@ export default function App() {
       { id: "resume-all", label: "Resume all", icon: <Play size={14} />, run: () => call("resumeAll").then(refresh).catch(fail) },
       { id: "pause-all", label: "Pause all", icon: <Pause size={14} />, run: () => call("pauseAll").then(refresh).catch(fail) },
       { id: "settings", label: "Settings", hint: "⌘,", icon: <Settings2 size={14} />, run: () => setSettingsOpen(true) },
+      ...(isDesktop() ? [{ id: "update", label: "Check for updates…", icon: <RefreshCw size={14} />, run: () => runUpdateCheck(true) }] : []),
       { id: "theme", label: "Cycle theme", hint: "⌘⇧L", icon: <SunMoon size={14} />, run: () => cycleTheme() },
       ...THEMES.map((t) => ({ id: `theme-${t.id}`, label: `Theme: ${t.label}`, icon: <SunMoon size={14} />, run: () => setPrefs((p) => ({ ...p, theme: t.id })) })),
       ...FILTERS.map((f) => ({ id: `filter-${f.id}`, label: `Show ${f.label.toLowerCase()}`, icon: f.icon, run: () => setFilter(f.id) })),
     ],
-    [openTorrentPicker, openMagnet, refresh, fail, cycleTheme],
+    [openTorrentPicker, openMagnet, refresh, fail, cycleTheme, runUpdateCheck],
   );
 
   // ── Render ────────────────────────────────────────────────────────────────
@@ -588,6 +703,7 @@ export default function App() {
         onTheme={(e) => cycleTheme(e)}
         onPalette={() => setPaletteOpen(true)}
         mac={mac && desktop}
+        version={version}
       />
 
       <main className="main" style={{ ["--panel-h" as string]: collapsed || (snapshot && torrents.length === 0) ? "0px" : `${panelH}px` }}>
@@ -741,6 +857,17 @@ export default function App() {
           refresh();
         }}
         onError={(m) => toast("Settings", { body: m, tone: "error" })}
+        version={version}
+        onCheckUpdates={() => runUpdateCheck(true)}
+      />
+
+      <UpdateDialog
+        update={update}
+        onClose={() => {
+          if (update) deferred.current.add(update.version);
+          setUpdate(null);
+        }}
+        onError={(m) => toast("Update failed", { body: m, tone: "error" })}
       />
 
       <Palette
@@ -776,11 +903,11 @@ export default function App() {
                 <span className="toggle-track">
                   <span className="toggle-thumb" />
                 </span>
-                <span className="toggle-label">Also delete downloaded files</span>
+                <span className="toggle-label">{desktop ? "Also move downloaded files to the Trash" : "Also delete downloaded files"}</span>
               </label>
             </div>
             <footer className="modal-foot">
-              <span className="mono faint">{removeReq.deleteFiles ? "files are deleted permanently" : "files stay on disk"}</span>
+              <span className="mono faint">{removeReq.deleteFiles ? (desktop ? "files go to the Trash" : "files are deleted permanently") : "files stay on disk"}</span>
               <div className="foot-actions">
                 <button className="btn ghost" onClick={() => setRemoveReq(null)}>
                   Cancel
@@ -793,7 +920,7 @@ export default function App() {
                     setRemoveReq(null);
                   }}
                 >
-                  {removeReq.deleteFiles ? "Delete" : "Remove"}
+                  {removeReq.deleteFiles ? (desktop ? "Move to Trash" : "Delete") : "Remove"}
                 </button>
               </div>
             </footer>

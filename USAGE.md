@@ -5,14 +5,14 @@ Trav is a BitTorrent client with four ways in, all driven by the same engine:
 | You want to… | Use |
 |---|---|
 | Download one torrent and be done | [`trav get`](#1-download-a-torrent-in-one-command-trav-get) |
-| Manage downloads in a window | [the desktop app](#2-the-desktop-app) |
+| Manage downloads in a window | [the Mac app](#2-the-mac-app) |
 | Manage downloads in a terminal | [the terminal UI](#3-the-terminal-ui) |
 | Run it on a server or NAS and use it from a browser | [the daemon](#4-the-daemon-and-web-ui) |
 
 **Contents:**
 [Install](#install) ·
 [`trav get`](#1-download-a-torrent-in-one-command-trav-get) ·
-[Desktop app](#2-the-desktop-app) ·
+[Mac app](#2-the-mac-app) ·
 [Terminal UI](#3-the-terminal-ui) ·
 [Daemon & web UI](#4-the-daemon-and-web-ui) ·
 [Settings](#settings) ·
@@ -26,17 +26,23 @@ Trav is a BitTorrent client with four ways in, all driven by the same engine:
 
 ## Install
 
+### The Mac app
+
+Download **Trav-x.y.z-macOS.dmg** from the [latest release](https://github.com/ckakkar/trav/releases/latest), open it and drag **Trav** into Applications. One download runs on Apple Silicon and Intel Macs (macOS 11 or later). After that, Trav [keeps itself up to date](#updates).
+
+> **First launch:** release builds aren't notarized by Apple (that needs a paid developer account), so the first time macOS says it can't verify Trav. Open **System Settings › Privacy & Security**, scroll to the message about Trav and click **Open Anyway**. You only do this once; updates install without asking again.
+
 ### From a checkout
 
-You need [Rust](https://rustup.rs) 1.90 or newer and [Node](https://nodejs.org) 24 LTS. For the desktop app on Linux you also need the [Tauri system libraries](https://v2.tauri.app/start/prerequisites/) (`libwebkit2gtk-4.1-dev librsvg2-dev libayatana-appindicator3-dev`).
+You need [Rust](https://rustup.rs) 1.90 or newer and [Node](https://nodejs.org) 24 LTS.
 
 ```bash
 git clone https://github.com/ckakkar/trav && cd trav
 make install        # the `trav` command → ~/.cargo/bin (make sure that is on your PATH)
-make install-app    # macOS only: Trav.app → /Applications
+make install-app    # Trav.app → /Applications (quit Trav first if it's running)
 ```
 
-Run `make` on its own to see every task. On Windows and Linux, `make desktop-build` produces installers in `target/release/bundle/`.
+Run `make` on its own to see every task; `make desktop-build` also produces a `.dmg` in `target/release/bundle/`. The `trav` command also builds on Linux and Windows; the app is macOS-only.
 
 ### Docker (headless)
 
@@ -50,7 +56,7 @@ Then open `http://<host>:9696/?token=pick-a-secret`. See [the daemon](#4-the-dae
 
 ### Uninstall
 
-`make uninstall` removes the `trav` command; drag `Trav.app` to the Bin. Neither touches your downloads or your [library](#where-things-live). Delete the library folder too if you want a clean slate.
+`make uninstall` removes the `trav` command; drag `Trav.app` to the Bin (and turn off **Open at login** first if you'd switched it on). Neither touches your downloads or your [library](#where-things-live). Delete the library folder too if you want a clean slate.
 
 ---
 
@@ -91,7 +97,7 @@ Press **Ctrl-C** at any time. Trav tells the trackers it is leaving and exits. T
 
 ### What it does and doesn't touch
 
-- It runs a private, throwaway engine. It works **while the desktop app or a daemon is open**, and the torrent does **not** appear in your library afterwards. If you want it in the library, open it in the app or use `trav file.torrent`.
+- It runs a private, throwaway engine. It works **while the Mac app or a daemon is open**, and the torrent does **not** appear in your library afterwards. If you want it in the library, open it in the app or use `trav file.torrent`.
 - It uses your saved [settings](#settings) (rate limits, port, DHT, …) but never changes them.
 - Exit status: `0` everything finished, `1` something failed (the reason is printed), `130` you stopped it first. Handy in scripts:
 
@@ -103,29 +109,27 @@ Press **Ctrl-C** at any time. Trav tells the trackers it is leaving and exits. T
 
 ---
 
-## 2. The desktop app
+## 2. The Mac app
 
-Open **Trav** from Applications (or the Start menu). Downloads go to `~/Downloads` unless you change it.
-
-> **First launch of a downloaded (not self-built) build on macOS:** the release builds aren't notarized, so macOS says it "can't be opened". Right-click Trav.app → **Open** → **Open** once; after that it opens normally. Apps you build with `make install-app` don't need this.
+Open **Trav** from Applications. Downloads go to `~/Downloads` unless you change it.
 
 ### Adding torrents
 
 Any of these opens the **Add** dialog:
 
-- **Double-click a `.torrent` file** in Finder/Explorer. Trav is registered as the handler.
+- **Double-click a `.torrent` file** in Finder. Trav is registered as the handler.
 - **Click a `magnet:` link** in your browser. Trav is the `magnet:` handler; allow the browser to open it.
 - **Drag** `.torrent` files onto the window.
 - **⌘V** anywhere in the window to paste a magnet link (or several, one per line).
-- **⌘O** to pick `.torrent` files.
+- **File › Open Torrent File… (⌘O)** to pick `.torrent` files, or **File › Add Magnet Link… (⌘U)**.
 
-In the Add dialog you can untick files you don't want, pick a different save folder, turn on **Sequential download**, and untick **Start immediately** to add it paused. If Trav is already running, opening a torrent from outside hands it to the open window.
+In the Add dialog you can untick files you don't want, pick a different save folder, turn on **Sequential download**, and untick **Start immediately** to add it paused. If Trav is already running, opening a torrent from Finder or a browser hands it to the open window.
 
-> **Torrents still open in another app (uTorrent, Transmission, …)?** Your system keeps whichever app was the default first. **macOS:** select any `.torrent` file in Finder, press ⌘I, choose Trav under **Open with** and click **Change All…**. macOS has no setting for `magnet:` links, so paste those into Trav with ⌘V, or uninstall the other app. **Windows:** Settings → Apps → Default apps, then set `.torrent` and `MAGNET` to Trav.
+> **Torrents still open in another app (uTorrent, Transmission, …)?** macOS keeps whichever app was the default first. Select any `.torrent` file in Finder, press ⌘I, choose Trav under **Open with** and click **Change All…**. macOS has no setting for `magnet:` links, so paste those into Trav with ⌘V, or uninstall the other app.
 
 ### The list and the detail panel
 
-Click a torrent to select it (⇧/⌘-click for several) and **right-click** for pause/resume, force recheck, reannounce, show in folder, copy magnet link or info-hash, queue order and remove. The panel below has five tabs:
+Click a torrent to select it (⇧/⌘-click for several). **Right-click**, or use the **Transfers** menu, to pause/resume, verify local data, ask trackers for more peers, show in Finder, copy the magnet link, change the queue order or remove. The panel below has five tabs (⌘I shows or hides it):
 
 | Tab | Shows |
 |---|---|
@@ -135,26 +139,45 @@ Click a torrent to select it (⇧/⌘-click for several) and **right-click** for
 | **Trackers** | each tracker's status, peers/seeds it reports and when it's next contacted |
 | **Speed** | a live graph of download and upload |
 
-### Keyboard
+### Menus and keys
 
-⌘ is Ctrl on Windows and Linux.
+Everything is in the menu bar with its shortcut, as in any Mac app:
+
+| Menu | Items |
+|---|---|
+| **Trav** | About, **Check for Updates…**, Settings (⌘,), Hide, Quit (⌘Q) |
+| **File** | Open Torrent File… (⌘O), Add Magnet Link… (⌘U), Close Window (⌘W) |
+| **Edit** | Undo, Cut, Copy, Paste (⌘V also adds magnet links), Select All, Find (⌘F, the filter box) |
+| **View** | Command Palette (⌘K), the lists All … Errors (⌘1 – ⌘7), Show/Hide Details (⌘I), Next Theme (⇧⌘L), Full Screen |
+| **Transfers** | Pause/Resume (⌘.), Pause All (⌥⌘.), Resume All (⌥⌘/), Show in Finder (⌘R), Copy Magnet Link (⇧⌘C), Download in Order, Move to Top/Bottom of Queue, Verify Local Data, Ask Trackers for More Peers, Remove… (⌘⌫), Remove and Move Data to Trash… (⌥⌘⌫) |
+| **Window**, **Help** | Minimize, Zoom, Bring All to Front · Trav Help, Release Notes, Report an Issue |
+
+And in the list:
 
 | Keys | Action |
 |---|---|
-| ⌘O / ⌘V | add `.torrent` / paste magnet |
 | ↑ ↓ or j k (⇧ extends) · ⌘A | move / select |
 | Space | pause ↔ resume selection |
-| Del / ⇧Del | remove / remove **and delete the files** |
-| ↵ | show in Finder / Explorer |
+| Del / ⇧Del | remove / remove **and move the files to the Trash** |
+| ↵ | show in Finder |
 | 1 – 5 | detail tabs |
 | / | filter the list |
-| ⌘K | command palette (every action, searchable) |
-| ⌘, | settings |
-| ⌘⇧L | cycle theme: Ink (dark) → Paper (light) → Phosphor (terminal green) |
 
-### Closing vs quitting
+**Themes:** Ink (dark) → Paper (light) → Phosphor (terminal green), with ⇧⌘L or in Settings.
 
-Closing the window **keeps Trav running in the menu bar / system tray** so it can keep seeding; the tray icon shows live speeds and has Pause all / Resume all. Use **Quit Trav** in the tray menu (or ⌘Q) to stop it; it saves progress and tells trackers it's leaving first. You get a notification when a download completes (switch it off in Settings).
+### Removing
+
+**Remove** keeps the downloaded files where they are. **Remove and Move Data to Trash** puts them in the Trash, so a mistake can be undone from Finder. (The terminal UI and the web UI delete permanently; they ask first.)
+
+### The Dock, the menu bar and closing
+
+The **Dock icon** shows a progress bar across everything that's downloading. The **menu bar icon** shows live speeds and has Pause all / Resume all. Closing the window **keeps Trav running** so it can finish and keep seeding; click the Dock icon (or ⌘0) to bring the window back. **Trav › Quit Trav** (⌘Q) stops it; it saves progress and tells trackers it's leaving first. You get a notification when a download completes (switch it off in Settings).
+
+Trav remembers the window's size and position. In **Settings › App** you can also have it **open at login** (it starts in the background, in the Dock and menu bar) and **keep the Mac awake** while transferring (on by default; the display can still sleep).
+
+### Updates
+
+Trav checks GitHub for a new release shortly after it opens and every six hours, and **Trav › Check for Updates…** checks right away. When there's one it shows what's new; **Install & relaunch** downloads it, verifies its signature (Trav refuses anything that isn't signed with the project's key), replaces itself, stops transfers cleanly and reopens. Transfers carry on after the relaunch. Turn the automatic check off in **Settings › App**.
 
 ---
 
@@ -182,13 +205,13 @@ Press **a** (or **o**), paste a magnet link, an info-hash or a path to a `.torre
 | tab 1–5 · J K | detail panel tabs · scroll it |
 | q esc | quit (progress is saved) |
 
-The terminal UI and the desktop app share one library, but only one can have it open at a time (see [troubleshooting](#another-trav-instance-is-using-the-library)).
+The terminal UI and the Mac app share one library, but only one can have it open at a time (see [troubleshooting](#another-trav-instance-is-using-the-library)).
 
 ---
 
 ## 4. The daemon and web UI
 
-`trav --daemon` runs the engine without a terminal UI and serves the same interface as the desktop app in a browser.
+`trav --daemon` runs the engine without a terminal UI and serves the same interface as the Mac app in a browser.
 
 ```bash
 trav --daemon                                          # http://127.0.0.1:9696, this machine only
@@ -222,6 +245,8 @@ Change settings in the app or web UI (**⌘,**), or in the terminal with `-s/--s
 | UPnP port forwarding (`enableUpnp`) | on | ask your router to open the listen port |
 | Stop seeding at ratio (`seedRatioLimit`) | 0 = seed forever | e.g. `2` stops once you've uploaded twice the size; resuming a stopped torrent overrides it |
 
+The Mac app also has **Interface** settings (theme, completion notifications, confirm before removing) and **App** settings: check for updates automatically (on), open at login (off) and keep the Mac awake while transferring (on). Those apply instantly and are kept by the app, not in `settings.json`.
+
 ---
 
 ## Where things live
@@ -242,7 +267,7 @@ Set `TRAV_STATE_DIR` (or `--state-dir`) to use another folder, for example a sec
 | `settings.json` | your [settings](#settings) |
 | `torrents/<info-hash>.torrent` / `.json` | each torrent's metadata and resume data (which pieces you have, priorities, totals) |
 | `dht.json` | known DHT nodes, so the next start finds peers faster |
-| `logs/` | daily logs, last 7 kept: `trav-desktop.*`, `trav.*` (terminal UI), `trav-get.*` |
+| `logs/` | daily logs, last 7 kept: `trav-desktop.*` (Mac app), `trav.*` (terminal UI), `trav-get.*` |
 | `.lock` | held while a Trav has the library open |
 
 The downloaded files themselves are only in your download folders. Removing a torrent keeps them unless you choose **remove and delete data**.
@@ -261,7 +286,7 @@ Works on a file or a folder; the piece size is picked automatically. Add `--priv
 
 ## Scripting: the JSON API
 
-The desktop app, web UI and daemon all speak the same API. With a daemon running:
+The Mac app, web UI and daemon all speak the same API. With a daemon running:
 
 ```bash
 api() { curl -s http://127.0.0.1:9696/api/rpc -H 'content-type: application/json' -d "$1"; }
@@ -299,7 +324,7 @@ Live events (added, metadata received, completed, error, removed) stream as serv
 
 ### "Another Trav instance is using" the library
 
-The error reads *another Trav instance is using …*. Only one Trav can have the library open: the desktop app, the terminal UI or a daemon. Either add the torrent in the one that's running, quit it first (desktop: tray icon → **Quit Trav**; closing the window isn't enough), or use [`trav get`](#1-download-a-torrent-in-one-command-trav-get), which doesn't need the library.
+The error reads *another Trav instance is using …*. Only one Trav can have the library open: the Mac app, the terminal UI or a daemon. Either add the torrent in the one that's running, quit it first (Mac app: **Trav › Quit Trav** or ⌘Q; closing the window isn't enough), or use [`trav get`](#1-download-a-torrent-in-one-command-trav-get), which doesn't need the library.
 
 ### Stuck on "looking for peers…" or 0 peers
 

@@ -177,3 +177,69 @@ export function fileToBase64(file: File): Promise<string> {
     r.readAsDataURL(file);
   });
 }
+
+// ── macOS app: menu bar, updates, login item, keep-awake ─────────────────────
+
+async function invokeDesktop<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+  const { invoke } = await import("@tauri-apps/api/core");
+  return invoke<T>(cmd, args);
+}
+
+function listenDesktop<T>(event: string, cb: (payload: T) => void): () => void {
+  if (!isDesktop()) return () => {};
+  let off: (() => void) | undefined;
+  let dead = false;
+  import("@tauri-apps/api/event").then(({ listen }) =>
+    listen<T>(event, (e) => cb(e.payload)).then((u) => (dead ? u() : (off = u))),
+  );
+  return () => {
+    dead = true;
+    off?.();
+  };
+}
+
+/** Menu bar commands (ids like "open-torrent", "filter:seeding", "remove"). */
+export const onMenu = (cb: (id: string) => void) => listenDesktop<string>("trav://menu", cb);
+
+/** Lets the menu bar enable items and say "Pause" or "Resume". */
+export function setMenuState(selection: { count: number; allPaused: boolean; sequential: boolean }) {
+  if (isDesktop()) invokeDesktop("set_menu_state", { selection }).catch(() => {});
+}
+
+export interface UpdateInfo {
+  version: string;
+  currentVersion: string;
+  notes: string | null;
+  date: string | null;
+}
+
+/** Ask GitHub for a newer release; null when up to date (or not the app). */
+export async function checkUpdate(): Promise<UpdateInfo | null> {
+  if (!isDesktop()) return null;
+  return invokeDesktop<UpdateInfo | null>("check_update");
+}
+
+/** Download and install the update found by `checkUpdate`, then relaunch. */
+export async function installUpdate(onProgress: (downloaded: number, total: number | null) => void): Promise<void> {
+  const off = listenDesktop<{ downloaded: number; total: number | null }>("trav://update-progress", (p) => onProgress(p.downloaded, p.total));
+  try {
+    await invokeDesktop("install_update");
+  } finally {
+    off();
+  }
+}
+
+export const getAutostart = () => (isDesktop() ? invokeDesktop<boolean>("get_autostart") : Promise.resolve(false));
+export const setAutostart = (enabled: boolean) => invokeDesktop<boolean>("set_autostart", { enabled });
+
+export function setKeepAwake(enabled: boolean) {
+  if (isDesktop()) invokeDesktop("set_keep_awake", { enabled }).catch(() => {});
+}
+
+export async function appVersion(): Promise<string> {
+  if (isDesktop()) {
+    const { getVersion } = await import("@tauri-apps/api/app");
+    return getVersion();
+  }
+  return process.env.NEXT_PUBLIC_TRAV_VERSION ?? "";
+}

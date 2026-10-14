@@ -39,6 +39,7 @@ export function Sidebar({
   onTheme,
   onPalette,
   mac,
+  version,
 }: {
   filters: FilterDef[];
   active: string;
@@ -49,6 +50,7 @@ export function Sidebar({
   onTheme: (e: React.MouseEvent) => void;
   onPalette: () => void;
   mac: boolean;
+  version: string;
 }) {
   return (
     <aside className="sidebar" data-mac={mac || undefined}>
@@ -96,7 +98,7 @@ export function Sidebar({
         <button className="icon-btn" onClick={onPalette} title="Command palette (⌘K)" aria-label="Command palette">
           <CommandIcon size={16} />
         </button>
-        <span className="mono faint side-ver">v0.2</span>
+        {version && <span className="mono faint side-ver">v{version}</span>}
       </div>
     </aside>
   );

@@ -15,8 +15,6 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
-  # Tauri's Linux system libraries, needed wherever the desktop crate compiles.
-  TAURI_DEPS: libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev
 
 jobs:
   versions:
@@ -26,12 +24,12 @@ jobs:
       - uses: actions/checkout@v7
       - run: scripts/check-versions.sh
 
+  # The Mac app's crate only builds on macOS, so the workspace-wide jobs run there.
   lint:
-    name: Format & clippy (incl. desktop)
-    runs-on: ubuntu-latest
+    name: Format & clippy (incl. Mac app)
+    runs-on: macos-26
     steps:
       - uses: actions/checkout@v7
-      - run: sudo apt-get update && sudo apt-get install -y $TAURI_DEPS
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
@@ -56,14 +54,40 @@ jobs:
 
   msrv:
     name: MSRV (1.90)
-    runs-on: ubuntu-latest
+    runs-on: macos-26
     steps:
       - uses: actions/checkout@v7
-      - run: sudo apt-get update && sudo apt-get install -y $TAURI_DEPS
       - uses: dtolnay/rust-toolchain@1.90
       - uses: Swatinem/rust-cache@v2
       - run: mkdir -p trav-gui/out && echo '<!doctype html>' > trav-gui/out/index.html
       - run: cargo check --workspace --all-targets --locked
+
+  app:
+    name: Mac app bundles
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: trav-gui/package-lock.json
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: app
+      - run: npm ci
+        working-directory: trav-gui
+      # Debug build, without the signed update archive (that needs the release key).
+      - run: npm run tauri build -- --debug --bundles app --config '{"bundle":{"createUpdaterArtifacts":false}}'
+        working-directory: trav-gui
+      - name: Check the bundle
+        run: |
+          app=target/debug/bundle/macos/Trav.app
+          plutil -lint "$app/Contents/Info.plist"
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Contents/Info.plist" | grep -qx xyz.kkrwhofrags.trav
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleURLTypes:0:CFBundleURLSchemes:0' "$app/Contents/Info.plist" | grep -qx magnet
+          codesign --verify --strict "$app"
 
   deny:
     name: Supply chain (cargo-deny)

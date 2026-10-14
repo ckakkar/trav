@@ -6,7 +6,18 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.3.0] — 2026-10-14
+
+The desktop app is now **Trav for macOS**: the same UI, with the parts that make it a Mac app.
+
 ### Added
+- Automatic updates from GitHub releases. Trav checks shortly after it opens and every six hours (**Trav › Check for Updates…** any time), shows what's new, verifies the update's signature, installs it, stops transfers cleanly and relaunches. Releases publish a signed update archive and `latest.json` for it.
+- A full macOS menu bar: File (Open Torrent File ⌘O, Add Magnet Link ⌘U), Edit, View (lists ⌘1–⌘7, details ⌘I, palette ⌘K, theme), Transfers (pause/resume ⌘., pause/resume all, Show in Finder ⌘R, copy magnet, download in order, queue order, verify, reannounce, remove ⌘⌫ / ⌥⌘⌫), Window and Help. Items enable and relabel themselves with the selection.
+- The Dock icon shows a progress bar across everything that's downloading.
+- "Remove and delete data" in the app moves the files to the Trash instead of erasing them.
+- Settings › App: check for updates automatically, open at login (starts in the background), keep the Mac awake while transferring.
+- The window remembers its size and position.
+- A new app icon and menu bar glyph (a "T" whose stem is a download arrow), rendered by `scripts/app-icon.swift` (`make icons`).
 - `trav get <torrent|magnet>…`: download into the current folder (or `-o DIR`) with a live progress display, then exit. Works while the desktop app is open, leaves the library alone, resumes by verifying data already on disk; `--seed` and `--sequential` options.
 - `make install` (the `trav` command) and `make install-app` (macOS `Trav.app` in /Applications); bare `make` lists every task.
 - A README quick start for "I have a torrent", and [USAGE.md](USAGE.md): a complete guide to every front-end, the settings, the library layout, the JSON API and troubleshooting.
@@ -16,6 +27,10 @@ All notable changes to this project are documented here. The format follows
 - Starting the terminal UI while another Trav holds the library now says so and suggests `trav get`.
 - Dependencies upgraded to their latest stable releases: reqwest 0.13 (rustls + aws-lc-rs, OS trust store), rand 0.10, thiserror 2, sha1 0.11, igd-next 0.18, base64 0.23, fs4 1, dirs 7; Next 16.4, TypeScript 7, Playwright 1.64, Tauri 2.12.3. The desktop crate moves to edition 2024.
 - CI, releases and the Docker image build with Node 24 LTS; the image is based on Debian 13 (trixie); GitHub Actions on their current majors.
+- The app ships as one universal `.dmg` for Apple Silicon and Intel, ad-hoc signed (Developer ID signing and notarization stay optional), and releases publish themselves once every asset is uploaded.
+
+### Removed
+- The Windows and Linux builds of the desktop app. The `trav` command (terminal UI, `trav get`, the daemon and web UI) and the Docker image still run there.
 
 ### Fixed
 - DHT peer searches could come back empty for minutes at a time. The routing table only ever held our own neighbourhood (15–30 nodes, so it re-bootstrapped every minute) and searches could be steered into clusters of fake nodes. Buckets are now filled by refresh lookups (typically 120–140 nodes), quiet nodes are re-checked, and the table and each search accept one node per public IP.

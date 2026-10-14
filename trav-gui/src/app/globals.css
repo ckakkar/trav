@@ -2144,3 +2144,33 @@ body[data-resizing] .main {
     transition-duration: 0.001ms !important;
   }
 }
+
+/* ── Update dialog ───────────────────────────────────────────────────────── */
+.update-notes {
+  display: grid;
+  gap: 8px;
+  max-height: min(320px, 45vh);
+  overflow: auto;
+  padding-right: 6px;
+  color: var(--text-dim);
+  font-size: 13px;
+  line-height: 1.55;
+}
+.update-notes .eyebrow {
+  margin-top: 6px;
+  color: var(--accent);
+}
+.update-notes ul {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding-left: 18px;
+}
+.update-notes p {
+  margin: 0;
+}
+.update-progress {
+  display: grid;
+  gap: 8px;
+  margin-top: 16px;
+}

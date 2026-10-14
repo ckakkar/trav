@@ -7,21 +7,27 @@ rust-version.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
-description = "Trav Nova — desktop BitTorrent client"
+description = "Trav for macOS — desktop BitTorrent client"
 
 [lib]
 name = "trav_desktop_lib"
-crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
-[dependencies]
+# The desktop app is macOS-only; elsewhere this crate only reports that.
+[target.'cfg(target_os = "macos")'.dependencies]
 tauri = { version = "2", features = ["tray-icon", "image-png"] }
 tauri-plugin-dialog = "2"
 tauri-plugin-opener = "2"
 tauri-plugin-notification = "2"
 tauri-plugin-deep-link = "2"
+tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
+tauri-plugin-updater = "2"
+tauri-plugin-window-state = "2"
+tauri-plugin-autostart = "2"
+trash = "5"
+keepawake = "0.6"
 serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
@@ -31,9 +37,6 @@ tracing-appender.workspace = true
 dirs.workspace = true
 url.workspace = true
 trav-core = { path = "../../trav-core" }
-
-[target.'cfg(any(target_os = "macos", windows, target_os = "linux"))'.dependencies]
-tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
 
 [features]
 # Used by `tauri build`; switches the frontend from devUrl to the bundled export.
