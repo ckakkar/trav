@@ -4,23 +4,21 @@
 #![cfg(target_os = "macos")]
 
 mod menu;
+mod tray;
 mod update;
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde_json::Value;
-use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
-use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-use tauri::window::{ProgressBarState, ProgressBarStatus};
 use tauri::{AppHandle, Emitter, Manager, RunEvent, WindowEvent};
 use tauri_plugin_autostart::ManagerExt as _;
 use tauri_plugin_deep_link::DeepLinkExt;
 use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
 use tauri_plugin_notification::NotificationExt;
-use trav_core::{Engine, EngineHandle, Event, TorrentStatus};
+use trav_core::{Engine, EngineHandle, Event};
 
 pub(crate) const REPO_URL: &str = "https://github.com/ckakkar/trav";
 /// Passed by the login item, so Trav starts in the background.
@@ -29,11 +27,45 @@ const AUTOSTART_ARG: &str = "--autostart";
 #[derive(Default)]
 struct Shell {
     engine: OnceLock<EngineHandle>,
-    /// Torrent paths / magnet links handed over by the OS, drained by the UI.
-    pending: Mutex<Vec<String>>,
+    opens: Mutex<Opens>,
     notify: AtomicBool,
     keep_awake: AtomicBool,
+    /// Show the download speed beside the menu bar icon.
+    tray_speed: AtomicBool,
     quitting: AtomicBool,
+}
+
+/// Torrent paths / magnet links handed over by the OS, drained by the UI.
+#[derive(Default)]
+struct Opens {
+    pending: Vec<String>,
+    /// What was queued lately: macOS reports one open through several
+    /// channels (the Opened event, the deep-link plugin, launch arguments),
+    /// and each must show the Add dialog only once.
+    recent: Vec<(String, Instant)>,
+}
+
+impl Opens {
+    const DEDUPE: Duration = Duration::from_secs(5);
+
+    /// Queue the items not already pending or seen lately; true if any were.
+    fn add(&mut self, items: impl IntoIterator<Item = String>, now: Instant) -> bool {
+        self.recent
+            .retain(|(_, t)| now.saturating_duration_since(*t) < Self::DEDUPE);
+        let before = self.pending.len();
+        for item in items {
+            if self.pending.contains(&item) || self.recent.iter().any(|(r, _)| *r == item) {
+                continue;
+            }
+            self.recent.push((item.clone(), now));
+            self.pending.push(item);
+        }
+        self.pending.len() > before
+    }
+
+    fn take(&mut self) -> Vec<String> {
+        std::mem::take(&mut self.pending)
+    }
 }
 
 type State<'a> = tauri::State<'a, Arc<Shell>>;
@@ -94,7 +126,7 @@ fn trash_paths(paths: &[PathBuf]) -> Result<(), String> {
 
 #[tauri::command]
 fn take_pending_opens(state: State<'_>) -> Vec<String> {
-    std::mem::take(&mut *state.pending.lock().unwrap())
+    state.opens.lock().unwrap().take()
 }
 
 #[tauri::command]
@@ -105,6 +137,11 @@ fn set_notify(enabled: bool, state: State<'_>) {
 #[tauri::command]
 fn set_keep_awake(enabled: bool, state: State<'_>) {
     state.keep_awake.store(enabled, Ordering::Relaxed);
+}
+
+#[tauri::command]
+fn set_tray_speed(enabled: bool, state: State<'_>) {
+    state.tray_speed.store(enabled, Ordering::Relaxed);
 }
 
 #[tauri::command]
@@ -120,7 +157,7 @@ fn set_autostart(enabled: bool, app: AppHandle) -> Result<bool, String> {
 }
 
 /// Keep only things we can add: magnet links and existing `.torrent` files.
-fn openable(arg: &str, cwd: Option<&Path>) -> Option<String> {
+pub(crate) fn openable(arg: &str, cwd: Option<&Path>) -> Option<String> {
     let a = arg.trim();
     if a.starts_with("magnet:") {
         return Some(a.to_string());
@@ -145,13 +182,10 @@ fn openable(arg: &str, cwd: Option<&Path>) -> Option<String> {
 }
 
 /// Queue OS-provided items and nudge the UI to pull them.
-fn hand_over(app: &AppHandle, items: impl IntoIterator<Item = String>) {
+pub(crate) fn hand_over(app: &AppHandle, items: impl IntoIterator<Item = String>) {
     let shell = app.state::<Arc<Shell>>();
-    let mut q = shell.pending.lock().unwrap();
-    let before = q.len();
-    q.extend(items);
-    if q.len() > before {
-        drop(q);
+    let added = shell.opens.lock().unwrap().add(items, Instant::now());
+    if added {
         show(app);
         let _ = app.emit("trav://open", ());
     }
@@ -162,16 +196,6 @@ pub(crate) fn show(app: &AppHandle) {
         let _ = w.unminimize();
         let _ = w.show();
         let _ = w.set_focus();
-    }
-}
-
-fn toggle(app: &AppHandle) {
-    if let Some(w) = app.get_webview_window("main") {
-        if w.is_visible().unwrap_or(false) && !w.is_minimized().unwrap_or(false) {
-            let _ = w.hide();
-        } else {
-            show(app);
-        }
     }
 }
 
@@ -186,149 +210,13 @@ pub(crate) fn quit(app: &AppHandle, restart: bool) {
         if let Some(e) = shell.engine.get() {
             let _ = tokio::time::timeout(Duration::from_secs(6), e.shutdown()).await;
         }
+        // Exiting skips destructors: write out buffered log lines first.
+        drop(LOG_GUARD.lock().unwrap().take());
         if restart {
             app.restart();
         }
         app.exit(0);
     });
-}
-
-fn fmt_rate(b: u64) -> String {
-    const U: [&str; 4] = ["B/s", "KB/s", "MB/s", "GB/s"];
-    let mut v = b as f64;
-    let mut i = 0;
-    while v >= 1024.0 && i < U.len() - 1 {
-        v /= 1024.0;
-        i += 1;
-    }
-    if i == 0 {
-        format!("{b} B/s")
-    } else {
-        format!("{v:.1} {}", U[i])
-    }
-}
-
-fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
-    let show_i = MenuItem::with_id(app, "tray.show", "Show Trav", true, None::<&str>)?;
-    let resume_i = MenuItem::with_id(app, "tray.resume", "Resume all", true, None::<&str>)?;
-    let pause_i = MenuItem::with_id(app, "tray.pause", "Pause all", true, None::<&str>)?;
-    let quit_i = MenuItem::with_id(app, "tray.quit", "Quit Trav", true, None::<&str>)?;
-    let speed_i = MenuItem::with_id(app, "tray.speed", "↓ — · ↑ —", false, None::<&str>)?;
-    let menu = Menu::with_items(
-        app,
-        &[
-            &speed_i,
-            &PredefinedMenuItem::separator(app)?,
-            &show_i,
-            &resume_i,
-            &pause_i,
-            &PredefinedMenuItem::separator(app)?,
-            &quit_i,
-        ],
-    )?;
-    // A monochrome template glyph, tinted by the menu bar.
-    let tray = TrayIconBuilder::with_id("main")
-        .icon(tauri::include_image!("icons/tray.png"))
-        .icon_as_template(true)
-        .tooltip("Trav")
-        .menu(&menu)
-        .show_menu_on_left_click(false)
-        .on_menu_event(|app, e| {
-            let engine = app.state::<Arc<Shell>>().engine.get().cloned();
-            match e.id.as_ref() {
-                "tray.show" => show(app),
-                "tray.resume" => {
-                    if let Some(e) = engine {
-                        e.resume_all();
-                    }
-                }
-                "tray.pause" => {
-                    if let Some(e) = engine {
-                        e.pause_all();
-                    }
-                }
-                "tray.quit" => quit(app, false),
-                _ => {}
-            }
-        })
-        .on_tray_icon_event(|tray, e| {
-            if let TrayIconEvent::Click {
-                button: MouseButton::Left,
-                button_state: MouseButtonState::Up,
-                ..
-            } = e
-            {
-                toggle(tray.app_handle());
-            }
-        })
-        .build(app)?;
-
-    // Every 2 s: speeds in the menu bar extra, overall download progress on
-    // the Dock icon, and the keep-awake assertion. (No count badge: macOS hides
-    // Dock badges of ad-hoc signed apps that post notifications.)
-    let app = app.clone();
-    tauri::async_runtime::spawn(async move {
-        let mut last: Option<Option<u64>> = None;
-        let mut awake: Option<keepawake::KeepAwake> = None;
-        loop {
-            tokio::time::sleep(Duration::from_secs(2)).await;
-            let shell = app.state::<Arc<Shell>>().inner().clone();
-            let Some(engine) = shell.engine.get().cloned() else {
-                continue;
-            };
-            let s = engine.snapshot();
-            let line = format!(
-                "↓ {} · ↑ {}",
-                fmt_rate(s.stats.download_rate),
-                fmt_rate(s.stats.upload_rate)
-            );
-            let _ = tray.set_tooltip(Some(format!("Trav — {line}")));
-            let _ = speed_i.set_text(&line);
-
-            let active: Vec<_> = s
-                .torrents
-                .iter()
-                .filter(|t| {
-                    matches!(
-                        t.status,
-                        TorrentStatus::Downloading | TorrentStatus::Metadata
-                    )
-                })
-                .collect();
-            let (size, done) = active
-                .iter()
-                .fold((0u64, 0u64), |(a, b), t| (a + t.size, b + t.done_bytes));
-            let percent = (!active.is_empty()).then(|| (done * 100).checked_div(size).unwrap_or(0));
-            if last != Some(percent)
-                && let Some(w) = app.get_webview_window("main")
-            {
-                let _ = w.set_progress_bar(ProgressBarState {
-                    status: Some(if percent.is_some() {
-                        ProgressBarStatus::Normal
-                    } else {
-                        ProgressBarStatus::None
-                    }),
-                    progress: percent,
-                });
-                last = Some(percent);
-            }
-
-            // Keep the Mac from idle-sleeping mid-transfer (the display may still sleep).
-            let busy = !active.is_empty() || s.stats.upload_rate > 0;
-            if busy && shell.keep_awake.load(Ordering::Relaxed) {
-                if awake.is_none() {
-                    awake = keepawake::Builder::default()
-                        .idle(true)
-                        .reason("Trav is transferring files")
-                        .create()
-                        .ok();
-                }
-            } else {
-                awake = None;
-            }
-        }
-    });
-    Ok(())
 }
 
 fn forward_events(app: AppHandle, engine: EngineHandle) {
@@ -369,6 +257,9 @@ fn state_dir() -> PathBuf {
 
 /// Daily-rotated log files under `<state>/logs` (7 kept), mirrored to stderr in
 /// debug builds. Panics are logged with a backtrace before the default hook runs.
+/// Flushes the log file when dropped (see `quit`).
+static LOG_GUARD: Mutex<Option<tracing_appender::non_blocking::WorkerGuard>> = Mutex::new(None);
+
 fn init_logging() -> Option<tracing_appender::non_blocking::WorkerGuard> {
     use tracing_subscriber::prelude::*;
     let filter = tracing_subscriber::EnvFilter::try_from_default_env()
@@ -412,21 +303,23 @@ fn init_logging() -> Option<tracing_appender::non_blocking::WorkerGuard> {
 }
 
 pub fn run() {
-    let _log_guard = init_logging();
+    *LOG_GUARD.lock().unwrap() = init_logging();
 
     let shell = Arc::new(Shell {
         notify: AtomicBool::new(true),
         keep_awake: AtomicBool::new(true),
+        tray_speed: AtomicBool::new(true),
         ..Default::default()
     });
 
     // Initial argv (`open -a Trav file.torrent --args …`, CLI use).
     let cwd = std::env::current_dir().ok();
     let autostarted = std::env::args().any(|a| a == AUTOSTART_ARG);
-    shell.pending.lock().unwrap().extend(
+    shell.opens.lock().unwrap().add(
         std::env::args()
             .skip(1)
             .filter_map(|a| openable(&a, cwd.as_deref())),
+        Instant::now(),
     );
 
     let app = tauri::Builder::default()
@@ -472,6 +365,7 @@ pub fn run() {
             take_pending_opens,
             set_notify,
             set_keep_awake,
+            set_tray_speed,
             get_autostart,
             set_autostart,
             menu::set_menu_state,
@@ -510,7 +404,7 @@ pub fn run() {
                     .iter()
                     .filter_map(|u| openable(u.as_str(), None))
                     .collect();
-                shell.pending.lock().unwrap().extend(items);
+                shell.opens.lock().unwrap().add(items, Instant::now());
             }
             let h = handle.clone();
             app.deep_link().on_open_url(move |e| {
@@ -524,13 +418,13 @@ pub fn run() {
 
             // Started by the login item: stay in the background (Dock / tray).
             if autostarted
-                && shell.pending.lock().unwrap().is_empty()
+                && shell.opens.lock().unwrap().pending.is_empty()
                 && let Some(w) = app.get_webview_window("main")
             {
                 let _ = w.hide();
             }
 
-            setup_tray(&handle)?;
+            tray::setup(&handle)?;
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -562,6 +456,35 @@ pub fn run() {
             hand_over(app, items);
         }
         RunEvent::Reopen { .. } => show(app),
+        // macOS is ending the app (Dock › Quit, logout, restart) and won't
+        // wait for async work: save progress synchronously before it goes.
+        RunEvent::Exit => {
+            if let Some(engine) = app.state::<Arc<Shell>>().engine.get() {
+                engine.save_now();
+            }
+            drop(LOG_GUARD.lock().unwrap().take());
+        }
         _ => {}
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn one_open_reported_twice_is_queued_once() {
+        let t = Instant::now();
+        let mut o = Opens::default();
+        assert!(o.add(["/a.torrent".to_string()], t));
+        // The same open arriving through a second channel.
+        assert!(!o.add(["/a.torrent".to_string()], t));
+        assert!(o.add(["/a.torrent".into(), "magnet:?xt=b".into()], t));
+        assert_eq!(o.take(), ["/a.torrent", "magnet:?xt=b"]);
+        // Already taken by the UI, but still recent: ignored.
+        assert!(!o.add(["/a.torrent".to_string()], t + Duration::from_secs(1)));
+        // Opened again later: a real second request.
+        assert!(o.add(["/a.torrent".to_string()], t + Opens::DEDUPE));
+        assert_eq!(o.take(), ["/a.torrent"]);
+    }
 }

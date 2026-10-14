@@ -44,6 +44,7 @@ import {
   setKeepAwake,
   setMenuState,
   setNotify,
+  setTraySpeed,
   takePendingOpens,
   type UpdateInfo,
 } from "@/lib/rpc";
@@ -52,6 +53,8 @@ import { FILTER_TESTS, isPausedLike, visibleTorrents, type FilterId } from "@/li
 import { load, save } from "@/lib/storage";
 import { Sidebar, type FilterDef } from "./Sidebar";
 import { StatusBar } from "./StatusBar";
+import { Launch } from "./Launch";
+import { Mark } from "./Mark";
 import { TorrentTable, type Sort, type SortKey } from "./TorrentTable";
 import { DetailPanel, type DetailTab } from "./DetailPanel";
 import { AddDialog, type AddItem } from "./AddDialog";
@@ -86,13 +89,23 @@ const FILTERS: FilterSpec[] = [
   { id: "error", label: "Errors", icon: <TriangleAlert size={15} />, test: FILTER_TESTS.error, hideEmpty: true },
 ];
 
-const DEFAULT_PREFS: UiPrefs = { theme: "ink", notify: true, confirmRemove: true, scanlines: true, autoUpdate: true, keepAwake: true };
+const DEFAULT_PREFS: UiPrefs = { theme: "ink", notify: true, confirmRemove: true, scanlines: true, autoUpdate: true, keepAwake: true, menuBarSpeed: true };
 
 /** ⌘-shortcuts the Mac app's menu bar owns (handled there, not here). */
 const MENU_KEYS = new Set(["k", "o", ",", "u", "r", "i", ".", "/", "f", "1", "2", "3", "4", "5", "6", "7"]);
 
+/** The launch sequence plays once per app start, when the window is on screen to see it. */
+function launchStage(): "launch" | "done" {
+  if (typeof window === "undefined") return "done";
+  const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+  return reduced || document.visibilityState === "hidden" ? "done" : "launch";
+}
+
 export default function App() {
   const toast = useToast();
+  // launch → (overlay dissolving, app animating in) reveal → done
+  const [boot, setBoot] = useState<"launch" | "reveal" | "done">(launchStage);
+  const [inactive, setInactive] = useState(false);
   const [prefs, setPrefs] = useState<UiPrefs>(() => ({ ...DEFAULT_PREFS, ...load<Partial<UiPrefs>>("prefs", {}) }));
   const [filter, setFilter] = useState<string>(() => load("filter", "all"));
   const [sort, setSort] = useState<Sort>(() => load("sort", { key: "queue", dir: 1 } as Sort));
@@ -146,6 +159,21 @@ export default function App() {
     setNotify(prefs.notify);
   }, [prefs.notify]);
   useEffect(() => setKeepAwake(prefs.keepAwake), [prefs.keepAwake]);
+  useEffect(() => setTraySpeed(prefs.menuBarSpeed), [prefs.menuBarSpeed]);
+
+  // Decorative motion rests while the window is in the background or hidden (saves energy).
+  useEffect(() => {
+    const update = () => setInactive(document.visibilityState === "hidden" || !document.hasFocus());
+    update();
+    window.addEventListener("focus", update);
+    window.addEventListener("blur", update);
+    document.addEventListener("visibilitychange", update);
+    return () => {
+      window.removeEventListener("focus", update);
+      window.removeEventListener("blur", update);
+      document.removeEventListener("visibilitychange", update);
+    };
+  }, []);
   useEffect(() => {
     appVersion().then(setVersion).catch(() => {});
   }, []);
@@ -203,7 +231,8 @@ export default function App() {
     [toast, version],
   );
   useEffect(() => {
-    if (!prefs.autoUpdate) return;
+    // Development builds aren't released; only a manual check makes sense there.
+    if (!prefs.autoUpdate || process.env.NODE_ENV === "development") return;
     const first = setTimeout(() => runUpdateCheck(false), 15_000);
     const every = setInterval(() => runUpdateCheck(false), 3600_000);
     return () => {
@@ -478,6 +507,7 @@ export default function App() {
         return void call("resumeAll").then(refresh).catch(fail);
     }
     if (id.startsWith("filter:")) return setFilter(id.slice("filter:".length));
+    if (id.startsWith("select:")) return jumpTo(id.slice("select:".length));
     if (anyModal || !selectedList.length) return;
     switch (id) {
       case "toggle-run":
@@ -604,6 +634,7 @@ export default function App() {
       <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, ease }}>
         {torrents.length === 0 ? (
           <>
+            <Mark className="empty-mark" live />
             <div className="eyebrow">[00] · the swarm is quiet</div>
             <h2 className="display empty-title">Nothing downloading.</h2>
             <p className="empty-sub">Drop a .torrent anywhere, paste a magnet link, or pick a file.</p>
@@ -636,7 +667,7 @@ export default function App() {
   );
 
   return (
-    <div className="app" data-mac data-desktop>
+    <div className="app" data-mac data-desktop data-boot={boot !== "done" ? boot : undefined} data-inactive={inactive || undefined}>
       <Sidebar
         filters={filterDefs}
         active={filter}
@@ -861,6 +892,10 @@ export default function App() {
       </Modal>
 
       {menu && <ContextMenu x={menu.x} y={menu.y} items={menuItems(menu.hash)} onClose={() => setMenu(null)} />}
+
+      {boot === "launch" || boot === "reveal" ? (
+        <Launch onReveal={() => setBoot("reveal")} onGone={() => setTimeout(() => setBoot("done"), 900)} />
+      ) : null}
 
     </div>
   );

@@ -120,6 +120,7 @@ impl Engine {
             .sanitized();
         let _ = store.save("settings.json", &settings);
         info!("Trav engine starting; state in {}", store.root().display());
+        let store_root = &store.root().to_path_buf();
 
         let (events, _) = broadcast::channel(256);
         let ctx = Arc::new(Ctx {
@@ -141,6 +142,7 @@ impl Engine {
             upnp_status: RwLock::new(None),
             rtt_samples: parking_lot::Mutex::new(Vec::new()),
             auto_upload_cap: AtomicU64::new(0),
+            public_trackers: RwLock::new(crate::public_trackers::load(store_root)),
         });
 
         let (snapshot_tx, snapshot_rx) = watch::channel(Arc::new(EngineSnapshot::empty()));
@@ -156,6 +158,7 @@ impl Engine {
 
         s.bind_listener().await;
         s.start_dht().await;
+        s.spawn_tracker_list_refresh();
         crate::upnp::spawn(Arc::downgrade(&s.ctx));
         s.load_persisted().await;
         s.apply_queue();
@@ -260,16 +263,20 @@ impl Session {
         *self.listener.lock() = Some(handle);
     }
 
-    async fn accept(self: Arc<Self>, mut stream: tokio::net::TcpStream, addr: SocketAddr) {
+    async fn accept(self: Arc<Self>, stream: tokio::net::TcpStream, addr: SocketAddr) {
         // Dual-stack sockets report IPv4 peers as ::ffff:a.b.c.d.
         let addr = SocketAddr::new(addr.ip().to_canonical(), addr.port());
-        let global = self.ctx.settings.read().max_peers_global;
+        let (global, enc) = {
+            let s = self.ctx.settings.read();
+            (s.max_peers_global, s.encryption)
+        };
         if self.ctx.connections.load(Ordering::Relaxed) >= global {
             return;
         }
-        stream.set_nodelay(true).ok();
-        let theirs = match handshake::read_handshake(&mut stream).await {
-            Ok(h) => h,
+        let me = self.clone();
+        let hashes = move || me.torrents.read().keys().copied().collect();
+        let (mut stream, theirs) = match handshake::accept(stream, enc, hashes).await {
+            Ok(done) => done,
             Err(e) => {
                 debug!("incoming {addr}: {e}");
                 return;
@@ -285,6 +292,38 @@ impl Session {
         let ours = Handshake::ours(theirs.info_hash, self.ctx.peer_id);
         if handshake::write_handshake(&mut stream, &ours).await.is_ok() {
             t.attach(stream, theirs, addr, PeerSource::Incoming);
+        }
+    }
+
+    /// Keep the public tracker list fresh (checked hourly, fetched daily).
+    fn spawn_tracker_list_refresh(self: &Arc<Self>) {
+        let weak = Arc::downgrade(self);
+        tokio::spawn(async move {
+            loop {
+                let Some(s) = weak.upgrade() else { break };
+                if !s.running.load(Ordering::Relaxed) {
+                    break;
+                }
+                let dir = s.ctx.store.root().to_path_buf();
+                if s.ctx.settings.read().public_trackers && crate::public_trackers::stale(&dir) {
+                    match crate::public_trackers::refresh(&s.ctx.http, &dir).await {
+                        Ok(list) => {
+                            info!("public tracker list: {} trackers", list.len());
+                            *s.ctx.public_trackers.write() = list;
+                            s.trackers_changed();
+                        }
+                        Err(e) => debug!("{e}"),
+                    }
+                }
+                drop(s);
+                tokio::time::sleep(Duration::from_secs(3600)).await;
+            }
+        });
+    }
+
+    fn trackers_changed(&self) {
+        for t in self.torrents.read().values() {
+            t.send(Cmd::TrackersChanged);
         }
     }
 
@@ -695,6 +734,9 @@ impl EngineHandle {
         if old.listen_port != new.listen_port || old.enable_dht != new.enable_dht {
             self.s.start_dht().await;
         }
+        if old.public_trackers != new.public_trackers {
+            self.s.trackers_changed();
+        }
         self.s.apply_queue();
         self.s.publish();
         Ok(())
@@ -723,6 +765,14 @@ impl EngineHandle {
 
     pub fn state_dir(&self) -> PathBuf {
         self.s.ctx.store.root().to_path_buf()
+    }
+
+    /// Save every torrent's progress (and known DHT nodes) right now, without
+    /// stopping anything. For when the process is about to end and there's no
+    /// time for `shutdown`.
+    pub fn save_now(&self) {
+        info!("saving state before exit");
+        self.s.save_all(true);
     }
 
     /// Flush resume data and stop all torrents (trackers get a `stopped` announce).

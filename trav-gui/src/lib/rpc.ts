@@ -125,6 +125,11 @@ export function setNotify(enabled: boolean) {
   invoke("set_notify", { enabled }).catch(() => {});
 }
 
+/** Show the download speed beside the menu bar icon. */
+export function setTraySpeed(enabled: boolean) {
+  invoke("set_tray_speed", { enabled }).catch(() => {});
+}
+
 export async function appVersion(): Promise<string> {
   const { getVersion } = await import("@tauri-apps/api/app");
   return getVersion();

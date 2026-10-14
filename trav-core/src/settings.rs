@@ -25,6 +25,10 @@ pub struct Settings {
     /// With no upload limit set, cap uploads automatically whenever they start
     /// queueing on the uplink and slowing everything else (see `governor`).
     pub auto_upload_limit: bool,
+    /// Peer connection encryption (MSE/PE).
+    pub encryption: Encryption,
+    /// Also announce to well-known public trackers (never for private torrents).
+    pub public_trackers: bool,
     /// Which defaults this file was written with (for migrations). Files from
     /// before versioning have none, so it defaults to 0 rather than current.
     #[serde(default)]
@@ -47,9 +51,23 @@ impl Default for Settings {
             enable_upnp: true,
             seed_ratio_limit: 0.0,
             auto_upload_limit: true,
+            encryption: Encryption::Prefer,
+            public_trackers: true,
             version: Self::VERSION,
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum Encryption {
+    /// Encrypt when the peer can, otherwise connect in the clear.
+    #[default]
+    Prefer,
+    /// Only encrypted connections.
+    Require,
+    /// Never encrypt.
+    Off,
 }
 
 fn default_download_dir() -> PathBuf {

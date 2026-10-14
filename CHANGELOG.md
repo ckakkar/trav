@@ -6,6 +6,27 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+Faster starts and finishes, encryption, a menu bar icon that shows what's happening, and motion throughout.
+
+### Added
+- Protocol encryption (MSE/PE): connections are encrypted when the peer supports it, with a plain fallback, which reaches peers that refuse plain BitTorrent and hides the traffic from throttling. Settings › Network › Encryption (Prefer, Require, Off); the Peers tab marks encrypted peers **E**.
+- Public trackers: non-private torrents also announce to a list of well-known open trackers, refreshed daily (Settings › Network). In a test with a bare magnet link this found twice the peers and downloaded 3× more in the first minute.
+- The menu bar icon animates while downloading (the arrow dips, the line fills with progress and a glint runs along it), shows the speed beside it, and pulses when a download finishes. Its menu lists live totals and the transfers in progress, plus Open Trav, Add Torrent File…, Add Magnet from Clipboard, Pause/Resume All, Settings and Check for Updates.
+- A launch sequence, progress bars whose sheen follows download speed, a sweeping bar while fetching metadata, moving stripes while verifying, a burst when a download completes, and a highlight for new transfers. Decorative motion pauses while the window is in the background.
+
+### Changed
+- End-game: up to four peers may race a block that has waited more than 1.5 s, so faster peers rescue blocks stuck on slow ones. The last 5% of a download went from 36 s to 12 s in testing.
+- Magnet metadata pieces are asked of a second peer when the first is slow (and given up on after 6 s, was 15 s): magnets start in about 3 to 5 seconds instead of 18 to 24.
+- Dead peers are given up on after 6 s (was 10 s), and up to 100 connection attempts run at once (was 64).
+
+### Fixed
+- Opening a `.torrent` from Finder showed the Add dialog twice.
+- Quit (⌘Q) ended the app at once, without saving progress or telling trackers; Dock › Quit, logout and restart now save progress too.
+- The last lines of the log were lost when quitting.
+- Peers that trackers report at `127.0.0.1` and other unreachable addresses are no longer dialled.
+
+## [0.3.34] - 2026-10-14
+
 Trav is now only the Mac app, and every push to `main` ships to it.
 
 ### Added

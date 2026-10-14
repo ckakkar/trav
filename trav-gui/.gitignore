@@ -35,6 +35,5 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-# test output
-/test-results/
-/blob-report/
+# written by `next dev`
+/AGENTS.md

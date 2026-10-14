@@ -14,7 +14,7 @@ use crate::persist::Store;
 use crate::settings::Settings;
 
 /// Outbound TCP handshakes allowed in flight at once across the session.
-pub const HALF_OPEN_LIMIT: usize = 64;
+pub const HALF_OPEN_LIMIT: usize = 100;
 
 pub(crate) struct Ctx {
     pub peer_id: [u8; 20],
@@ -37,6 +37,8 @@ pub(crate) struct Ctx {
     pub rtt_samples: Mutex<Vec<RttSample>>,
     /// The automatic upload limit in force (bytes/s; 0 = none).
     pub auto_upload_cap: AtomicU64,
+    /// Public trackers added to non-private torrents (see `public_trackers`).
+    pub public_trackers: RwLock<Vec<String>>,
 }
 
 impl Ctx {

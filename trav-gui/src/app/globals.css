@@ -331,6 +331,15 @@ kbd {
   color: var(--accent);
   border-color: var(--accent-line);
 }
+.seg {
+  display: inline-flex;
+  gap: 4px;
+}
+.chip[aria-checked="true"] {
+  color: var(--accent);
+  border-color: var(--accent-line);
+  background: var(--accent-soft, transparent);
+}
 
 .pill {
   display: inline-flex;
@@ -1029,6 +1038,43 @@ body[data-resizing] .main {
   align-items: center;
   gap: 10px;
 }
+.bar-wrap {
+  position: relative;
+  flex: 1;
+  min-width: 40px;
+  display: flex;
+  align-items: center;
+}
+.trow .bar-fill {
+  transform: scaleX(var(--p, 0));
+}
+/* The leading edge of a download glows, a little brighter on each breath. */
+.bar-head {
+  display: none;
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: calc(var(--p, 0) * 100%);
+  width: 26px;
+  translate: -100% 0;
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, #fff 65%, var(--accent)));
+  border-radius: 0 4px 4px 0;
+  opacity: 0.85;
+  transition: left 0.6s linear;
+  animation: headBreath 1.6s ease-in-out infinite;
+  pointer-events: none;
+}
+.trow[data-status="downloading"] .bar-head {
+  display: block;
+}
+@keyframes headBreath {
+  50% {
+    opacity: 0.35;
+  }
+}
+.trow[data-status="downloading"] .bar {
+  box-shadow: 0 0 10px -3px var(--accent-line);
+}
 .bar-pct {
   width: 44px;
   text-align: right;
@@ -1054,10 +1100,145 @@ body[data-resizing] .main {
   background: var(--err);
 }
 .trow[data-tone="down"] .bar-fill {
-  background-image: linear-gradient(90deg, transparent 0 60%, #ffffff40 80%, transparent 100%);
-  background-size: 220px 100%;
+  background-color: var(--accent);
+  background-image: linear-gradient(90deg, transparent 0 60%, #ffffff40 80%, transparent 100%),
+    linear-gradient(90deg, color-mix(in srgb, var(--accent) 55%, var(--bg)), var(--accent));
+  background-size: 220px 100%, 100% 100%;
   background-repeat: no-repeat;
-  animation: sheen 2.4s linear infinite;
+  /* Faster downloads, faster sheen (--flow is set per row). */
+  animation: sheen var(--flow, 2.4s) linear infinite;
+}
+/* Fetching metadata: size unknown, so a segment sweeps back and forth. */
+.trow[data-status="metadata"] .bar-fill {
+  inset: 0 auto 0 0;
+  width: 34%;
+  transform: none;
+  background: var(--accent);
+  animation: seek 1.5s var(--ease) infinite alternate;
+}
+@keyframes seek {
+  from {
+    translate: -60% 0;
+  }
+  to {
+    translate: 260% 0;
+  }
+}
+/* Verifying: moving stripes. */
+.trow[data-status="checking"] .bar-fill {
+  background-image: repeating-linear-gradient(-45deg, transparent 0 5px, #00000030 5px 10px);
+  background-size: 14px 100%;
+  animation: stripes 0.7s linear infinite;
+}
+@keyframes stripes {
+  to {
+    background-position: 14px 0;
+  }
+}
+
+/* A finished download: the bar flashes green, sparks fly, the row glows. */
+.trow[data-done] .bar-fill {
+  background: var(--ok);
+  animation: doneFlash 1.2s var(--ease);
+}
+@keyframes doneFlash {
+  0% {
+    filter: brightness(2.2) saturate(1.4);
+  }
+}
+.trow[data-done]::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(70% 160% at 45% 50%, color-mix(in srgb, var(--ok) 16%, transparent), transparent 70%);
+  animation: doneGlow 2s var(--ease) forwards;
+}
+@keyframes doneGlow {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+.trow[data-done] .sdot {
+  position: relative;
+}
+.trow[data-done] .sdot::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 1.5px solid var(--ok);
+  animation: ring 1.1s var(--ease) forwards;
+}
+@keyframes ring {
+  from {
+    transform: scale(1);
+    opacity: 1;
+  }
+  to {
+    transform: scale(4.5);
+    opacity: 0;
+  }
+}
+.burst {
+  position: absolute;
+  right: 0;
+  top: 50%;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+.spark {
+  position: absolute;
+  left: -1px;
+  top: -1px;
+  border-radius: 50%;
+  box-shadow: 0 0 6px currentColor;
+}
+
+/* Just added: a warm sweep across the row and an accent edge. */
+.trow[data-arrive] {
+  background-image: linear-gradient(90deg, var(--accent-soft), transparent 70%);
+  background-size: 200% 100%;
+  animation: arrive 1.6s var(--ease) both;
+}
+.trow[data-arrive]::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 8px;
+  bottom: 8px;
+  width: 2px;
+  background: var(--accent);
+  border-radius: 2px;
+  animation: arriveEdge 1.6s var(--ease) both;
+}
+@keyframes arrive {
+  from {
+    background-position: 100% 0;
+  }
+  60% {
+    background-position: 0 0;
+  }
+  to {
+    background-position: 0 0;
+    background-image: none;
+  }
+}
+@keyframes arriveEdge {
+  from {
+    transform: scaleY(0);
+  }
+  30% {
+    transform: scaleY(1);
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
 }
 @keyframes sheen {
   from {
@@ -1082,9 +1263,27 @@ body[data-resizing] .main {
   white-space: nowrap;
 }
 .trow[data-tone="down"] .sdot {
+  position: relative;
   background: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-soft);
-  animation: pulse 1.8s var(--ease) infinite;
+}
+.trow[data-tone="down"] .sdot::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 1px solid var(--accent);
+  animation: ripple 1.8s var(--ease) infinite;
+}
+@keyframes ripple {
+  from {
+    transform: scale(1);
+    opacity: 0.9;
+  }
+  to {
+    transform: scale(3.2);
+    opacity: 0;
+  }
 }
 .trow[data-tone="down"] .slabel {
   color: var(--accent);
@@ -2111,6 +2310,184 @@ body[data-resizing] .main {
 ::view-transition-new(root) {
   animation: none;
   mix-blend-mode: normal;
+}
+
+/* ── Launch ──────────────────────────────────────────────────────────────── */
+.launch {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  place-items: center;
+  background: var(--bg);
+}
+.launch-stage {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  gap: 16px;
+  margin-top: -4vh;
+}
+.launch-glow {
+  position: absolute;
+  left: 50%;
+  top: 34%;
+  width: 380px;
+  height: 380px;
+  translate: -50% -50%;
+  background: radial-gradient(closest-side, color-mix(in srgb, var(--accent) 24%, transparent), transparent);
+  filter: blur(14px);
+  pointer-events: none;
+  animation: launchGlow 1.6s var(--ease) both;
+}
+@keyframes launchGlow {
+  from {
+    opacity: 0;
+    scale: 0.5;
+  }
+  55% {
+    opacity: 1;
+  }
+  to {
+    opacity: 0.8;
+    scale: 1;
+  }
+}
+.launch-mark {
+  position: relative;
+  width: 96px;
+  height: auto;
+  color: var(--accent);
+  filter: drop-shadow(0 0 22px color-mix(in srgb, var(--accent) 50%, transparent));
+}
+.launch-word {
+  position: relative;
+  display: flex;
+  font-size: 46px;
+  line-height: 1;
+  color: var(--text);
+}
+.launch-word span {
+  display: inline-block;
+}
+.launch-sub {
+  position: relative;
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+/* The app arriving from behind the launch overlay. */
+.app[data-boot="reveal"] .sidebar {
+  animation: bootSide 0.8s var(--ease) both;
+}
+.app[data-boot="reveal"] .toolbar {
+  animation: bootDown 0.7s var(--ease) 0.06s both;
+}
+.app[data-boot="reveal"] .thead {
+  animation: bootFade 0.6s var(--ease) 0.12s both;
+}
+.app[data-boot="reveal"] .trow-wrap {
+  animation: bootRow 0.65s var(--ease) both;
+  animation-delay: calc(0.16s + var(--i, 0) * 45ms);
+}
+.app[data-boot="reveal"] .empty > * {
+  animation: bootRow 0.8s var(--ease) 0.14s both;
+}
+.app[data-boot="reveal"] .statusbar,
+.app[data-boot="reveal"] .panel-wrap {
+  animation: bootUp 0.7s var(--ease) 0.2s both;
+}
+@keyframes bootSide {
+  from {
+    opacity: 0;
+    transform: translateX(-18px);
+  }
+}
+@keyframes bootDown {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+}
+@keyframes bootUp {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+}
+@keyframes bootRow {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.985);
+  }
+}
+@keyframes bootFade {
+  from {
+    opacity: 0;
+  }
+}
+
+/* ── Mark ──────────────────────────────────────────────────────────────────── */
+.mark rect,
+.mark polygon {
+  fill: currentColor;
+}
+.mark polygon {
+  stroke: currentColor;
+}
+.mark .mark-track {
+  fill-opacity: 0.22;
+}
+.mark .mark-glint {
+  display: none;
+}
+.empty-mark {
+  display: block;
+  width: 46px;
+  height: auto;
+  margin: 0 auto 20px;
+  color: var(--text-faint);
+}
+.empty-mark .mark-fill {
+  fill: var(--accent);
+}
+.mark[data-live] .mark-arrow {
+  animation: markBob 2.6s var(--ease) infinite;
+}
+@keyframes markBob {
+  50% {
+    transform: translateY(28px);
+  }
+}
+.mark[data-live] .mark-glint {
+  display: block;
+  fill: #fff;
+  fill-opacity: 0.6;
+  animation: markGlint 2.6s var(--ease) infinite;
+}
+@keyframes markGlint {
+  from {
+    transform: translateX(-70px);
+    opacity: 0;
+  }
+  30% {
+    opacity: 1;
+  }
+  to {
+    transform: translateX(424px);
+    opacity: 0;
+  }
+}
+
+/* In the background, the looping decorations rest (one-off transitions still finish). */
+.app[data-inactive] .bar-fill,
+.app[data-inactive] .bar-head,
+.app[data-inactive] .sdot,
+.app[data-inactive] .sdot::after,
+.app[data-inactive] .mark * {
+  animation-play-state: paused;
 }
 
 @media (prefers-reduced-motion: reduce) {

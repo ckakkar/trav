@@ -7,7 +7,10 @@ use bytes::Bytes;
 use crate::peer::extension::METADATA_PIECE;
 use crate::picker::PeerKey;
 
-const REQUEST_TIMEOUT: Duration = Duration::from_secs(15);
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(6);
+/// Once every piece is out, a piece waited on this long is also asked of
+/// another peer: one slow peer shouldn't hold up the whole torrent.
+const DUPLICATE_AFTER: Duration = Duration::from_secs(2);
 
 pub(crate) struct MetadataAssembly {
     pub size: usize,
@@ -37,15 +40,21 @@ impl MetadataAssembly {
         }
     }
 
-    /// Next piece this peer should ask for (unrequested, or stale).
+    /// Next piece this peer should ask for: unrequested or stale first, then
+    /// (endgame) the one another peer has kept us waiting on longest.
     pub fn next_request(&mut self, peer: PeerKey) -> Option<u32> {
         let now = Instant::now();
-        let idx = (0..self.pieces.len()).find(|&i| {
-            self.pieces[i].is_none()
-                && match self.requested[i] {
-                    None => true,
-                    Some((_, at)) => now.duration_since(at) > REQUEST_TIMEOUT,
-                }
+        let missing = || (0..self.pieces.len()).filter(|&i| self.pieces[i].is_none());
+        let fresh = missing().find(|&i| match self.requested[i] {
+            None => true,
+            Some((_, at)) => now.duration_since(at) > REQUEST_TIMEOUT,
+        });
+        let idx = fresh.or_else(|| {
+            missing()
+                .filter_map(|i| self.requested[i].map(|r| (i, r)))
+                .filter(|&(_, (p, at))| p != peer && now.duration_since(at) > DUPLICATE_AFTER)
+                .min_by_key(|&(_, (_, at))| at)
+                .map(|(i, _)| i)
         })?;
         self.requested[idx] = Some((peer, now));
         Some(idx as u32)
@@ -80,5 +89,27 @@ impl MetadataAssembly {
             return Some(out);
         }
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn slow_pieces_are_asked_of_another_peer() {
+        let mut m = MetadataAssembly::new(METADATA_PIECE * 2);
+        assert_eq!(m.next_request(1), Some(0));
+        assert_eq!(m.next_request(2), Some(1));
+        // Everything is out and nothing is overdue yet.
+        assert_eq!(m.next_request(3), None);
+        let past = Instant::now() - DUPLICATE_AFTER - Duration::from_millis(10);
+        m.requested[1] = Some((2, past));
+        assert_eq!(m.next_request(3), Some(1), "piece 1 duplicated to peer 3");
+        // Never duplicated back to the peer already asked.
+        m.requested[0] = Some((1, past));
+        assert_eq!(m.next_request(1), None);
+        assert!(m.on_data(1, Bytes::from(vec![0; METADATA_PIECE])).is_none());
+        assert!(m.on_data(0, Bytes::from(vec![0; METADATA_PIECE])).is_some());
     }
 }

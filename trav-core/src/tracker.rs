@@ -146,7 +146,7 @@ async fn announce_http(
 /// A tracker reply is a few kilobytes; never buffer more than this.
 const MAX_HTTP_RESPONSE: usize = 2 * 1024 * 1024;
 
-async fn read_capped(mut resp: reqwest::Response, max: usize) -> Result<Vec<u8>> {
+pub(crate) async fn read_capped(mut resp: reqwest::Response, max: usize) -> Result<Vec<u8>> {
     if resp.content_length().is_some_and(|n| n as usize > max) {
         return Err(Error::Tracker("tracker response too large".into()));
     }

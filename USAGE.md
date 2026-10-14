@@ -84,7 +84,11 @@ In the list:
 
 ## The Dock, the menu bar and closing
 
-The **Dock icon** shows a progress bar across everything that's downloading. The **menu bar icon** shows live speeds and has Pause all / Resume all. Closing the window **keeps Trav running** so it can finish and keep seeding; click the Dock icon (or ⌘0) to bring the window back. **Trav › Quit Trav** (⌘Q) stops it; it saves progress and tells trackers it's leaving first. You get a notification when a download completes (switch it off in Settings).
+The **Dock icon** shows a progress bar across everything that's downloading.
+
+The **menu bar icon** comes alive while Trav downloads: its arrow dips toward the line beneath it, the line fills with overall progress, and the download speed sits beside it (Settings › App can hide the speed). It pulses when a download finishes. Click it for live totals, the transfers in progress (pick one to jump to it in the window), and Open Trav, Add Torrent File…, Add Magnet from Clipboard, Pause All, Resume All, Settings and Check for Updates.
+
+Closing the window **keeps Trav running** so it can finish and keep seeding; click the Dock icon (or ⌘0) to bring the window back. **Trav › Quit Trav** (⌘Q) stops it; it saves progress and tells trackers it's leaving first. You get a notification when a download completes (switch it off in Settings).
 
 Trav remembers the window's size and position.
 
@@ -107,10 +111,12 @@ Open them with **⌘,**. Engine settings are saved with **Save**; Interface and 
 | Upload slots per torrent | 8 | peers you upload to at once |
 | DHT | on | trackerless peer discovery; needed for most magnet links |
 | Peer exchange | on | learn about peers from peers |
+| Public trackers | on | also ask well-known open trackers for peers; never for private torrents |
+| Encryption | Prefer | *Prefer* encrypts when the peer can and falls back to plain BitTorrent; *Require* only accepts encrypted connections; *Off* never encrypts |
 | UPnP port forwarding | on | ask your router to open the listen port |
 | Stop seeding at ratio | 0 = seed forever | e.g. `2` stops once you've uploaded twice the size; resuming a stopped torrent overrides it |
 | Theme, notifications, confirm before removing | | Interface |
-| Check for updates automatically, open at login, keep the Mac awake while transferring | on, off, on | App |
+| Check for updates automatically, open at login, keep the Mac awake while transferring, show speed in the menu bar | on, off, on, on | App |
 
 Engine settings live in `settings.json` in the [library folder](#where-things-live).
 
@@ -118,7 +124,8 @@ Engine settings live in `settings.json` in the [library folder](#where-things-li
 
 On a healthy torrent Trav downloads as fast as your connection allows. When a download is slow, the cause is usually one of these:
 
-- **Few peers have it.** The Trackers tab shows how many seeds and peers each tracker knows about. Trav keeps looking: while fewer than five peers are sending, it asks the DHT and trackers for more every two minutes, and when it's at its connection limit it swaps idle peers for new ones every 30 seconds.
+- **Few peers have it.** The Trackers tab shows how many seeds and peers each tracker knows about. Trav announces to a list of well-known public trackers as well as the torrent's own (refreshed daily; never for private torrents), which matters most for magnet links that name few trackers or none. It keeps looking: while fewer than five peers are sending, it asks the DHT and trackers for more every two minutes, and when it's at its connection limit it swaps idle peers for new ones every 30 seconds.
+- **Peers refuse plain BitTorrent, or your provider slows it down.** Trav encrypts its connections when the other side can (the **E** flag in the Peers tab), which reaches peers that insist on encryption and hides the traffic from throttling. If a provider still slows Trav down, set Encryption to *Require*.
 - **Your connection can't accept incoming peers.** The status bar shows **● open** once another peer has connected *to* you. If it never appears, you can only reach peers that are reachable themselves. Turn on **UPnP** in Settings, or forward the listen port (TCP and UDP, default 51413) on your router. Many mobile and fibre providers share one public address between customers (CGNAT); then no router setting helps, but IPv6 does if your provider and router support it.
 - **Uploads are filling your connection.** Uploading at full speed queues up in front of your connection's uplink, and then everything else, downloads included, waits behind it. With no upload limit set, Trav measures how much its connections' round-trip time grows and eases uploads off when they cause queueing; the status bar then shows the upload limit as **auto**. If downloads still crawl while seeding, set a fixed upload limit around 80% of your upload speed.
 - **A limit is set.** Check the download/upload limits in Settings (the status bar shows them).
@@ -166,8 +173,8 @@ Logs are in `~/Library/Application Support/trav/logs`. For much more detail, qui
 
 ### Peer flags
 
-The Peers tab uses µTorrent-style flags: **D** downloading from them · **d** you want data but they're choking you · **U** uploading to them · **u** they want data but you're choking them · **K** they'd send but you're not interested · **?** you'd send but they're not interested · **O** optimistic unchoke · **S** snubbed (stopped sending) · **I** they connected to you · **X** found via peer exchange · **H** found via DHT.
+The Peers tab uses µTorrent-style flags: **D** downloading from them · **d** you want data but they're choking you · **U** uploading to them · **u** they want data but you're choking them · **K** they'd send but you're not interested · **?** you'd send but they're not interested · **O** optimistic unchoke · **S** snubbed (stopped sending) · **E** encrypted connection · **I** they connected to you · **X** found via peer exchange · **H** found via DHT.
 
 ## Limitations
 
-Not supported yet: µTP (peers that only speak µTP can't be reached), protocol encryption (MSE/PE), web seeds (BEP 19) and BitTorrent v2.
+Not supported yet: µTP (peers that only speak µTP can't be reached, and peers behind the same kind of shared address as you can't be reached either), web seeds (BEP 19) and BitTorrent v2.

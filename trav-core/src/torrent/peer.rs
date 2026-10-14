@@ -18,7 +18,6 @@ use std::time::{Duration, Instant};
 use bytes::Bytes;
 use futures::{SinkExt, StreamExt};
 use parking_lot::Mutex;
-use tokio::net::TcpStream;
 use tokio::sync::{Notify, mpsc};
 use tokio_util::codec::Framed;
 use tracing::debug;
@@ -32,6 +31,7 @@ use crate::peer::extension::{
 };
 use crate::peer::handshake::Handshake;
 use crate::peer::protocol::{MAX_BLOCK_LEN, PeerCodec, PeerMessage};
+use crate::peer::stream::PeerStream;
 use crate::picker::{BLOCK_SIZE, BlockReq, OnBlock, PeerKey};
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
@@ -62,7 +62,7 @@ struct UploadQueue {
 pub(super) async fn run(
     t: Arc<Torrent>,
     key: PeerKey,
-    stream: TcpStream,
+    stream: PeerStream,
     hs: Handshake,
     addr: SocketAddr,
     rx: mpsc::UnboundedReceiver<PeerCmd>,
@@ -130,7 +130,7 @@ impl Conn {
 
     async fn session(
         &mut self,
-        stream: TcpStream,
+        stream: PeerStream,
         hs: Handshake,
         mut rx: mpsc::UnboundedReceiver<PeerCmd>,
     ) -> Result<()> {
@@ -765,7 +765,7 @@ impl Conn {
             self.release_all();
         }
         if let Some((_, at)) = self.metadata_req
-            && at.elapsed() > Duration::from_secs(20)
+            && at.elapsed() > Duration::from_secs(8)
         {
             self.metadata_req = None;
             self.metadata_rejects += 1;

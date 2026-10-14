@@ -90,7 +90,9 @@ pub fn build(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
             &PredefinedMenuItem::hide_others(app, None)?,
             &PredefinedMenuItem::show_all(app, None)?,
             &sep()?,
-            &PredefinedMenuItem::quit(app, Some("Quit Trav"))?,
+            // Ours, not the predefined item: that terminates on the spot,
+            // before the engine can save progress and tell trackers.
+            &item(app, "quit", "Quit Trav", Some("CmdOrCtrl+Q"))?,
         ],
     )?;
 
@@ -276,6 +278,10 @@ pub fn on_event(app: &AppHandle, id: &str) {
     let Some(id) = id.strip_prefix("app.") else {
         return;
     };
+    if id == "quit" {
+        crate::quit(app, false);
+        return;
+    }
     let url = match id {
         "help" => Some(HELP_URL.to_string()),
         "issue" => Some(ISSUES_URL.to_string()),

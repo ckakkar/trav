@@ -1,7 +1,7 @@
 "use client";
 
 import { AnimatePresence, motion } from "motion/react";
-import { memo, type MouseEvent } from "react";
+import { memo, useEffect, useRef, useState, type CSSProperties, type MouseEvent } from "react";
 import { ArrowDown, ArrowUp } from "lucide-react";
 import type { TorrentSummary } from "@/lib/types";
 import { statusLabel, type Sort, type SortKey } from "@/lib/torrents";
@@ -25,6 +25,65 @@ const COLS: { key: SortKey; label: string; cls: string }[] = [
   { key: "added", label: "Added", cls: "c-added num" },
 ];
 
+/** Sheen speed follows download speed (in steps, so it doesn't stutter as rates wobble). */
+function flow(rate: number): string {
+  if (rate < 64 * 1024) return "3.2s";
+  if (rate < 512 * 1024) return "2.2s";
+  if (rate < 2 * 1024 * 1024) return "1.5s";
+  if (rate < 8 * 1024 * 1024) return "1.05s";
+  return "0.8s";
+}
+
+const BURST = Array.from({ length: 12 }, (_, i) => {
+  const a = (i / 12) * Math.PI * 2 + (i % 2 ? 0.2 : -0.1);
+  const d = 16 + (i % 3) * 9;
+  return { x: Math.cos(a) * d, y: Math.sin(a) * d * 0.7, s: 2 + (i % 3), hue: i % 4 === 0 ? "var(--accent)" : "var(--ok)" };
+});
+
+/** Sparks from the end of the progress bar when a download finishes. */
+function Burst() {
+  return (
+    <span className="burst" aria-hidden>
+      {BURST.map((p, i) => (
+        <motion.span
+          key={i}
+          className="spark"
+          style={{ width: p.s, height: p.s, background: p.hue }}
+          initial={{ x: 0, y: 0, opacity: 1, scale: 1 }}
+          animate={{ x: p.x, y: p.y, opacity: 0, scale: 0.3 }}
+          transition={{ duration: 0.9 + (i % 3) * 0.12, ease: [0.17, 0.84, 0.44, 1] }}
+        />
+      ))}
+    </span>
+  );
+}
+
+const DONE = new Set(["seeding", "finished"]);
+const BUSY = new Set(["downloading", "metadata"]);
+
+/** Just finished (celebrate) and just added (arrive) moments for a row. */
+function useMoments(t: TorrentSummary) {
+  const prev = useRef(t.status);
+  const [done, setDone] = useState(0);
+  const [arrive] = useState(() => Date.now() / 1000 - t.addedAt < 8);
+  const [arriving, setArriving] = useState(arrive);
+  useEffect(() => {
+    const was = prev.current;
+    prev.current = t.status;
+    if (BUSY.has(was) && DONE.has(t.status)) {
+      setDone(Date.now());
+      const id = setTimeout(() => setDone(0), 2000);
+      return () => clearTimeout(id);
+    }
+  }, [t.status]);
+  useEffect(() => {
+    if (!arriving) return;
+    const id = setTimeout(() => setArriving(false), 1600);
+    return () => clearTimeout(id);
+  }, [arriving]);
+  return { done, arriving };
+}
+
 interface RowProps {
   t: TorrentSummary;
   index: number;
@@ -39,6 +98,8 @@ const Row = memo(
   function Row({ t, index, selected, focused, onPointer, onMenu, onOpen }: RowProps) {
     const st = statusLabel(t);
     const unknownSize = !t.hasMetadata;
+    const { done, arriving } = useMoments(t);
+    const p = Math.max(0, Math.min(1, t.progress));
     const meta = [
       unknownSize ? "size unknown" : `${bytes(t.doneBytes)} of ${bytes(t.size)}`,
       t.status === "downloading" || t.status === "seeding" ? `${t.seeds} seeds · ${t.peers} peers` : null,
@@ -57,6 +118,8 @@ const Row = memo(
         data-tone={st.tone}
         data-selected={selected || undefined}
         data-focused={focused || undefined}
+        data-done={done ? "" : undefined}
+        data-arrive={arriving || undefined}
         onMouseDown={(e) => e.button === 0 && onPointer(e, t.infoHash)}
         onContextMenu={(e) => onMenu(e, t.infoHash)}
         onDoubleClick={() => onOpen(t.infoHash)}
@@ -70,8 +133,12 @@ const Row = memo(
         </div>
         <div className="c-size num mono">{unknownSize ? "—" : bytes(t.size)}</div>
         <div className="c-prog">
-          <div className="bar">
-            <div className="bar-fill" style={{ transform: `scaleX(${Math.max(0, Math.min(1, t.progress))})` }} />
+          <div className="bar-wrap">
+            <div className="bar" style={{ "--p": p, "--flow": flow(t.downloadRate) } as CSSProperties}>
+              <div className="bar-fill" />
+              <div className="bar-head" />
+            </div>
+            {done > 0 && <Burst key={done} />}
           </div>
           <Tween key={t.infoHash} className="bar-pct mono" value={t.progress} format={(v) => pct(v, v >= 0.999 ? 0 : 1)} />
         </div>
@@ -169,6 +236,7 @@ export function TorrentTable({
               exit={{ opacity: 0, height: 0, transition: { duration: 0.22, ease } }}
               transition={{ duration: 0.38, ease, layout: { duration: 0.45, ease } }}
               className="trow-wrap"
+              style={{ "--i": Math.min(i, 14) } as CSSProperties}
             >
               <Row
                 t={t}
