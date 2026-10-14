@@ -70,6 +70,7 @@ pub fn build(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
         name: Some("Trav".into()),
         version: Some(app.package_info().version.to_string()),
         copyright: Some("© 2026 Cyrus Kakkar".into()),
+        credits: Some("App by Cyrus · kkrwhofrags.xyz".into()),
         website: Some("https://github.com/ckakkar/trav".into()),
         website_label: Some("github.com/ckakkar/trav".into()),
         ..Default::default()

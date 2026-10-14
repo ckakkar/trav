@@ -42,6 +42,13 @@ export async function reveal(path: string) {
   await revealItemInDir(path);
 }
 
+/** The maker's site, in the default browser. */
+export const AUTHOR_URL = "https://kkrwhofrags.xyz";
+export async function openAuthorSite() {
+  const { openUrl } = await import("@tauri-apps/plugin-opener");
+  await openUrl(AUTHOR_URL);
+}
+
 export async function openPath(path: string) {
   const { openPath } = await import("@tauri-apps/plugin-opener");
   await openPath(path);

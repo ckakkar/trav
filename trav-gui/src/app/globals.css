@@ -758,11 +758,25 @@ textarea.input {
   padding: 8px 12px;
   border-top: 1px solid var(--line);
 }
-.side-ver {
+.side-credit {
   margin-left: auto;
+  display: grid;
+  justify-items: end;
+  gap: 2px;
   font-size: 10px;
+  line-height: 1.2;
+  padding-right: 4px;
 }
-
+.side-credit a {
+  color: var(--text-dim);
+  text-decoration: none;
+  border-bottom: 1px solid var(--line);
+  transition: color 0.2s var(--ease), border-color 0.2s var(--ease);
+}
+.side-credit a:hover {
+  color: var(--accent);
+  border-color: var(--accent-line);
+}
 /* ── Main column ───────────────────────────────────────────────────────────── */
 
 .main {

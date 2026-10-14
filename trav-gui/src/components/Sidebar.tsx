@@ -7,6 +7,7 @@ import type { GlobalStats } from "@/lib/types";
 import type { SpeedHistory } from "@/lib/engine";
 import { bytes, bytesParts } from "@/lib/format";
 import { Tween } from "@/lib/tween";
+import { AUTHOR_URL, openAuthorSite } from "@/lib/rpc";
 import { Graph } from "./Graph";
 import { ease } from "./Modal";
 
@@ -98,7 +99,21 @@ export function Sidebar({
         <button className="icon-btn" onClick={onPalette} title="Command palette (⌘K)" aria-label="Command palette">
           <CommandIcon size={16} />
         </button>
-        {version && <span className="mono faint side-ver">v{version}</span>}
+        <span className="side-credit mono faint">
+          {version && <span>v{version}</span>}
+          <span>
+            app by{" "}
+            <a
+              href={AUTHOR_URL}
+              onClick={(e) => {
+                e.preventDefault();
+                openAuthorSite().catch(() => {});
+              }}
+            >
+              cyrus
+            </a>
+          </span>
+        </span>
       </div>
     </aside>
   );
