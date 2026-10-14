@@ -1,13 +1,16 @@
 name: Release
 
-# Push a tag `vX.Y.Z` (matching the versions in the repo) to produce a draft
-# GitHub release with:
-#   - desktop installers: macOS (Apple Silicon + Intel) .dmg, Windows .msi/.exe,
-#     Linux .AppImage/.deb/.rpm
+# Push a tag `vX.Y.Z` (matching the versions in the repo) to publish a GitHub
+# release with:
+#   - Trav for macOS: a universal (Apple Silicon + Intel) .dmg, plus the signed
+#     update archive and latest.json that installed copies update from
 #   - `trav` CLI/daemon archives for Linux, macOS and Windows + SHA256SUMS
 #   - a multi-arch Docker image on ghcr.io
 #
-# Builds are unsigned by default; see CONTRIBUTING.md to enable signing.
+# The release is drafted first and published once every asset is uploaded, so
+# installed apps only ever see complete releases. Needs the
+# TAURI_SIGNING_PRIVATE_KEY secret; Apple Developer ID signing is optional
+# (see CONTRIBUTING.md).
 on:
   push:
     tags: ["v*"]
@@ -41,31 +44,12 @@ jobs:
           gh release create "$GITHUB_REF_NAME" --draft --title "Trav $GITHUB_REF_NAME" --notes-file notes.md
           echo "id=$(gh release view "$GITHUB_REF_NAME" --json databaseId -q .databaseId)" >> "$GITHUB_OUTPUT"
 
-  desktop:
+  app:
+    name: Trav for macOS
     needs: prepare
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: macos-latest
-            args: --target aarch64-apple-darwin
-            targets: aarch64-apple-darwin
-          - os: macos-latest
-            args: --target x86_64-apple-darwin
-            targets: x86_64-apple-darwin
-          - os: ubuntu-22.04
-            args: ""
-            targets: ""
-          - os: windows-latest
-            args: ""
-            targets: ""
-    runs-on: ${{ matrix.os }}
+    runs-on: macos-26
     steps:
       - uses: actions/checkout@v7
-      - if: startsWith(matrix.os, 'ubuntu')
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf
       - uses: actions/setup-node@v7
         with:
           node-version: 24
@@ -73,22 +57,51 @@ jobs:
           cache-dependency-path: trav-gui/package-lock.json
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.targets }}
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
       - uses: Swatinem/rust-cache@v2
         with:
-          key: desktop-${{ matrix.targets }}
+          key: app-universal
       - run: npm ci
         working-directory: trav-gui
-      - uses: tauri-apps/tauri-action@v1
+      # Developer ID signing and notarization, only when those secrets exist:
+      # the bundler treats empty values as "sign with nothing" and fails.
+      # Without them the app is ad-hoc signed.
+      - name: Apple signing (optional)
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # To sign/notarize macOS builds, add the APPLE_* secrets and pass them
-          # here (see CONTRIBUTING.md). Unset secrets must not be passed: the
-          # bundler treats empty values as "sign with nothing" and fails.
-        with:
-          projectPath: trav-gui
-          releaseId: ${{ needs.prepare.outputs.release_id }}
-          args: ${{ matrix.args }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          for k in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
+            if [ -n "${!k}" ]; then { echo "$k<<__END__"; echo "${!k}"; echo "__END__"; } >> "$GITHUB_ENV"; fi
+          done
+      - name: Build (universal, with the signed update archive)
+        working-directory: trav-gui
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
+        run: npm run tauri build -- --target universal-apple-darwin
+      - name: Upload the app, update archive and latest.json
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          b=target/universal-apple-darwin/release/bundle
+          mkdir dist
+          cp "$b"/dmg/*.dmg "dist/Trav-$VERSION-macOS.dmg"
+          cp "$b/macos/Trav.app.tar.gz" "dist/Trav-$VERSION-macOS.app.tar.gz"
+          cp "$b/macos/Trav.app.tar.gz.sig" "dist/Trav-$VERSION-macOS.app.tar.gz.sig"
+          awk -v v="$VERSION" '
+            $0 ~ "^## \\[" v "\\]" {on=1; next}
+            on && /^## \[/ {exit}
+            on {print}' CHANGELOG.md > notes.md
+          python3 scripts/latest-json.py --version "$VERSION" \
+            --url "https://github.com/$GITHUB_REPOSITORY/releases/download/$GITHUB_REF_NAME/Trav-$VERSION-macOS.app.tar.gz" \
+            --signature-file "dist/Trav-$VERSION-macOS.app.tar.gz.sig" --notes notes.md > dist/latest.json
+          gh release upload "$GITHUB_REF_NAME" dist/* --clobber
 
   cli:
     needs: prepare
@@ -146,7 +159,7 @@ jobs:
         run: gh release upload "$GITHUB_REF_NAME" "$ASSET" --clobber
 
   checksums:
-    needs: [cli, desktop]
+    needs: [cli, app]
     runs-on: ubuntu-latest
     steps:
       - env:
@@ -156,6 +169,15 @@ jobs:
           gh release download "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY"
           sha256sum * > SHA256SUMS
           gh release upload "$GITHUB_REF_NAME" SHA256SUMS --repo "$GITHUB_REPOSITORY" --clobber
+
+  publish:
+    name: Publish the release
+    needs: [prepare, checksums]
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft=false --latest
 
   docker:
     needs: prepare

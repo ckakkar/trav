@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Dices, FolderOpen } from "lucide-react";
 import type { GlobalStats, Settings } from "@/lib/types";
 import { bytes } from "@/lib/format";
-import { call, isDesktop, pickFolder } from "@/lib/rpc";
+import { call, getAutostart, isDesktop, pickFolder, setAutostart } from "@/lib/rpc";
 import { Modal } from "./Modal";
 import { Toggle } from "./AddDialog";
 import { THEMES, type Theme } from "./theme";
@@ -14,9 +14,13 @@ export interface UiPrefs {
   notify: boolean;
   confirmRemove: boolean;
   scanlines: boolean;
+  /** Mac app: look for new releases on launch and every few hours. */
+  autoUpdate: boolean;
+  /** Mac app: no idle sleep while transfers are running. */
+  keepAwake: boolean;
 }
 
-const SECTIONS = ["Downloads", "Bandwidth", "Network", "Interface"] as const;
+const SECTIONS = ["Downloads", "Bandwidth", "Network", "Interface", "App"] as const;
 type Section = (typeof SECTIONS)[number];
 
 function Row({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
@@ -56,6 +60,8 @@ export function SettingsDialog({
   stats,
   onSaved,
   onError,
+  version,
+  onCheckUpdates,
 }: {
   open: boolean;
   onClose: () => void;
@@ -64,11 +70,19 @@ export function SettingsDialog({
   stats: GlobalStats | null;
   onSaved: () => void;
   onError: (m: string) => void;
+  version: string;
+  onCheckUpdates: () => Promise<void>;
 }) {
   const [s, setS] = useState<Settings | null>(null);
   const [orig, setOrig] = useState<string>("");
   const [section, setSection] = useState<Section>("Downloads");
   const [saving, setSaving] = useState(false);
+  const [login, setLogin] = useState(false);
+  const [checking, setChecking] = useState(false);
+  const sections = SECTIONS.filter((x) => x !== "App" || isDesktop());
+  useEffect(() => {
+    if (open && isDesktop()) getAutostart().then(setLogin).catch(() => {});
+  }, [open]);
 
   // Load once per opening. Depending on `onError` re-fetched on every parent
   // render (each 500 ms poll) and silently discarded unsaved edits.
@@ -115,7 +129,7 @@ export function SettingsDialog({
     <Modal open={open} onClose={onClose} label="Settings" eyebrow="Preferences" title="Settings" width={760}>
       <div className="settings">
         <nav className="set-nav">
-          {SECTIONS.map((x) => (
+          {sections.map((x) => (
             <button key={x} className="set-nav-item" aria-current={section === x} onClick={() => setSection(x)}>
               {x}
             </button>
@@ -204,6 +218,39 @@ export function SettingsDialog({
                 <Num value={s.maxPeersGlobal} onChange={(v) => set("maxPeersGlobal", v)} min={10} max={20000} />
               </Row>
             </>
+          ) : section === "App" ? (
+            <>
+              <Row label="Check for updates automatically" hint="new releases come from GitHub, signed">
+                <Toggle checked={prefs.autoUpdate} onChange={(v) => onPrefs({ ...prefs, autoUpdate: v })} label="" />
+              </Row>
+              <Row label={`Version ${version}`} hint="installs and relaunches in place">
+                <button
+                  className="btn"
+                  disabled={checking}
+                  onClick={async () => {
+                    setChecking(true);
+                    await onCheckUpdates();
+                    setChecking(false);
+                  }}
+                >
+                  {checking ? "Checking…" : "Check now"}
+                </button>
+              </Row>
+              <Row label="Open at login" hint="starts in the background, in the Dock and menu bar">
+                <Toggle
+                  checked={login}
+                  onChange={(v) =>
+                    setAutostart(v)
+                      .then(setLogin)
+                      .catch((e) => onError(String(e?.message ?? e)))
+                  }
+                  label=""
+                />
+              </Row>
+              <Row label="Keep the Mac awake while transferring" hint="the display can still sleep">
+                <Toggle checked={prefs.keepAwake} onChange={(v) => onPrefs({ ...prefs, keepAwake: v })} label="" />
+              </Row>
+            </>
           ) : (
             <>
               <Row label="Theme" hint="from kkrwhofrags.xyz">
@@ -233,7 +280,7 @@ export function SettingsDialog({
         </div>
       </div>
       <footer className="modal-foot">
-        <span className="mono faint">{section === "Interface" ? "interface changes apply instantly" : dirty ? "unsaved changes" : "engine settings"}</span>
+        <span className="mono faint">{section === "Interface" || section === "App" ? "these apply instantly" : dirty ? "unsaved changes" : "engine settings"}</span>
         <div className="foot-actions">
           <button className="btn ghost" onClick={onClose}>
             Close

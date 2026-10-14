@@ -1,5 +1,10 @@
-//! Trav Nova desktop shell: hosts the engine in-process and exposes it to the
-//! webview through a single `rpc` command (same surface as `trav --daemon`).
+//! Trav for macOS: hosts the engine in-process and exposes it to the webview
+//! through a single `rpc` command (same surface as `trav --daemon`), plus the
+//! native pieces: menu bar, Dock, menu bar extra, updates, Trash, login item.
+#![cfg(target_os = "macos")]
+
+mod menu;
+mod update;
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -9,11 +14,17 @@ use std::time::Duration;
 use serde_json::Value;
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+use tauri::window::{ProgressBarState, ProgressBarStatus};
 use tauri::{AppHandle, Emitter, Manager, RunEvent, WindowEvent};
+use tauri_plugin_autostart::ManagerExt as _;
 use tauri_plugin_deep_link::DeepLinkExt;
 use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
 use tauri_plugin_notification::NotificationExt;
-use trav_core::{Engine, EngineHandle, Event};
+use trav_core::{Engine, EngineHandle, Event, TorrentStatus};
+
+pub(crate) const REPO_URL: &str = "https://github.com/ckakkar/trav";
+/// Passed by the login item, so Trav starts in the background.
+const AUTOSTART_ARG: &str = "--autostart";
 
 #[derive(Default)]
 struct Shell {
@@ -21,6 +32,7 @@ struct Shell {
     /// Torrent paths / magnet links handed over by the OS, drained by the UI.
     pending: Mutex<Vec<String>>,
     notify: AtomicBool,
+    keep_awake: AtomicBool,
     quitting: AtomicBool,
 }
 
@@ -29,7 +41,55 @@ type State<'a> = tauri::State<'a, Arc<Shell>>;
 #[tauri::command]
 async fn rpc(method: String, params: Value, state: State<'_>) -> Result<Value, String> {
     let engine = state.engine.get().ok_or("engine is not running")?;
+    if method == "remove" && params.get("deleteFiles").and_then(Value::as_bool) == Some(true) {
+        return remove_to_trash(engine, params).await;
+    }
     trav_core::rpc::dispatch(engine, &method, params).await
+}
+
+/// In the app, "delete data" moves it to the Trash rather than erasing it, so
+/// a mistake can be undone.
+async fn remove_to_trash(engine: &EngineHandle, mut params: Value) -> Result<Value, String> {
+    let mut hashes: Vec<String> = params
+        .get("hashes")
+        .and_then(Value::as_array)
+        .map(|a| {
+            a.iter()
+                .filter_map(|h| h.as_str().map(str::to_owned))
+                .collect()
+        })
+        .unwrap_or_default();
+    if let Some(h) = params.get("hash").and_then(Value::as_str) {
+        hashes.push(h.to_owned());
+    }
+    let paths: Vec<PathBuf> = hashes
+        .iter()
+        .filter_map(|h| engine.details(h))
+        .filter_map(|d| {
+            let save = PathBuf::from(&d.summary.save_path);
+            let content = PathBuf::from(d.content_path?);
+            // Only the torrent's own file or folder inside its save folder.
+            (content != save && content.starts_with(&save) && content.exists()).then_some(content)
+        })
+        .collect();
+    params["deleteFiles"] = Value::Bool(false);
+    let result = trav_core::rpc::dispatch(engine, "remove", params).await?;
+    if !paths.is_empty() {
+        tauri::async_runtime::spawn_blocking(move || trash_paths(&paths))
+            .await
+            .map_err(|e| e.to_string())??;
+    }
+    Ok(result)
+}
+
+fn trash_paths(paths: &[PathBuf]) -> Result<(), String> {
+    use trash::macos::{DeleteMethod, TrashContextExtMacos};
+    let mut ctx = trash::TrashContext::default();
+    // The Finder method would ask for permission to control Finder.
+    ctx.set_delete_method(DeleteMethod::NsFileManager);
+    ctx.delete_all(paths).map_err(|e| {
+        format!("The transfer was removed, but its files couldn’t be moved to the Trash: {e}")
+    })
 }
 
 #[tauri::command]
@@ -40,6 +100,23 @@ fn take_pending_opens(state: State<'_>) -> Vec<String> {
 #[tauri::command]
 fn set_notify(enabled: bool, state: State<'_>) {
     state.notify.store(enabled, Ordering::Relaxed);
+}
+
+#[tauri::command]
+fn set_keep_awake(enabled: bool, state: State<'_>) {
+    state.keep_awake.store(enabled, Ordering::Relaxed);
+}
+
+#[tauri::command]
+fn get_autostart(app: AppHandle) -> bool {
+    app.autolaunch().is_enabled().unwrap_or(false)
+}
+
+#[tauri::command]
+fn set_autostart(enabled: bool, app: AppHandle) -> Result<bool, String> {
+    let l = app.autolaunch();
+    if enabled { l.enable() } else { l.disable() }.map_err(|e| e.to_string())?;
+    Ok(l.is_enabled().unwrap_or(false))
 }
 
 /// Keep only things we can add: magnet links and existing `.torrent` files.
@@ -80,7 +157,7 @@ fn hand_over(app: &AppHandle, items: impl IntoIterator<Item = String>) {
     }
 }
 
-fn show(app: &AppHandle) {
+pub(crate) fn show(app: &AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.unminimize();
         let _ = w.show();
@@ -98,16 +175,19 @@ fn toggle(app: &AppHandle) {
     }
 }
 
-/// Flush resume data and announce `stopped` before the process exits.
-fn quit(app: &AppHandle) {
+/// Flush resume data and announce `stopped`, then exit (or relaunch after an update).
+pub(crate) fn quit(app: &AppHandle, restart: bool) {
     let shell = app.state::<Arc<Shell>>().inner().clone();
-    if shell.quitting.swap(true, Ordering::SeqCst) {
+    if shell.quitting.swap(true, Ordering::SeqCst) && !restart {
         return;
     }
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
         if let Some(e) = shell.engine.get() {
             let _ = tokio::time::timeout(Duration::from_secs(6), e.shutdown()).await;
+        }
+        if restart {
+            app.restart();
         }
         app.exit(0);
     });
@@ -129,11 +209,11 @@ fn fmt_rate(b: u64) -> String {
 }
 
 fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
-    let show_i = MenuItem::with_id(app, "show", "Show Trav", true, None::<&str>)?;
-    let resume_i = MenuItem::with_id(app, "resume", "Resume all", true, None::<&str>)?;
-    let pause_i = MenuItem::with_id(app, "pause", "Pause all", true, None::<&str>)?;
-    let quit_i = MenuItem::with_id(app, "quit", "Quit Trav", true, None::<&str>)?;
-    let speed_i = MenuItem::with_id(app, "speed", "↓ — · ↑ —", false, None::<&str>)?;
+    let show_i = MenuItem::with_id(app, "tray.show", "Show Trav", true, None::<&str>)?;
+    let resume_i = MenuItem::with_id(app, "tray.resume", "Resume all", true, None::<&str>)?;
+    let pause_i = MenuItem::with_id(app, "tray.pause", "Pause all", true, None::<&str>)?;
+    let quit_i = MenuItem::with_id(app, "tray.quit", "Quit Trav", true, None::<&str>)?;
+    let speed_i = MenuItem::with_id(app, "tray.speed", "↓ — · ↑ —", false, None::<&str>)?;
     let menu = Menu::with_items(
         app,
         &[
@@ -146,32 +226,28 @@ fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
             &quit_i,
         ],
     )?;
-    // macOS: monochrome template glyph tinted by the menu bar. Elsewhere: the app icon.
-    #[cfg(target_os = "macos")]
-    let icon = tauri::include_image!("icons/tray.png");
-    #[cfg(not(target_os = "macos"))]
-    let icon = app.default_window_icon().cloned().expect("bundle icon");
+    // A monochrome template glyph, tinted by the menu bar.
     let tray = TrayIconBuilder::with_id("main")
-        .icon(icon)
-        .icon_as_template(cfg!(target_os = "macos"))
+        .icon(tauri::include_image!("icons/tray.png"))
+        .icon_as_template(true)
         .tooltip("Trav")
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(|app, e| {
             let engine = app.state::<Arc<Shell>>().engine.get().cloned();
             match e.id.as_ref() {
-                "show" => show(app),
-                "resume" => {
+                "tray.show" => show(app),
+                "tray.resume" => {
                     if let Some(e) = engine {
                         e.resume_all();
                     }
                 }
-                "pause" => {
+                "tray.pause" => {
                     if let Some(e) = engine {
                         e.pause_all();
                     }
                 }
-                "quit" => quit(app),
+                "tray.quit" => quit(app, false),
                 _ => {}
             }
         })
@@ -187,12 +263,17 @@ fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
         })
         .build(app)?;
 
-    // Live speeds in the tray tooltip / menu header.
+    // Every 2 s: speeds in the menu bar extra, overall download progress on
+    // the Dock icon, and the keep-awake assertion. (No count badge: macOS hides
+    // Dock badges of ad-hoc signed apps that post notifications.)
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
+        let mut last: Option<Option<u64>> = None;
+        let mut awake: Option<keepawake::KeepAwake> = None;
         loop {
             tokio::time::sleep(Duration::from_secs(2)).await;
-            let Some(engine) = app.state::<Arc<Shell>>().engine.get().cloned() else {
+            let shell = app.state::<Arc<Shell>>().inner().clone();
+            let Some(engine) = shell.engine.get().cloned() else {
                 continue;
             };
             let s = engine.snapshot();
@@ -203,6 +284,48 @@ fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
             );
             let _ = tray.set_tooltip(Some(format!("Trav — {line}")));
             let _ = speed_i.set_text(&line);
+
+            let active: Vec<_> = s
+                .torrents
+                .iter()
+                .filter(|t| {
+                    matches!(
+                        t.status,
+                        TorrentStatus::Downloading | TorrentStatus::Metadata
+                    )
+                })
+                .collect();
+            let (size, done) = active
+                .iter()
+                .fold((0u64, 0u64), |(a, b), t| (a + t.size, b + t.done_bytes));
+            let percent = (!active.is_empty()).then(|| (done * 100).checked_div(size).unwrap_or(0));
+            if last != Some(percent)
+                && let Some(w) = app.get_webview_window("main")
+            {
+                let _ = w.set_progress_bar(ProgressBarState {
+                    status: Some(if percent.is_some() {
+                        ProgressBarStatus::Normal
+                    } else {
+                        ProgressBarStatus::None
+                    }),
+                    progress: percent,
+                });
+                last = Some(percent);
+            }
+
+            // Keep the Mac from idle-sleeping mid-transfer (the display may still sleep).
+            let busy = !active.is_empty() || s.stats.upload_rate > 0;
+            if busy && shell.keep_awake.load(Ordering::Relaxed) {
+                if awake.is_none() {
+                    awake = keepawake::Builder::default()
+                        .idle(true)
+                        .reason("Trav is transferring files")
+                        .create()
+                        .ok();
+                }
+            } else {
+                awake = None;
+            }
         }
     });
     Ok(())
@@ -293,22 +416,22 @@ pub fn run() {
 
     let shell = Arc::new(Shell {
         notify: AtomicBool::new(true),
+        keep_awake: AtomicBool::new(true),
         ..Default::default()
     });
 
-    // Initial argv (Windows/Linux file association, CLI use).
+    // Initial argv (`open -a Trav file.torrent --args …`, CLI use).
     let cwd = std::env::current_dir().ok();
+    let autostarted = std::env::args().any(|a| a == AUTOSTART_ARG);
     shell.pending.lock().unwrap().extend(
         std::env::args()
             .skip(1)
             .filter_map(|a| openable(&a, cwd.as_deref())),
     );
 
-    let mut builder = tauri::Builder::default();
-    #[cfg(any(target_os = "macos", windows, target_os = "linux"))]
-    {
+    let app = tauri::Builder::default()
         // Must be first: a second launch forwards its args here and exits.
-        builder = builder.plugin(tauri_plugin_single_instance::init(|app, argv, cwd| {
+        .plugin(tauri_plugin_single_instance::init(|app, argv, cwd| {
             let cwd = PathBuf::from(cwd);
             let items: Vec<String> = argv
                 .iter()
@@ -320,19 +443,40 @@ pub fn run() {
             } else {
                 hand_over(app, items);
             }
-        }));
-    }
-
-    let app = builder
+        }))
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(
+            tauri_plugin_autostart::Builder::new()
+                .args([AUTOSTART_ARG])
+                .app_name("Trav")
+                .build(),
+        )
+        .plugin(
+            // Size and position only: a window closed to the tray still opens next time.
+            tauri_plugin_window_state::Builder::new()
+                .with_state_flags(
+                    tauri_plugin_window_state::StateFlags::all()
+                        - tauri_plugin_window_state::StateFlags::VISIBLE,
+                )
+                .build(),
+        )
         .manage(shell.clone())
+        .manage(menu::MenuState::default())
+        .manage(update::Pending::default())
         .invoke_handler(tauri::generate_handler![
             rpc,
             take_pending_opens,
-            set_notify
+            set_notify,
+            set_keep_awake,
+            get_autostart,
+            set_autostart,
+            menu::set_menu_state,
+            update::check_update,
+            update::install_update,
         ])
         .setup(move |app| {
             let handle = app.handle().clone();
@@ -357,11 +501,10 @@ pub fn run() {
                 }
             }
 
-            // magnet: links (all platforms) — at launch and while running.
-            #[cfg(any(windows, target_os = "linux"))]
-            {
-                let _ = app.deep_link().register_all();
-            }
+            app.set_menu(menu::build(&handle)?)?;
+            app.on_menu_event(|app, e| menu::on_event(app, e.id().as_ref()));
+
+            // magnet: links — at launch and while running.
             if let Ok(Some(urls)) = app.deep_link().get_current() {
                 let items: Vec<String> = urls
                     .iter()
@@ -379,11 +522,20 @@ pub fn run() {
                 hand_over(&h, items);
             });
 
+            // Started by the login item: stay in the background (Dock / tray).
+            if autostarted
+                && shell.pending.lock().unwrap().is_empty()
+                && let Some(w) = app.get_webview_window("main")
+            {
+                let _ = w.hide();
+            }
+
             setup_tray(&handle)?;
             Ok(())
         })
         .on_window_event(|window, event| {
-            // Closing the window keeps seeding in the tray, like µTorrent.
+            // Closing the window keeps transfers running, like other Mac apps;
+            // the Dock icon or the menu bar extra brings it back.
             if let WindowEvent::CloseRequested { api, .. } = event
                 && !window
                     .app_handle()
@@ -403,14 +555,12 @@ pub fn run() {
             // Cmd+Q / OS shutdown: flush state first, then exit for real.
             if code.is_none() && !app.state::<Arc<Shell>>().quitting.load(Ordering::SeqCst) => {
                 api.prevent_exit();
-                quit(app);
+                quit(app, false);
             }
-        #[cfg(target_os = "macos")]
         RunEvent::Opened { urls } => {
             let items: Vec<String> = urls.iter().filter_map(|u| openable(u.as_str(), None)).collect();
             hand_over(app, items);
         }
-        #[cfg(target_os = "macos")]
         RunEvent::Reopen { .. } => show(app),
         _ => {}
     });
