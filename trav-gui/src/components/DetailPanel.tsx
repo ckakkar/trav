@@ -299,6 +299,8 @@ const FLAG_HELP: Record<string, string> = {
   O: "optimistic unchoke",
   S: "snubbed (no data for 60 s)",
   E: "encrypted connection",
+  P: "µTP (UDP) connection",
+  h: "reached through NAT hole punching",
   I: "incoming connection",
   X: "found via peer exchange",
   H: "found via DHT",

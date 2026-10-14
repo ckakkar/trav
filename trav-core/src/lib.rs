@@ -28,6 +28,7 @@ pub mod storage;
 mod torrent;
 pub mod tracker;
 mod upnp;
+pub mod utp;
 
 pub use engine::{AddTorrent, Engine, EngineHandle, TorrentSource};
 pub use error::{Error, Result};

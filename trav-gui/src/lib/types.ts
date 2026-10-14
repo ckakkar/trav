@@ -144,6 +144,8 @@ export interface Settings {
   enableDht: boolean;
   enablePex: boolean;
   enableUpnp: boolean;
+  /** µTP connections and NAT hole punching alongside TCP. */
+  enableUtp: boolean;
   seedRatioLimit: number;
   autoUploadLimit: boolean;
   /** Peer connection encryption (MSE/PE). */

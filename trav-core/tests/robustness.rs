@@ -7,7 +7,7 @@ use tokio_util::codec::Decoder;
 use trav_core::bencode::{self, DictBuilder, Value};
 use trav_core::magnet::Magnet;
 use trav_core::metainfo::{Info, Metainfo};
-use trav_core::peer::extension::{ExtHandshake, MetadataMsg, PexMsg};
+use trav_core::peer::extension::{ExtHandshake, HolepunchMsg, MetadataMsg, PexMsg};
 use trav_core::peer::protocol::PeerCodec;
 
 struct Rng(u64);
@@ -131,7 +131,7 @@ fn peer_wire_decoder_never_panics() {
 #[test]
 fn extension_messages_never_panic() {
     let seeds = [
-        ExtHandshake::ours(Some(1234), 6881, "1.2.3.4".parse().unwrap(), true).to_vec(),
+        ExtHandshake::ours(Some(1234), 6881, "1.2.3.4".parse().unwrap(), true, true).to_vec(),
         MetadataMsg::Data {
             piece: 1,
             total_size: 30000,
@@ -140,11 +140,14 @@ fn extension_messages_never_panic() {
         .encode()
         .to_vec(),
         PexMsg {
-            added: vec!["1.2.3.4:5".parse().unwrap()],
-            dropped: vec![],
+            added: vec![("1.2.3.4:5".parse().unwrap(), 0x0c)],
+            dropped: vec!["[::1]:6".parse().unwrap()],
         }
         .encode()
         .to_vec(),
+        HolepunchMsg::Error("[2001:db8::1]:80".parse().unwrap(), 2)
+            .encode()
+            .to_vec(),
     ];
     let mut rng = Rng(7);
     for _ in 0..20_000 {
@@ -153,6 +156,7 @@ fn extension_messages_never_panic() {
         let _ = ExtHandshake::decode(&input);
         let _ = MetadataMsg::decode(&Bytes::from(input.clone()));
         let _ = PexMsg::decode(&input);
+        let _ = HolepunchMsg::decode(&input);
     }
 }
 

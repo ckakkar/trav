@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 #[serde(default, rename_all = "camelCase")]
 pub struct Settings {
     pub download_dir: PathBuf,
-    /// TCP listen port; DHT shares it over UDP.
+    /// Listen port: TCP, and over UDP µTP and the DHT.
     pub listen_port: u16,
     pub max_peers_per_torrent: usize,
     pub max_peers_global: usize,
@@ -20,6 +20,8 @@ pub struct Settings {
     pub enable_dht: bool,
     pub enable_pex: bool,
     pub enable_upnp: bool,
+    /// µTP connections (BEP 29) and NAT hole punching (BEP 55) alongside TCP.
+    pub enable_utp: bool,
     /// Stop seeding once uploaded/size reaches this (0 = never stop).
     pub seed_ratio_limit: f64,
     /// With no upload limit set, cap uploads automatically whenever they start
@@ -49,6 +51,7 @@ impl Default for Settings {
             enable_dht: true,
             enable_pex: true,
             enable_upnp: true,
+            enable_utp: true,
             seed_ratio_limit: 0.0,
             auto_upload_limit: true,
             encryption: Encryption::Prefer,

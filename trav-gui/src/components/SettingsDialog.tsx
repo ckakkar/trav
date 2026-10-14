@@ -196,7 +196,7 @@ export function SettingsDialog({
             </>
           ) : section === "Network" ? (
             <>
-              <Row label="Listen port" hint="TCP for peers, UDP for DHT">
+              <Row label="Listen port" hint="TCP and UDP (µTP, DHT)">
                 <div className="field-row">
                   <Num value={s.listenPort} onChange={(v) => set("listenPort", Math.min(65535, v))} max={65535} />
                   <button className="btn" title="Random port" onClick={() => set("listenPort", 20000 + Math.floor(Math.random() * 40000))}>
@@ -206,6 +206,9 @@ export function SettingsDialog({
               </Row>
               <Row label="UPnP port forwarding" hint="ask the router to open the listen port">
                 <Toggle checked={s.enableUpnp} onChange={(v) => set("enableUpnp", v)} label="" />
+              </Row>
+              <Row label="µTP & hole punching" hint="reach peers over UDP too, including ones behind routers that block incoming connections">
+                <Toggle checked={s.enableUtp} onChange={(v) => set("enableUtp", v)} label="" />
               </Row>
               <Row label="DHT" hint="trackerless peer discovery (needed for most magnets)">
                 <Toggle checked={s.enableDht} onChange={(v) => set("enableDht", v)} label="" />

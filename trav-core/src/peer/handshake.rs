@@ -1,5 +1,5 @@
 //! BEP 3 handshake, with BEP 10 (extension protocol) and BEP 5 (DHT) bits set,
-//! in the clear or inside MSE/PE encryption.
+//! in the clear or inside MSE/PE encryption, over TCP or µTP.
 
 use std::net::SocketAddr;
 use std::time::Duration;
@@ -8,10 +8,11 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::TcpStream;
 
 use super::mse::{self, CRYPTO_PLAIN, CRYPTO_RC4};
-use super::stream::PeerStream;
+use super::stream::{PeerStream, Transport};
 use crate::error::{Error, Result, proto};
 use crate::metainfo::InfoHash;
 use crate::settings::Encryption;
+use crate::utp::{Dial, UtpSocket};
 
 pub const PSTR: &[u8; 19] = b"BitTorrent protocol";
 pub const HANDSHAKE_LEN: usize = 68;
@@ -82,12 +83,82 @@ pub async fn write_handshake<S: AsyncWrite + Unpin>(stream: &mut S, hs: &Handsha
     Ok(())
 }
 
-async fn dial(addr: SocketAddr) -> Result<TcpStream> {
+/// How to reach a peer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Route {
+    Tcp,
+    /// TCP first, with µTP joining in if TCP hasn't connected shortly after;
+    /// whichever connects first is used.
+    Auto,
+    /// µTP only (hole punching needs it).
+    Utp(Dial),
+}
+
+/// How long TCP runs alone before µTP joins in. TCP goes first because it
+/// downloads faster: µTP's congestion control yields to other traffic by
+/// design and backs off hard on loss, so it is for peers TCP can't reach.
+pub const TCP_HEAD_START: Duration = Duration::from_secs(1);
+
+async fn dial_tcp(addr: SocketAddr) -> Result<Transport> {
     let stream = tokio::time::timeout(CONNECT_TIMEOUT, TcpStream::connect(addr))
         .await
         .map_err(|_| Error::Timeout("connect"))??;
     stream.set_nodelay(true).ok();
-    Ok(stream)
+    Ok(Transport::Tcp(stream))
+}
+
+async fn dial_utp(utp: &UtpSocket, addr: SocketAddr, dial: Dial) -> Result<Transport> {
+    // The socket gives up on its own (after ~4 s, or ~10 s when hole punching).
+    Ok(Transport::Utp(utp.connect(addr, dial).await?))
+}
+
+async fn dial(addr: SocketAddr, route: Route, utp: Option<&UtpSocket>) -> Result<Transport> {
+    let Some(utp) = utp else {
+        return match route {
+            Route::Utp(_) => Err(Error::Protocol("µTP is off".into())),
+            _ => dial_tcp(addr).await,
+        };
+    };
+    match route {
+        Route::Tcp => dial_tcp(addr).await,
+        Route::Utp(d) => dial_utp(utp, addr, d).await,
+        Route::Auto => {
+            // A quick refusal starts µTP at once rather than after the head start.
+            let tcp_failed = tokio::sync::Notify::new();
+            let t = async {
+                let r = dial_tcp(addr).await;
+                if r.is_err() {
+                    tcp_failed.notify_one();
+                }
+                r
+            };
+            let u = async {
+                tokio::select! {
+                    _ = tokio::time::sleep(TCP_HEAD_START) => {}
+                    _ = tcp_failed.notified() => {}
+                }
+                dial_utp(utp, addr, Dial::Normal).await
+            };
+            tokio::pin!(u, t);
+            let (mut u_err, mut t_err) = (None, None);
+            loop {
+                tokio::select! {
+                    r = &mut t, if t_err.is_none() => match r {
+                        Ok(s) => return Ok(s),
+                        Err(e) => t_err = Some(e),
+                    },
+                    r = &mut u, if u_err.is_none() => match r {
+                        Ok(s) => return Ok(s),
+                        Err(e) => u_err = Some(e),
+                    },
+                }
+                if let (Some(_), Some(_)) = (&u_err, &t_err) {
+                    // TCP's error says more (refused, unreachable) than a µTP timeout.
+                    return Err(t_err.or(u_err).expect("both set"));
+                }
+            }
+        }
+    }
 }
 
 fn check(ours: &Handshake, theirs: Handshake) -> Result<Handshake> {
@@ -100,17 +171,17 @@ fn check(ours: &Handshake, theirs: Handshake) -> Result<Handshake> {
     Ok(theirs)
 }
 
-async fn plain(tcp: TcpStream, ours: &Handshake) -> Result<(PeerStream, Handshake)> {
-    let mut s = PeerStream::plain(tcp);
+async fn plain(io: Transport, ours: &Handshake) -> Result<(PeerStream, Handshake)> {
+    let mut s = PeerStream::plain(io);
     write_handshake(&mut s, ours).await?;
     let theirs = read_handshake(&mut s).await?;
     Ok((s, check(ours, theirs)?))
 }
 
-async fn encrypted(tcp: TcpStream, ours: &Handshake) -> Result<(PeerStream, Handshake)> {
+async fn encrypted(io: Transport, ours: &Handshake) -> Result<(PeerStream, Handshake)> {
     let mut s = tokio::time::timeout(
         HANDSHAKE_TIMEOUT,
-        mse::initiate(tcp, &ours.info_hash, &ours.encode(), CRYPTO_RC4),
+        mse::initiate(io, &ours.info_hash, &ours.encode(), CRYPTO_RC4),
     )
     .await
     .map_err(|_| Error::Timeout("encrypted handshake"))??;
@@ -123,35 +194,48 @@ pub async fn connect(
     addr: SocketAddr,
     ours: &Handshake,
     enc: Encryption,
+    route: Route,
+    utp: Option<&UtpSocket>,
 ) -> Result<(PeerStream, Handshake)> {
     match enc {
-        Encryption::Off => plain(dial(addr).await?, ours).await,
-        Encryption::Require => encrypted(dial(addr).await?, ours).await,
-        Encryption::Prefer => match encrypted(dial(addr).await?, ours).await {
-            Ok(done) => Ok(done),
-            // Not every client speaks MSE: dial again in the clear.
-            Err(_) => plain(dial(addr).await?, ours).await,
-        },
+        Encryption::Off => plain(dial(addr, route, utp).await?, ours).await,
+        Encryption::Require => encrypted(dial(addr, route, utp).await?, ours).await,
+        Encryption::Prefer => {
+            let io = dial(addr, route, utp).await?;
+            // Redial the way that worked.
+            let again = if io.is_utp() {
+                Route::Utp(Dial::Normal)
+            } else {
+                Route::Tcp
+            };
+            match encrypted(io, ours).await {
+                Ok(done) => Ok(done),
+                // Not every client speaks MSE: dial again in the clear.
+                Err(_) => plain(dial(addr, again, utp).await?, ours).await,
+            }
+        }
     }
 }
 
 /// Answer an incoming connection, plain or encrypted. `torrents` lists the
 /// info-hashes we serve (an encrypted handshake names its torrent by hash).
 pub async fn accept(
-    mut tcp: TcpStream,
+    mut io: Transport,
     enc: Encryption,
     torrents: impl FnOnce() -> Vec<InfoHash>,
 ) -> Result<(PeerStream, Handshake)> {
-    tcp.set_nodelay(true).ok();
+    if let Transport::Tcp(t) = &io {
+        t.set_nodelay(true).ok();
+    }
     let mut first = [0u8; 20];
-    tokio::time::timeout(HANDSHAKE_TIMEOUT, tcp.read_exact(&mut first))
+    tokio::time::timeout(HANDSHAKE_TIMEOUT, io.read_exact(&mut first))
         .await
         .map_err(|_| Error::Timeout("handshake read"))??;
     if first[0] == 19 && &first[1..] == PSTR {
         if enc == Encryption::Require {
             return Err(proto("plain connection refused"));
         }
-        let mut s = PeerStream::with_prefix(tcp, first.to_vec());
+        let mut s = PeerStream::with_prefix(io, first.to_vec());
         let theirs = read_handshake(&mut s).await?;
         return Ok((s, theirs));
     }
@@ -164,7 +248,7 @@ pub async fn accept(
     };
     let (mut s, info_hash) = tokio::time::timeout(
         HANDSHAKE_TIMEOUT,
-        mse::respond(tcp, first.to_vec(), &torrents(), allow),
+        mse::respond(io, first.to_vec(), &torrents(), allow),
     )
     .await
     .map_err(|_| Error::Timeout("encrypted handshake"))??;

@@ -2,14 +2,12 @@
 //! speak: Diffie-Hellman over a 768-bit prime, then RC4 both ways. It reaches
 //! peers that refuse plain BitTorrent and gets past networks that throttle it.
 
+use super::stream::{PeerStream, Rc4, Transport};
+use crate::error::{Result, proto};
+use crate::metainfo::InfoHash;
 use num_bigint::BigUint;
 use sha1::{Digest, Sha1};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::TcpStream;
-
-use super::stream::{PeerStream, Rc4};
-use crate::error::{Result, proto};
-use crate::metainfo::InfoHash;
 
 const PRIME: &str = "FFFFFFFFFFFFFFFFC90FDAA22168C234C4C6628B80DC1CD129024E088A67CC74020BBEA63B139B22514A08798E3404DDEF9519B3CD3A431B302B0A6DF25F14374FE1356D6D51C245E485B576625E7EC6F44C42E9A63A36210000000000090563";
 const KEY_LEN: usize = 96;
@@ -71,7 +69,7 @@ fn padding() -> Vec<u8> {
 
 /// Bytes read past what the handshake has consumed so far.
 struct Reader {
-    tcp: TcpStream,
+    io: Transport,
     buf: Vec<u8>,
 }
 
@@ -79,7 +77,7 @@ impl Reader {
     async fn take(&mut self, n: usize) -> Result<Vec<u8>> {
         while self.buf.len() < n {
             let mut chunk = [0u8; 1024];
-            let got = self.tcp.read(&mut chunk).await?;
+            let got = self.io.read(&mut chunk).await?;
             if got == 0 {
                 return Err(proto("MSE: connection closed"));
             }
@@ -99,7 +97,7 @@ impl Reader {
                 return Err(proto("MSE: no sync marker"));
             }
             let mut chunk = [0u8; 1024];
-            let got = self.tcp.read(&mut chunk).await?;
+            let got = self.io.read(&mut chunk).await?;
             if got == 0 {
                 return Err(proto("MSE: connection closed"));
             }
@@ -112,10 +110,10 @@ impl Reader {
         if rc4 {
             rx.apply(&mut rest);
             prefix.extend(rest);
-            PeerStream::new(self.tcp, prefix, Some((rx, tx)))
+            PeerStream::new(self.io, prefix, Some((rx, tx)))
         } else {
             prefix.extend(rest);
-            PeerStream::new(self.tcp, prefix, None)
+            PeerStream::new(self.io, prefix, None)
         }
     }
 }
@@ -123,7 +121,7 @@ impl Reader {
 /// Dialling side. `ia` (our BitTorrent handshake) rides along in the third
 /// message, saving a round trip; read the peer's handshake from the result.
 pub async fn initiate(
-    mut tcp: TcpStream,
+    mut io: Transport,
     info_hash: &InfoHash,
     ia: &[u8],
     provide: u32,
@@ -131,10 +129,10 @@ pub async fn initiate(
     let dh = Dh::new();
     let mut hello = dh.public.to_vec();
     hello.extend(padding());
-    tcp.write_all(&hello).await?;
+    io.write_all(&hello).await?;
 
     let mut r = Reader {
-        tcp,
+        io,
         buf: Vec::new(),
     };
     let yb: [u8; KEY_LEN] = r.take(KEY_LEN).await?.try_into().unwrap();
@@ -151,7 +149,7 @@ pub async fn initiate(
     sealed.extend(ia);
     tx.apply(&mut sealed);
     msg.extend(sealed);
-    r.tcp.write_all(&msg).await?;
+    r.io.write_all(&msg).await?;
 
     // Their reply starts with VC under their key, after up to 512 bytes of padding.
     let mut vc = VC;
@@ -178,17 +176,17 @@ pub async fn initiate(
 /// `first` holds what was read so far; `torrents` are the info-hashes we serve.
 /// Returns the stream (their handshake is in it, ready to read) and the torrent.
 pub async fn respond(
-    tcp: TcpStream,
+    io: Transport,
     first: Vec<u8>,
     torrents: &[InfoHash],
     allow: u32,
 ) -> Result<(PeerStream, InfoHash)> {
-    let mut r = Reader { tcp, buf: first };
+    let mut r = Reader { io, buf: first };
     let ya: [u8; KEY_LEN] = r.take(KEY_LEN).await?.try_into().unwrap();
     let dh = Dh::new();
     let mut hello = dh.public.to_vec();
     hello.extend(padding());
-    r.tcp.write_all(&hello).await?;
+    r.io.write_all(&hello).await?;
     let s = dh.secret(&ya)?;
 
     r.sync(&hash(&[b"req1", &s])).await?;
@@ -234,24 +232,39 @@ pub async fn respond(
     reply.extend(select.to_be_bytes());
     reply.extend(0u16.to_be_bytes()); // no PadD
     tx.apply(&mut reply);
-    r.tcp.write_all(&reply).await?;
+    r.io.write_all(&reply).await?;
     Ok((r.finish(rx, tx, select == CRYPTO_RC4, ia), info_hash))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tokio::net::TcpListener;
+    use tokio::net::{TcpListener, TcpStream};
 
-    async fn pair() -> (TcpStream, TcpStream) {
+    async fn pair() -> (Transport, Transport) {
         let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = l.local_addr().unwrap();
         let (a, b) = tokio::join!(TcpStream::connect(addr), l.accept());
-        (a.unwrap(), b.unwrap().0)
+        (Transport::Tcp(a.unwrap()), Transport::Tcp(b.unwrap().0))
+    }
+
+    async fn utp_pair() -> (Transport, Transport) {
+        let a = crate::utp::UtpSocket::bind(0).await.unwrap();
+        let b = crate::utp::UtpSocket::bind(0).await.unwrap();
+        let addr = format!("127.0.0.1:{}", b.local_port()).parse().unwrap();
+        let (c, s) = tokio::join!(a.connect(addr, crate::utp::Dial::Normal), b.accept());
+        (Transport::Utp(c.unwrap()), Transport::Utp(s.unwrap().0))
     }
 
     async fn roundtrip(provide: u32, allow: u32) -> (bool, bool) {
-        let (a, b) = pair().await;
+        roundtrip_on(pair().await, provide, allow).await
+    }
+
+    async fn roundtrip_on(
+        (a, b): (Transport, Transport),
+        provide: u32,
+        allow: u32,
+    ) -> (bool, bool) {
         let ih: InfoHash = [7; 20];
         let other: InfoHash = [9; 20];
         let ia = b"hello from A".to_vec();
@@ -285,6 +298,14 @@ mod tests {
     async fn rc4_both_ways() {
         assert_eq!(
             roundtrip(CRYPTO_RC4, CRYPTO_RC4 | CRYPTO_PLAIN).await,
+            (true, true)
+        );
+    }
+
+    #[tokio::test]
+    async fn rc4_over_utp() {
+        assert_eq!(
+            roundtrip_on(utp_pair().await, CRYPTO_RC4, CRYPTO_RC4).await,
             (true, true)
         );
     }

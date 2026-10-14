@@ -24,6 +24,8 @@ fn settings(download_dir: &Path) -> Settings {
         enable_dht: false,
         enable_upnp: false,
         public_trackers: false,
+        // TRAV_UTP=0 runs the suite over TCP alone.
+        enable_utp: std::env::var("TRAV_UTP").map_or(true, |v| v != "0"),
         ..Settings::default()
     }
 }

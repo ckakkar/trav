@@ -10,7 +10,6 @@
 
 use std::collections::VecDeque;
 use std::net::SocketAddr;
-use std::os::fd::{AsRawFd, RawFd};
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
@@ -27,11 +26,12 @@ use crate::bitfield::Bitfield;
 use crate::error::{Error, Result, proto};
 use crate::governor::RttSample;
 use crate::peer::extension::{
-    ExtHandshake, METADATA_PIECE, MetadataMsg, PexMsg, UT_METADATA, UT_PEX,
+    ExtHandshake, HolepunchMsg, METADATA_PIECE, MetadataMsg, PexMsg, UT_HOLEPUNCH, UT_METADATA,
+    UT_PEX,
 };
 use crate::peer::handshake::Handshake;
 use crate::peer::protocol::{MAX_BLOCK_LEN, PeerCodec, PeerMessage};
-use crate::peer::stream::PeerStream;
+use crate::peer::stream::{PeerStream, RttProbe};
 use crate::picker::{BLOCK_SIZE, BlockReq, OnBlock, PeerKey};
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
@@ -71,7 +71,7 @@ pub(super) async fn run(
         t: t.clone(),
         key,
         addr,
-        fd: stream.as_raw_fd(),
+        rtt: stream.rtt_probe(),
         base_rtt: u32::MAX,
         out: None,
         uploads: Arc::new(UploadQueue::default()),
@@ -98,8 +98,8 @@ struct Conn {
     t: Arc<Torrent>,
     key: PeerKey,
     addr: SocketAddr,
-    /// The socket, for reading the kernel's RTT estimate (open while `session` runs).
-    fd: RawFd,
+    /// Reads the connection's RTT estimate (the kernel's for TCP, ours for µTP).
+    rtt: RttProbe,
     /// Lowest smoothed RTT seen on this connection: the path without queueing.
     base_rtt: u32,
     out: Option<mpsc::Sender<PeerMessage>>,
@@ -217,12 +217,14 @@ impl Conn {
             let st = self.t.st.lock();
             let s = self.t.ctx.settings.read();
             let private = st.meta.as_ref().is_some_and(|m| m.info.private);
+            let holepunch = s.enable_utp && !private && self.t.ctx.utp.read().is_some();
             let ext = hs.supports_extensions().then(|| {
                 ExtHandshake::ours(
                     st.meta.as_ref().map(|m| m.info.raw.len()),
                     self.t.ctx.listen_port.load(Ordering::Relaxed),
                     self.addr.ip(),
                     s.enable_pex && !private,
+                    holepunch,
                 )
             });
             let bf = st
@@ -538,6 +540,7 @@ impl Conn {
                     }
                     if let Some(p) = st.peers.get_mut(&self.key) {
                         p.ext_pex = hs.m.get("ut_pex").copied();
+                        p.ext_holepunch = hs.m.get("ut_holepunch").copied();
                         p.listen_port = hs.listen_port;
                         if let Some(v) = hs.client.filter(|v| !v.trim().is_empty()) {
                             p.client = v.chars().take(40).collect();
@@ -607,9 +610,27 @@ impl Conn {
                         .meta
                         .as_ref()
                         .is_some_and(|m| m.info.private);
-                    if !private && !pex.added.is_empty() {
-                        self.t
-                            .send(Cmd::AddPeers(pex.added, super::PeerSource::Pex));
+                    if !private && !(pex.added.is_empty() && pex.dropped.is_empty()) {
+                        self.t.send(Cmd::Pex {
+                            from: self.key,
+                            added: pex.added,
+                            dropped: pex.dropped,
+                        });
+                    }
+                }
+            }
+            UT_HOLEPUNCH => {
+                if self.t.ctx.utp().is_none() {
+                    return Ok(());
+                }
+                match HolepunchMsg::decode(&payload)? {
+                    HolepunchMsg::Rendezvous(target) => self.t.relay_holepunch(self.key, target),
+                    HolepunchMsg::Connect(addr) => self.t.send(Cmd::HolepunchConnect(addr)),
+                    HolepunchMsg::Error(addr, code) => {
+                        debug!(
+                            "peer {}: can't introduce us to {addr} (error {code})",
+                            self.addr
+                        )
                     }
                 }
             }
@@ -786,7 +807,7 @@ impl Conn {
     /// Feed the upload governor: how far this connection's RTT sits above
     /// the lowest seen on it (queueing delay), while it carries traffic.
     fn sample_rtt(&mut self, busy: bool) {
-        let Some(rtt) = crate::rtt::srtt_ms(self.fd) else {
+        let Some(rtt) = self.rtt.srtt_ms() else {
             return;
         };
         self.base_rtt = self.base_rtt.min(rtt);

@@ -12,15 +12,17 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU16, Ordering};
 use std::time::{Duration, Instant};
 
+use bytes::Bytes;
 use futures::stream::{FuturesUnordered, StreamExt};
 use parking_lot::Mutex;
 use sha1::{Digest, Sha1};
 use tokio::net::UdpSocket;
-use tokio::sync::oneshot;
+use tokio::sync::{mpsc, oneshot};
 use tracing::{debug, info};
 
 use crate::bencode::{self, DictBuilder, Value};
 use crate::error::{Error, Result};
+use crate::utp::UdpSender;
 
 pub type NodeId = [u8; 20];
 
@@ -238,7 +240,7 @@ fn id_of(v: &Value) -> Option<NodeId> {
 type Pending = (SocketAddrV4, oneshot::Sender<Result<Value>>);
 
 struct Inner {
-    socket: UdpSocket,
+    socket: UdpSender,
     id: NodeId,
     table: Mutex<Table>,
     /// Queries awaiting a reply, by transaction id.
@@ -297,7 +299,7 @@ enum CandState {
 }
 
 impl Dht {
-    /// Bind the UDP socket and start the receive + maintenance loops.
+    /// Bind a UDP socket of its own and start (tests, and when µTP is off).
     pub async fn start(port: u16, known_nodes: Vec<SocketAddr>) -> Result<Self> {
         // A DHT that was just stopped may still be releasing the port.
         let mut bound = None;
@@ -313,13 +315,50 @@ impl Dht {
                 Err(_) => tokio::time::sleep(Duration::from_millis(100)).await,
             }
         }
-        let socket = match bound {
+        let socket = Arc::new(match bound {
             Some(s) => s,
             None => UdpSocket::bind(("0.0.0.0", 0)).await?,
-        };
+        });
+        let (tx, rx) = mpsc::channel(1024);
+        let dht = Self::start_on(UdpSender::new(socket.clone()), rx, known_nodes);
+        let cancel = dht.inner.cancel.clone();
+        tokio::spawn(async move {
+            let mut buf = vec![0u8; 2048];
+            loop {
+                let res = tokio::select! {
+                    _ = cancel.cancelled() => break,
+                    r = socket.recv_from(&mut buf) => r,
+                };
+                match res {
+                    Ok((n, from)) => {
+                        if tx
+                            .try_send((Bytes::copy_from_slice(&buf[..n]), from))
+                            .is_err()
+                            && tx.is_closed()
+                        {
+                            break;
+                        }
+                    }
+                    Err(e) => {
+                        debug!("DHT recv error: {e}");
+                        tokio::time::sleep(Duration::from_millis(50)).await;
+                    }
+                }
+            }
+        });
+        Ok(dht)
+    }
+
+    /// Run on a socket shared with µTP: `udp` sends, `incoming` carries the
+    /// datagrams the µTP socket didn't claim.
+    pub fn start_on(
+        udp: UdpSender,
+        mut incoming: mpsc::Receiver<(Bytes, SocketAddr)>,
+        known_nodes: Vec<SocketAddr>,
+    ) -> Self {
         let id: NodeId = rand::random();
         let inner = Arc::new(Inner {
-            socket,
+            socket: udp,
             id,
             table: Mutex::new(Table::new(id)),
             pending: Mutex::new(HashMap::new()),
@@ -333,20 +372,15 @@ impl Dht {
         let weak = Arc::downgrade(&dht.inner);
         let cancel = dht.inner.cancel.clone();
         tokio::spawn(async move {
-            let mut buf = vec![0u8; 2048];
             loop {
-                let Some(inner) = weak.upgrade() else { break };
                 let res = tokio::select! {
                     _ = cancel.cancelled() => break,
-                    r = inner.socket.recv_from(&mut buf) => r,
+                    r = incoming.recv() => r,
                 };
-                match res {
-                    Ok((n, SocketAddr::V4(from))) => Dht { inner }.on_packet(&buf[..n], from).await,
-                    Ok(_) => {}
-                    Err(e) => {
-                        debug!("DHT recv error: {e}");
-                        tokio::time::sleep(Duration::from_millis(50)).await;
-                    }
+                let Some((data, from)) = res else { break };
+                let Some(inner) = weak.upgrade() else { break };
+                if let SocketAddr::V4(from) = from {
+                    Dht { inner }.on_packet(&data, from).await;
                 }
             }
         });
@@ -389,7 +423,7 @@ impl Dht {
             }
         });
 
-        Ok(dht)
+        dht
     }
 
     /// Stop for good: the loops end, queries in flight fail at once, and the
@@ -400,11 +434,7 @@ impl Dht {
     }
 
     pub fn port(&self) -> u16 {
-        self.inner
-            .socket
-            .local_addr()
-            .map(|a| a.port())
-            .unwrap_or(0)
+        self.inner.socket.local_port()
     }
 
     pub fn node_count(&self) -> usize {
@@ -626,7 +656,7 @@ impl Dht {
             .bytes("y", "q")
             .build()
             .encode();
-        if let Err(e) = self.inner.socket.send_to(&msg, addr).await {
+        if let Err(e) = self.inner.socket.send_to(&msg, addr.into()).await {
             self.inner.pending.lock().remove(&tid);
             return Err(e.into());
         }
@@ -701,7 +731,7 @@ impl Dht {
                         .bytes("t", t)
                         .bytes("y", "r")
                         .build();
-                    let _ = self.inner.socket.send_to(&out.encode(), from).await;
+                    let _ = self.inner.socket.send_to(&out.encode(), from.into()).await;
                 }
             }
             _ => {}

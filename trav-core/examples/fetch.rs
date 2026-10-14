@@ -3,7 +3,8 @@
 //!
 //!   cargo run --release -p trav-core --example fetch -- <file.torrent|magnet> [seconds] [out-dir]
 //!
-//! Set TRAV_ENCRYPTION (prefer, require or off) or TRAV_PUBLIC_TRACKERS=0 to compare.
+//! Set TRAV_ENCRYPTION (prefer, require or off), TRAV_PUBLIC_TRACKERS=0 or
+//! TRAV_UTP=0 (TCP only) to compare, and TRAV_PORT to pick the listen port.
 //!
 //! Prints a line every 5 s and the average at the end. Uses a throwaway state
 //! directory under the output folder, so it never touches the app's library.
@@ -40,6 +41,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if std::env::var("TRAV_PUBLIC_TRACKERS").as_deref() == Ok("0") {
         settings.public_trackers = false;
     }
+    if std::env::var("TRAV_UTP").as_deref() == Ok("0") {
+        settings.enable_utp = false;
+    }
+    if let Ok(p) = std::env::var("TRAV_PORT") {
+        settings.listen_port = p.parse()?;
+    }
     let engine = Engine::start_with(out.join(".trav-state"), Some(settings)).await?;
     engine
         .add(AddTorrent {
@@ -56,6 +63,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // When the last 5% began: how long the tail (end-game) takes.
     let mut tail_from: Option<Duration> = None;
     let mut last_report = Instant::now();
+    // Distinct peers seen over µTP, and reached by hole punching.
+    let (mut utp_seen, mut punched_seen) = (
+        std::collections::HashSet::new(),
+        std::collections::HashSet::new(),
+    );
     loop {
         tokio::time::sleep(Duration::from_millis(500)).await;
         let snap = engine.snapshot();
@@ -71,17 +83,32 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let elapsed = start.elapsed();
         if last_report.elapsed() >= Duration::from_secs(5) {
             last_report = Instant::now();
-            let encrypted = engine.details(&t.info_hash).map_or(0, |d| {
-                d.peers.iter().filter(|p| p.flags.contains('E')).count()
-            });
+            let (mut encrypted, mut utp, mut punched, mut utp_rate) = (0, 0, 0, 0);
+            if let Some(d) = engine.details(&t.info_hash) {
+                for p in &d.peers {
+                    encrypted += p.flags.contains('E') as usize;
+                    if p.flags.contains('P') {
+                        utp += 1;
+                        utp_rate += p.download_rate;
+                        utp_seen.insert(p.addr.clone());
+                    }
+                    if p.flags.contains('h') {
+                        punched += 1;
+                        punched_seen.insert(p.addr.clone());
+                    }
+                }
+            }
             println!(
-                "{:>4}s  {:>7.1} MiB  {:>6.2} MiB/s  peers {:>3} (seeds {:>3}, encrypted {:>3})  {:?}",
+                "{:>4}s  {:>7.1} MiB  {:>6.2} MiB/s  peers {:>3} (seeds {:>3}, encrypted {:>3}, µTP {:>3} at {:>5.2} MiB/s, hole-punched {:>2})  {:?}",
                 elapsed.as_secs(),
                 t.downloaded as f64 / 1048576.0,
                 t.download_rate as f64 / 1048576.0,
                 t.peers + t.seeds,
                 t.seeds,
                 encrypted,
+                utp,
+                utp_rate as f64 / 1048576.0,
+                punched,
                 t.status,
             );
         }
@@ -92,6 +119,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 elapsed.as_secs_f64(),
                 t.downloaded as f64 / 1048576.0 / elapsed.as_secs_f64(),
                 first_byte,
+            );
+            println!(
+                "peers over µTP: {}, reached by hole punching: {}",
+                utp_seen.len(),
+                punched_seen.len()
             );
             if let Some(from) = tail_from.filter(|_| t.progress >= 1.0) {
                 println!(

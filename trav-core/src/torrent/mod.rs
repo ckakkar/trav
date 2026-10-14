@@ -6,6 +6,7 @@
 //! the compiler enforces this inside spawned tasks). The torrent's own task
 //! serialises lifecycle commands and runs a 1 Hz maintenance tick.
 
+mod holepunch;
 mod metadata;
 mod peer;
 
@@ -28,7 +29,8 @@ use crate::limiter::RateMeter;
 use crate::magnet::Magnet;
 use crate::message::Event;
 use crate::metainfo::{Info, InfoHash, Metainfo};
-use crate::peer::handshake::{self, Handshake};
+use crate::peer::extension::{PEX_ENCRYPTION, PEX_HOLEPUNCH, PEX_SEED, PEX_UTP};
+use crate::peer::handshake::{self, Handshake, Route};
 use crate::peer::stream::PeerStream;
 use crate::picker::{BlockReq, PeerKey, Picker};
 use crate::snapshot::{
@@ -125,6 +127,14 @@ pub(crate) struct PeerState {
     snubbed: bool,
     optimistic: bool,
     ext_pex: Option<u8>,
+    /// Their id for ut_holepunch, if they speak it.
+    ext_holepunch: Option<u8>,
+    /// Connected over µTP rather than TCP.
+    utp: bool,
+    /// Reached through NAT hole punching.
+    holepunched: bool,
+    /// Introductions we made for this peer lately (see `holepunch`).
+    relayed: (Instant, u32),
     listen_port: Option<u16>,
     pex_sent: HashSet<SocketAddr>,
     hash_fails: u8,
@@ -145,6 +155,24 @@ impl PeerState {
             Some(self.addr)
         }
     }
+
+    /// How we describe this peer in PEX.
+    fn pex_flags(&self) -> u8 {
+        let mut f = 0;
+        if self.encrypted {
+            f |= PEX_ENCRYPTION;
+        }
+        if !self.bitfield.is_empty() && self.bitfield.all() {
+            f |= PEX_SEED;
+        }
+        if self.utp {
+            f |= PEX_UTP;
+        }
+        if self.ext_holepunch.is_some() {
+            f |= PEX_HOLEPUNCH;
+        }
+        f
+    }
 }
 
 struct Candidate {
@@ -154,6 +182,29 @@ struct Candidate {
     connected: bool,
     connecting: bool,
     seed: bool,
+    /// PEX flags last reported for it.
+    flags: u8,
+    /// Connected peers that told us about it (PEX): who could introduce us.
+    relays: Vec<PeerKey>,
+    punches: u8,
+    last_punch: Option<Instant>,
+}
+
+impl Candidate {
+    fn new(source: PeerSource) -> Self {
+        Self {
+            source,
+            fails: 0,
+            next_attempt: Instant::now(),
+            connected: false,
+            connecting: false,
+            seed: false,
+            flags: 0,
+            relays: Vec::new(),
+            punches: 0,
+            last_punch: None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -241,6 +292,8 @@ pub(crate) struct State {
     last_optimistic: Instant,
     last_pex: Instant,
     last_rotate: Instant,
+    /// Hole-punch dials in flight or just made, by address (see `holepunch`).
+    punching: HashMap<IpAddr, Instant>,
     queue_pos: usize,
     dirty: bool,
 }
@@ -256,11 +309,22 @@ pub(crate) enum Cmd {
     SetFilePriorities(Vec<u8>),
     SetSequential(bool),
     AddPeers(Vec<SocketAddr>, PeerSource),
+    /// Peers from a PEX message, with flags, and who sent it.
+    Pex {
+        from: PeerKey,
+        added: Vec<(SocketAddr, u8)>,
+        dropped: Vec<SocketAddr>,
+    },
+    /// A relay says: connect to this address now (BEP 55).
+    HolepunchConnect(SocketAddr),
     Shutdown {
         delete_files: bool,
         done: oneshot::Sender<()>,
     },
-    ConnectFailed(SocketAddr),
+    ConnectFailed {
+        addr: SocketAddr,
+        punched: bool,
+    },
     Announced {
         idx: usize,
         res: Result<AnnounceResponse, String>,
@@ -357,6 +421,7 @@ impl Torrent {
             last_optimistic: now - OPTIMISTIC_INTERVAL,
             last_pex: now,
             last_rotate: now,
+            punching: HashMap::new(),
             queue_pos: init.queue_pos,
             dirty: true,
         };
@@ -483,14 +548,47 @@ impl Torrent {
                     self.connect_more(&mut st);
                 }
             }
-            Cmd::ConnectFailed(addr) => {
+            Cmd::ConnectFailed { addr, punched } => {
                 st.connecting = st.connecting.saturating_sub(1);
                 if let Some(c) = st.candidates.get_mut(&addr) {
                     c.connecting = false;
                     c.fails += 1;
                     c.next_attempt = Instant::now() + backoff(c.fails);
                 }
+                // Unreachable directly: maybe through its NAT, introduced by a peer it's connected to.
+                if !punched {
+                    self.try_holepunch(&mut st, addr);
+                }
             }
+            Cmd::Pex {
+                from,
+                added,
+                dropped,
+            } => {
+                let canon = |a: SocketAddr| SocketAddr::new(a.ip().to_canonical(), a.port());
+                for (a, flags) in added {
+                    let a = canon(a);
+                    add_candidate(&mut st, a, PeerSource::Pex);
+                    if let Some(c) = st.candidates.get_mut(&a) {
+                        c.flags = flags;
+                        if !c.relays.contains(&from) {
+                            c.relays.push(from);
+                            if c.relays.len() > 3 {
+                                c.relays.remove(0);
+                            }
+                        }
+                    }
+                }
+                for a in dropped {
+                    if let Some(c) = st.candidates.get_mut(&canon(a)) {
+                        c.relays.retain(|k| *k != from);
+                    }
+                }
+                if st.phase.is_active() {
+                    self.connect_more(&mut st);
+                }
+            }
+            Cmd::HolepunchConnect(addr) => self.on_holepunch_connect(&mut st, addr),
             Cmd::Announced { idx, res } => self.on_announced(&mut st, idx, res),
             Cmd::DhtDone(peers) => {
                 st.dht_running = false;
@@ -857,6 +955,7 @@ impl Torrent {
         hs: Handshake,
         addr: SocketAddr,
         source: PeerSource,
+        punched: bool,
     ) {
         let incoming = source == PeerSource::Incoming;
         let max = self.ctx.settings.read().max_peers_per_torrent;
@@ -864,13 +963,24 @@ impl Torrent {
         if !incoming {
             st.connecting = st.connecting.saturating_sub(1);
         }
+        // The same peer twice (both ends dialled at once, as hole punching
+        // does): keep the connection the other side keeps too.
+        let mut replace = None;
+        let mut duplicate = false;
+        if let Some((&k, old)) = st.peers.iter().find(|(_, p)| p.peer_id == hs.peer_id) {
+            if old.incoming != incoming
+                && self.keep_outgoing(&hs, if incoming { old.addr } else { addr }) != incoming
+            {
+                replace = Some(k);
+            } else {
+                duplicate = true;
+            }
+        }
         let reject = !st.phase.is_active()
-            || st.peers.len() >= max
+            || (st.peers.len() >= max && replace.is_none())
             || st.banned.contains(&addr.ip())
-            || st
-                .peers
-                .values()
-                .any(|p| p.peer_id == hs.peer_id || (!incoming && p.addr == addr));
+            || duplicate
+            || (!incoming && st.peers.values().any(|p| p.addr == addr));
         if let Some(c) = st.candidates.get_mut(&addr) {
             c.connecting = false;
             c.connected = !reject;
@@ -881,9 +991,23 @@ impl Torrent {
         if reject {
             return;
         }
-        if incoming {
+        if let Some(k) = replace
+            && let Some(old) = st.peers.get_mut(&k)
+        {
+            old.kicked = true;
+            let _ = old.tx.send(PeerCmd::Disconnect);
+        }
+        // Only TCP proves the port is open: µTP can come in through holes we punched.
+        if incoming && !stream.is_utp() {
             self.ctx.connectable.store(true, Ordering::Relaxed);
         }
+        let holepunched = punched
+            || (incoming
+                && stream.is_utp()
+                && st
+                    .punching
+                    .get(&addr.ip())
+                    .is_some_and(|t| t.elapsed() < Duration::from_secs(30)));
         let key = st.next_key;
         st.next_key += 1;
         let (tx, rx) = mpsc::unbounded_channel();
@@ -904,6 +1028,10 @@ impl Torrent {
                 up: RateMeter::default(),
                 incoming,
                 encrypted: stream.encrypted(),
+                utp: stream.is_utp(),
+                holepunched,
+                ext_holepunch: None,
+                relayed: (Instant::now(), 0),
                 source,
                 connected_at: Instant::now(),
                 snubbed: false,
@@ -938,14 +1066,10 @@ impl Torrent {
         let is_seed = p.bitfield.all() && !p.bitfield.is_empty();
         let short = p.connected_at.elapsed() < Duration::from_secs(30);
         if let Some(addr) = p.dialable() {
-            let c = st.candidates.entry(addr).or_insert(Candidate {
-                source: p.source,
-                fails: 0,
-                next_attempt: Instant::now(),
-                connected: false,
-                connecting: false,
-                seed: false,
-            });
+            let c = st
+                .candidates
+                .entry(addr)
+                .or_insert_with(|| Candidate::new(p.source));
             c.connected = false;
             c.seed = is_seed;
             if p.rotated {
@@ -1002,35 +1126,49 @@ impl Torrent {
             })
             .collect();
         picks.sort_by_key(|&(_, f, r)| (f, r));
+        // TCP first, µTP for peers it can't reach (see `Route::Auto`).
+        let route = if self.ctx.utp().is_some() {
+            Route::Auto
+        } else {
+            Route::Tcp
+        };
+        for (addr, _, _) in picks.into_iter().take(n) {
+            self.dial(st, addr, route);
+        }
+    }
+
+    /// Connect to `addr` in the background; it reports back through
+    /// `attach` or `Cmd::ConnectFailed`.
+    fn dial(self: &Arc<Self>, st: &mut State, addr: SocketAddr, route: Route) {
+        if let Some(c) = st.candidates.get_mut(&addr) {
+            c.connecting = true;
+        }
+        st.connecting += 1;
         let ours = Handshake::ours(self.info_hash, self.ctx.peer_id);
         let enc = self.ctx.settings.read().encryption;
-        for (addr, _, _) in picks.into_iter().take(n) {
-            if let Some(c) = st.candidates.get_mut(&addr) {
-                c.connecting = true;
-            }
-            st.connecting += 1;
-            let me = self.clone();
-            let sem = self.ctx.half_open.clone();
-            tokio::spawn(async move {
-                let _permit = sem.acquire_owned().await;
-                match handshake::connect(addr, &ours, enc).await {
-                    Ok((stream, hs)) => {
-                        let src = me
-                            .st
-                            .lock()
-                            .candidates
-                            .get(&addr)
-                            .map(|c| c.source)
-                            .unwrap_or(PeerSource::Tracker);
-                        me.attach(stream, hs, addr, src);
-                    }
-                    Err(e) => {
-                        debug!("connect {addr}: {e}");
-                        me.send(Cmd::ConnectFailed(addr));
-                    }
+        let utp = self.ctx.utp();
+        let punched = matches!(route, Route::Utp(crate::utp::Dial::Holepunch));
+        let me = self.clone();
+        let sem = self.ctx.half_open.clone();
+        tokio::spawn(async move {
+            let _permit = sem.acquire_owned().await;
+            match handshake::connect(addr, &ours, enc, route, utp.as_ref()).await {
+                Ok((stream, hs)) => {
+                    let src = me
+                        .st
+                        .lock()
+                        .candidates
+                        .get(&addr)
+                        .map(|c| c.source)
+                        .unwrap_or(PeerSource::Pex);
+                    me.attach(stream, hs, addr, src, punched);
                 }
-            });
-        }
+                Err(e) => {
+                    debug!("connect {addr} ({route:?}): {e}");
+                    me.send(Cmd::ConnectFailed { addr, punched });
+                }
+            }
+        });
     }
 
     // ── Pieces ───────────────────────────────────────────────────────────────
@@ -1411,24 +1549,28 @@ impl Torrent {
         {
             return;
         }
-        let current: Vec<(PeerKey, SocketAddr)> = st
+        let current: HashMap<SocketAddr, (PeerKey, u8)> = st
             .peers
             .iter()
-            .filter_map(|(k, p)| p.dialable().map(|a| (*k, a)))
+            .filter_map(|(k, p)| p.dialable().map(|a| (a, (*k, p.pex_flags()))))
             .collect();
         for (k, p) in st.peers.iter_mut() {
             let Some(id) = p.ext_pex else { continue };
             let now: HashSet<SocketAddr> = current
                 .iter()
-                .filter(|(ck, _)| ck != k)
-                .map(|(_, a)| *a)
+                .filter(|(_, (ck, _))| ck != k)
+                .map(|(a, _)| *a)
                 .collect();
-            let added: Vec<SocketAddr> = now.difference(&p.pex_sent).copied().take(50).collect();
+            let added: Vec<(SocketAddr, u8)> = now
+                .difference(&p.pex_sent)
+                .take(50)
+                .map(|a| (*a, current[a].1))
+                .collect();
             let dropped: Vec<SocketAddr> = p.pex_sent.difference(&now).copied().take(50).collect();
             if added.is_empty() && dropped.is_empty() {
                 continue;
             }
-            for a in &added {
+            for (a, _) in &added {
                 p.pex_sent.insert(*a);
             }
             for a in &dropped {
@@ -1453,6 +1595,8 @@ impl Torrent {
             return;
         }
         let now = Instant::now();
+        st.punching
+            .retain(|_, t| now.duration_since(*t) < Duration::from_secs(60));
         if starving(&st) {
             // Few peers are actually sending: look for more sooner.
             st.dht_next = st.dht_next.min(now + STARVING_RETRY);
@@ -1587,6 +1731,12 @@ impl Torrent {
                 }
                 if p.encrypted {
                     flags.push('E');
+                }
+                if p.utp {
+                    flags.push('P');
+                }
+                if p.holepunched {
+                    flags.push('h');
                 }
                 match p.source {
                     PeerSource::Incoming => flags.push('I'),
@@ -1797,7 +1947,7 @@ fn starving(st: &State) -> bool {
 
 /// Addresses no peer can be reached at. Loopback is only believed when it
 /// comes from the user or a tracker on this machine (filtered by the caller).
-fn unreachable(addr: SocketAddr, source: PeerSource) -> bool {
+pub(super) fn unreachable(addr: SocketAddr, source: PeerSource) -> bool {
     let ip = addr.ip().to_canonical();
     let bad = match ip {
         std::net::IpAddr::V4(v4) => v4.is_broadcast() || v4.is_documentation(),
@@ -1811,6 +1961,8 @@ fn unreachable(addr: SocketAddr, source: PeerSource) -> bool {
 }
 
 fn add_candidate(st: &mut State, addr: SocketAddr, source: PeerSource) {
+    // PEX and trackers sometimes list IPv4 peers as ::ffff:a.b.c.d.
+    let addr = SocketAddr::new(addr.ip().to_canonical(), addr.port());
     if unreachable(addr, source) || st.banned.contains(&addr.ip()) {
         return;
     }
@@ -1829,14 +1981,9 @@ fn add_candidate(st: &mut State, addr: SocketAddr, source: PeerSource) {
             None => return,
         }
     }
-    st.candidates.entry(addr).or_insert(Candidate {
-        source,
-        fails: 0,
-        next_attempt: Instant::now(),
-        connected: false,
-        connecting: false,
-        seed: false,
-    });
+    st.candidates
+        .entry(addr)
+        .or_insert_with(|| Candidate::new(source));
 }
 
 fn backoff(fails: u32) -> Duration {
