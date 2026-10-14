@@ -18,6 +18,8 @@ export interface UiPrefs {
   autoUpdate: boolean;
   /** Mac app: no idle sleep while transfers are running. */
   keepAwake: boolean;
+  /** Download speed beside the menu bar icon. */
+  menuBarSpeed: boolean;
 }
 
 const SECTIONS = ["Downloads", "Bandwidth", "Network", "Interface", "App"] as const;
@@ -211,6 +213,24 @@ export function SettingsDialog({
               <Row label="Peer exchange" hint="learn peers from peers">
                 <Toggle checked={s.enablePex} onChange={(v) => set("enablePex", v)} label="" />
               </Row>
+              <Row label="Public trackers" hint="also ask well-known open trackers for peers (never for private torrents)">
+                <Toggle checked={s.publicTrackers} onChange={(v) => set("publicTrackers", v)} label="" />
+              </Row>
+              <Row label="Encryption" hint="reaches peers that insist on it and gets past BitTorrent throttling">
+                <div className="seg" role="radiogroup" aria-label="Encryption">
+                  {(
+                    [
+                      ["prefer", "Prefer"],
+                      ["require", "Require"],
+                      ["off", "Off"],
+                    ] as const
+                  ).map(([v, label]) => (
+                    <button key={v} className="chip" role="radio" aria-checked={s.encryption === v} onClick={() => set("encryption", v)}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </Row>
               <Row label="Peers per torrent">
                 <Num value={s.maxPeersPerTorrent} onChange={(v) => set("maxPeersPerTorrent", v)} min={1} max={2000} />
               </Row>
@@ -249,6 +269,9 @@ export function SettingsDialog({
               </Row>
               <Row label="Keep the Mac awake while transferring" hint="the display can still sleep">
                 <Toggle checked={prefs.keepAwake} onChange={(v) => onPrefs({ ...prefs, keepAwake: v })} label="" />
+              </Row>
+              <Row label="Show speed in the menu bar" hint="next to Trav's icon while downloading">
+                <Toggle checked={prefs.menuBarSpeed} onChange={(v) => onPrefs({ ...prefs, menuBarSpeed: v })} label="" />
               </Row>
             </>
           ) : (

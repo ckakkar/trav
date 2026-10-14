@@ -7,6 +7,7 @@
 //! it off the reactor.
 
 use std::collections::{HashMap, HashSet};
+use std::time::{Duration, Instant};
 
 use crate::bitfield::Bitfield;
 use crate::metainfo::Info;
@@ -15,8 +16,11 @@ pub type PeerKey = u64;
 pub const BLOCK_SIZE: u32 = 16 * 1024;
 /// Total bytes of piece buffers we keep in flight before refusing to open new pieces.
 const PARTIAL_BUDGET: u64 = 256 * 1024 * 1024;
-/// End-game: at most this many peers race for the same block.
-const ENDGAME_DUP: usize = 2;
+/// End-game: a second peer may race any outstanding block at once; more (up
+/// to `ENDGAME_MAX`) once it has waited `ENDGAME_STALE` since the last ask, so
+/// fast peers that free up late can still rescue blocks stuck on slow ones.
+const ENDGAME_MAX: usize = 4;
+const ENDGAME_STALE: Duration = Duration::from_millis(1500);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct BlockReq {
@@ -28,7 +32,11 @@ pub struct BlockReq {
 #[derive(Debug, Clone)]
 enum Block {
     Free,
-    Requested(Vec<PeerKey>),
+    /// Who has been asked, and when the latest of them was.
+    Requested {
+        peers: Vec<PeerKey>,
+        at: Instant,
+    },
     Done,
 }
 
@@ -284,7 +292,10 @@ impl Picker {
                 break;
             }
             if matches!(b, Block::Free) {
-                *b = Block::Requested(vec![peer]);
+                *b = Block::Requested {
+                    peers: vec![peer],
+                    at: Instant::now(),
+                };
                 part.free -= 1;
                 let begin = bi as u32 * BLOCK_SIZE;
                 out.push(BlockReq {
@@ -332,32 +343,39 @@ impl Picker {
         target: usize,
         out: &mut Vec<BlockReq>,
     ) {
-        let mut pieces: Vec<u32> = self
-            .partial
-            .keys()
-            .copied()
-            .filter(|&p| peer_has.get(p as usize))
-            .collect();
-        pieces.sort_unstable();
-        for p in pieces {
+        let now = Instant::now();
+        // Least-raced, longest-waiting blocks first.
+        let mut wanted: Vec<(usize, Instant, u32, usize)> = Vec::new();
+        for (&p, part) in &self.partial {
+            if !peer_has.get(p as usize) {
+                continue;
+            }
+            for (bi, b) in part.blocks.iter().enumerate() {
+                if let Block::Requested { peers, at } = b
+                    && !peers.contains(&peer)
+                    && (peers.len() < 2
+                        || (peers.len() < ENDGAME_MAX && now.duration_since(*at) >= ENDGAME_STALE))
+                {
+                    wanted.push((peers.len(), *at, p, bi));
+                }
+            }
+        }
+        wanted.sort_unstable();
+        for (_, _, p, bi) in wanted {
+            if out.len() >= target {
+                return;
+            }
             let size = self.piece_size(p);
             let part = self.partial.get_mut(&p).expect("listed above");
-            for (bi, b) in part.blocks.iter_mut().enumerate() {
-                if out.len() >= target {
-                    return;
-                }
-                if let Block::Requested(peers) = b
-                    && peers.len() < ENDGAME_DUP
-                    && !peers.contains(&peer)
-                {
-                    peers.push(peer);
-                    let begin = bi as u32 * BLOCK_SIZE;
-                    out.push(BlockReq {
-                        piece: p,
-                        begin,
-                        len: (size - begin).min(BLOCK_SIZE),
-                    });
-                }
+            if let Block::Requested { peers, at } = &mut part.blocks[bi] {
+                peers.push(peer);
+                *at = now;
+                let begin = bi as u32 * BLOCK_SIZE;
+                out.push(BlockReq {
+                    piece: p,
+                    begin,
+                    len: (size - begin).min(BLOCK_SIZE),
+                });
             }
         }
     }
@@ -387,7 +405,7 @@ impl Picker {
                 part.free -= 1;
                 Vec::new()
             }
-            Block::Requested(peers) => peers.into_iter().filter(|&p| p != peer).collect(),
+            Block::Requested { peers, .. } => peers.into_iter().filter(|&p| p != peer).collect(),
         };
         part.data[begin as usize..begin as usize + data.len()].copy_from_slice(data);
         part.done += 1;
@@ -418,7 +436,7 @@ impl Picker {
             return;
         };
         let bi = (req.begin / BLOCK_SIZE) as usize;
-        if let Some(Block::Requested(peers)) = part.blocks.get_mut(bi) {
+        if let Some(Block::Requested { peers, .. }) = part.blocks.get_mut(bi) {
             peers.retain(|&p| p != peer);
             if peers.is_empty() {
                 part.blocks[bi] = Block::Free;
@@ -434,7 +452,7 @@ impl Picker {
     pub fn release_peer(&mut self, peer: PeerKey) {
         for part in self.partial.values_mut() {
             for b in part.blocks.iter_mut() {
-                if let Block::Requested(peers) = b {
+                if let Block::Requested { peers, .. } = b {
                     peers.retain(|&p| p != peer);
                     if peers.is_empty() {
                         *b = Block::Free;
@@ -543,6 +561,37 @@ mod tests {
             p.on_block(1, 0, 0, &vec![0; BLOCK_SIZE as usize]),
             OnBlock::Duplicate
         ));
+    }
+
+    #[test]
+    fn endgame_lets_more_peers_rescue_slow_blocks() {
+        let inf = info(1, BLOCK_SIZE, BLOCK_SIZE as u64);
+        let mut p = Picker::new(&inf, Bitfield::new(1));
+        let all = Bitfield::full(1);
+        let mut out = vec![];
+        p.pick(1, &all, 4, &mut out);
+        p.pick(2, &all, 4, &mut out);
+        // Two peers are on it; a third waits until it has gone unanswered a while.
+        let mut c = vec![];
+        p.pick(3, &all, 4, &mut c);
+        assert!(c.is_empty());
+        if let Some(Block::Requested { at, .. }) = p.partial.get_mut(&0).map(|x| &mut x.blocks[0]) {
+            *at -= ENDGAME_STALE;
+        }
+        p.pick(3, &all, 4, &mut c);
+        assert_eq!(c.len(), 1, "a stale block is raced again");
+        // The newcomer resets the clock, and nobody is asked twice.
+        let mut d = vec![];
+        p.pick(4, &all, 4, &mut d);
+        p.pick(3, &all, 4, &mut d);
+        assert!(d.is_empty());
+        match p.on_block(3, 0, 0, &vec![0; BLOCK_SIZE as usize]) {
+            OnBlock::Complete { mut cancel, .. } => {
+                cancel.sort();
+                assert_eq!(cancel, vec![1, 2]);
+            }
+            other => panic!("unexpected {other:?}"),
+        }
     }
 
     #[test]

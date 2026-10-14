@@ -10,6 +10,7 @@ fn settings(dir: &std::path::Path) -> Settings {
         listen_port: 0,
         enable_dht: false,
         enable_upnp: false,
+        public_trackers: false,
         ..Settings::default()
     }
 }
@@ -180,4 +181,70 @@ async fn rpc_surface() {
     let h = Engine::start(tmp.path().join("state")).await.unwrap();
     assert_eq!(h.settings().download_limit, 123_456);
     h.shutdown().await;
+}
+
+#[tokio::test]
+async fn public_trackers_only_for_public_torrents() {
+    use trav_core::{AddTorrent, TorrentSource};
+    let tmp = tempfile::tempdir().unwrap();
+    let state = tmp.path().join("state");
+    std::fs::create_dir_all(&state).unwrap();
+    // A fresh cached list, so the engine doesn't fetch one.
+    std::fs::write(
+        state.join("public-trackers.txt"),
+        "udp://a.example:1/announce\n\nudp://b.example:1/announce\n\nudp://c.example:1/announce",
+    )
+    .unwrap();
+    let engine = Engine::start_with(
+        &state,
+        Some(Settings {
+            public_trackers: true,
+            ..settings(tmp.path())
+        }),
+    )
+    .await
+    .unwrap();
+
+    let mut hashes = Vec::new();
+    for (name, private) in [("open", false), ("closed", true)] {
+        let dir = tmp.path().join(name);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("f.bin"), vec![1u8; 40_000]).unwrap();
+        let own = vec!["http://own.example/announce".to_string()];
+        let bytes = trav_core::metainfo::create_torrent(&dir, 16384, &own, private).unwrap();
+        let mut add = AddTorrent::new(TorrentSource::Bytes(bytes));
+        add.paused = true;
+        hashes.push(engine.add(add).await.unwrap());
+    }
+    let urls = |h: &str| -> Vec<String> {
+        engine
+            .details(h)
+            .unwrap()
+            .trackers
+            .into_iter()
+            .map(|t| t.url)
+            .collect()
+    };
+    assert_eq!(
+        urls(&hashes[0]),
+        [
+            "http://own.example/announce",
+            "udp://a.example:1/announce",
+            "udp://b.example:1/announce",
+            "udp://c.example:1/announce"
+        ]
+    );
+    assert_eq!(urls(&hashes[1]), ["http://own.example/announce"]);
+
+    // Switching the setting off takes them away again.
+    engine
+        .update_settings(Settings {
+            public_trackers: false,
+            ..engine.settings()
+        })
+        .await
+        .unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    assert_eq!(urls(&hashes[0]), ["http://own.example/announce"]);
+    engine.shutdown().await;
 }

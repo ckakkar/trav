@@ -3,6 +3,8 @@
 //!
 //!   cargo run --release -p trav-core --example fetch -- <file.torrent|magnet> [seconds] [out-dir]
 //!
+//! Set TRAV_ENCRYPTION (prefer, require or off) or TRAV_PUBLIC_TRACKERS=0 to compare.
+//!
 //! Prints a line every 5 s and the average at the end. Uses a throwaway state
 //! directory under the output folder, so it never touches the app's library.
 
@@ -27,10 +29,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap_or_else(|| std::env::temp_dir().join("trav-fetch"));
     std::fs::create_dir_all(&out)?;
 
-    let settings = Settings {
+    // TRAV_ENCRYPTION=prefer|require|off and TRAV_PUBLIC_TRACKERS=0 for A/B runs.
+    let mut settings = Settings {
         download_dir: out.clone(),
         ..Settings::default()
     };
+    if let Ok(e) = std::env::var("TRAV_ENCRYPTION") {
+        settings.encryption = serde_json::from_value(serde_json::Value::String(e))?;
+    }
+    if std::env::var("TRAV_PUBLIC_TRACKERS").as_deref() == Ok("0") {
+        settings.public_trackers = false;
+    }
     let engine = Engine::start_with(out.join(".trav-state"), Some(settings)).await?;
     engine
         .add(AddTorrent {
@@ -44,6 +53,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let start = Instant::now();
     let mut first_byte: Option<Duration> = None;
+    // When the last 5% began: how long the tail (end-game) takes.
+    let mut tail_from: Option<Duration> = None;
     let mut last_report = Instant::now();
     loop {
         tokio::time::sleep(Duration::from_millis(500)).await;
@@ -54,16 +65,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         if first_byte.is_none() && t.done_bytes > 0 {
             first_byte = Some(start.elapsed());
         }
+        if tail_from.is_none() && t.progress >= 0.95 {
+            tail_from = Some(start.elapsed());
+        }
         let elapsed = start.elapsed();
         if last_report.elapsed() >= Duration::from_secs(5) {
             last_report = Instant::now();
+            let encrypted = engine.details(&t.info_hash).map_or(0, |d| {
+                d.peers.iter().filter(|p| p.flags.contains('E')).count()
+            });
             println!(
-                "{:>4}s  {:>7.1} MiB  {:>6.2} MiB/s  peers {:>3} (seeds {:>3})  {:?}",
+                "{:>4}s  {:>7.1} MiB  {:>6.2} MiB/s  peers {:>3} (seeds {:>3}, encrypted {:>3})  {:?}",
                 elapsed.as_secs(),
                 t.downloaded as f64 / 1048576.0,
                 t.download_rate as f64 / 1048576.0,
                 t.peers + t.seeds,
                 t.seeds,
+                encrypted,
                 t.status,
             );
         }
@@ -75,6 +93,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 t.downloaded as f64 / 1048576.0 / elapsed.as_secs_f64(),
                 first_byte,
             );
+            if let Some(from) = tail_from.filter(|_| t.progress >= 1.0) {
+                println!(
+                    "last 5% took {:.1} s",
+                    (start.elapsed() - from).as_secs_f64()
+                );
+            }
             break;
         }
     }

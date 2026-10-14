@@ -146,6 +146,10 @@ export interface Settings {
   enableUpnp: boolean;
   seedRatioLimit: number;
   autoUploadLimit: boolean;
+  /** Peer connection encryption (MSE/PE). */
+  encryption: "prefer" | "require" | "off";
+  /** Also announce to well-known public trackers (never for private torrents). */
+  publicTrackers: boolean;
   version: number;
 }
 

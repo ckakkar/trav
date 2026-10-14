@@ -19,7 +19,6 @@ use std::time::{Duration, Instant};
 use base64::Engine as _;
 use parking_lot::Mutex;
 use sha1::{Digest, Sha1};
-use tokio::net::TcpStream;
 use tokio::sync::{mpsc, oneshot};
 use tracing::{debug, info, warn};
 
@@ -30,6 +29,7 @@ use crate::magnet::Magnet;
 use crate::message::Event;
 use crate::metainfo::{Info, InfoHash, Metainfo};
 use crate::peer::handshake::{self, Handshake};
+use crate::peer::stream::PeerStream;
 use crate::picker::{BlockReq, PeerKey, Picker};
 use crate::snapshot::{
     FileInfo, PeerInfo, TorrentDetails, TorrentStatus, TorrentSummary, TrackerInfo,
@@ -119,6 +119,7 @@ pub(crate) struct PeerState {
     down: RateMeter,
     up: RateMeter,
     incoming: bool,
+    encrypted: bool,
     source: PeerSource,
     connected_at: Instant,
     snubbed: bool,
@@ -250,6 +251,8 @@ pub(crate) enum Cmd {
     SetQueued(bool),
     Recheck,
     Reannounce,
+    /// The public tracker list or its setting changed.
+    TrackersChanged,
     SetFilePriorities(Vec<u8>),
     SetSequential(bool),
     AddPeers(Vec<SocketAddr>, PeerSource),
@@ -438,6 +441,7 @@ impl Torrent {
                     self.start_check(&mut st);
                 }
             }
+            Cmd::TrackersChanged => self.rebuild_trackers(&mut st),
             Cmd::Reannounce => {
                 let now = Instant::now();
                 for t in st.trackers.iter_mut() {
@@ -812,6 +816,12 @@ impl Torrent {
             .map(|m| m.trackers.clone())
             .unwrap_or_default();
         tiers.extend(st.extra_trackers.iter().cloned());
+        // Public trackers last, and never for private torrents (a magnet is
+        // treated as public until its metadata says otherwise).
+        let private = st.meta.as_ref().is_some_and(|m| m.info.private);
+        if !private && self.ctx.settings.read().public_trackers {
+            tiers.push(self.ctx.public_trackers.read().clone());
+        }
         let tiers = crate::metainfo::normalize_tiers(tiers);
         let mut fresh = Vec::new();
         for (tier, urls) in tiers.into_iter().enumerate() {
@@ -843,7 +853,7 @@ impl Torrent {
     /// Adopt an established connection (either direction).
     pub(crate) fn attach(
         self: &Arc<Self>,
-        stream: TcpStream,
+        stream: PeerStream,
         hs: Handshake,
         addr: SocketAddr,
         source: PeerSource,
@@ -893,6 +903,7 @@ impl Torrent {
                 down: RateMeter::default(),
                 up: RateMeter::default(),
                 incoming,
+                encrypted: stream.encrypted(),
                 source,
                 connected_at: Instant::now(),
                 snubbed: false,
@@ -962,7 +973,7 @@ impl Torrent {
             global.saturating_sub(self.ctx.connections.load(Ordering::Relaxed) + st.connecting);
         let n = room
             .min(global_room)
-            .min(20)
+            .min(30)
             .min(self.ctx.half_open.available_permits().max(1));
         if n == 0 {
             return;
@@ -992,6 +1003,7 @@ impl Torrent {
             .collect();
         picks.sort_by_key(|&(_, f, r)| (f, r));
         let ours = Handshake::ours(self.info_hash, self.ctx.peer_id);
+        let enc = self.ctx.settings.read().encryption;
         for (addr, _, _) in picks.into_iter().take(n) {
             if let Some(c) = st.candidates.get_mut(&addr) {
                 c.connecting = true;
@@ -1001,7 +1013,7 @@ impl Torrent {
             let sem = self.ctx.half_open.clone();
             tokio::spawn(async move {
                 let _permit = sem.acquire_owned().await;
-                match handshake::connect(addr, &ours).await {
+                match handshake::connect(addr, &ours, enc).await {
                     Ok((stream, hs)) => {
                         let src = me
                             .st
@@ -1223,6 +1235,17 @@ impl Torrent {
         };
         let now = Instant::now();
         let mut found = Vec::new();
+        // Public trackers hand out 127.0.0.1 and the like; only a tracker on
+        // this machine can mean a local peer.
+        let local_tracker = url::Url::parse(&t.url)
+            .ok()
+            .and_then(|u| u.host_str().map(str::to_owned))
+            .is_some_and(|h| {
+                h == "localhost"
+                    || h.trim_matches(['[', ']'])
+                        .parse::<std::net::IpAddr>()
+                        .is_ok_and(|ip| ip.is_loopback())
+            });
         match res {
             Ok(r) => {
                 t.status = TrackerStatus::Working;
@@ -1260,7 +1283,9 @@ impl Torrent {
             return;
         }
         for p in found {
-            add_candidate(st, p, PeerSource::Tracker);
+            if local_tracker || !p.ip().is_loopback() {
+                add_candidate(st, p, PeerSource::Tracker);
+            }
         }
         self.connect_more(st);
     }
@@ -1560,6 +1585,9 @@ impl Torrent {
                 if p.snubbed {
                     flags.push('S');
                 }
+                if p.encrypted {
+                    flags.push('E');
+                }
                 match p.source {
                     PeerSource::Incoming => flags.push('I'),
                     PeerSource::Pex => flags.push('X'),
@@ -1767,8 +1795,23 @@ fn starving(st: &State) -> bool {
         && st.peers.values().filter(|p| p.down.rate() > 0).count() < 5
 }
 
+/// Addresses no peer can be reached at. Loopback is only believed when it
+/// comes from the user or a tracker on this machine (filtered by the caller).
+fn unreachable(addr: SocketAddr, source: PeerSource) -> bool {
+    let ip = addr.ip().to_canonical();
+    let bad = match ip {
+        std::net::IpAddr::V4(v4) => v4.is_broadcast() || v4.is_documentation(),
+        std::net::IpAddr::V6(_) => false,
+    };
+    addr.port() == 0
+        || ip.is_unspecified()
+        || ip.is_multicast()
+        || bad
+        || (ip.is_loopback() && matches!(source, PeerSource::Dht | PeerSource::Pex))
+}
+
 fn add_candidate(st: &mut State, addr: SocketAddr, source: PeerSource) {
-    if addr.port() == 0 || addr.ip().is_unspecified() || st.banned.contains(&addr.ip()) {
+    if unreachable(addr, source) || st.banned.contains(&addr.ip()) {
         return;
     }
     if st.candidates.len() >= MAX_CANDIDATES && !st.candidates.contains_key(&addr) {

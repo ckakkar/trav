@@ -6,7 +6,9 @@ use std::time::{Duration, Instant};
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use trav_core::metainfo::create_torrent;
-use trav_core::{AddTorrent, Engine, EngineHandle, Settings, TorrentSource, TorrentStatus};
+use trav_core::{
+    AddTorrent, Encryption, Engine, EngineHandle, Settings, TorrentSource, TorrentStatus,
+};
 
 fn init_tracing() {
     let _ = tracing_subscriber::fmt()
@@ -21,6 +23,7 @@ fn settings(download_dir: &Path) -> Settings {
         listen_port: 0,
         enable_dht: false,
         enable_upnp: false,
+        public_trackers: false,
         ..Settings::default()
     }
 }
@@ -210,6 +213,39 @@ async fn magnet_fetches_metadata_from_peer() {
             .join(format!("{hash}.torrent"))
             .exists()
     );
+}
+
+/// Peers that insist on encryption still swap data with the default ("prefer")
+/// side, and the encrypted bytes arrive intact.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn encrypted_peers_transfer_intact_data() {
+    init_tracing();
+    let tmp = tempfile::tempdir().unwrap();
+    let (seed, hash, _torrent, content) = seeder(tmp.path(), &[]).await;
+
+    let dl_dir = tmp.path().join("dl");
+    let leech = Engine::start_with(
+        tmp.path().join("leech-state"),
+        Some(Settings {
+            encryption: Encryption::Require,
+            ..settings(&dl_dir)
+        }),
+    )
+    .await
+    .unwrap();
+    let magnet = format!(
+        "magnet:?xt=urn:btih:{hash}&x.pe=127.0.0.1:{}",
+        seed.listen_port()
+    );
+    leech
+        .add(AddTorrent::new(TorrentSource::Magnet(magnet)))
+        .await
+        .unwrap();
+    // "require" never falls back to plain BitTorrent, so finishing proves the
+    // whole transfer ran encrypted.
+    wait_for(&leech, &hash, TorrentStatus::Seeding, 30).await;
+    same_tree(&content, &dl_dir.join("album"));
+    drop(seed);
 }
 
 /// A magnet whose files are partly on disk already: the metadata arrives, the

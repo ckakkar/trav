@@ -298,6 +298,7 @@ const FLAG_HELP: Record<string, string> = {
   "?": "we unchoked peer, it's not interested",
   O: "optimistic unchoke",
   S: "snubbed (no data for 60 s)",
+  E: "encrypted connection",
   I: "incoming connection",
   X: "found via peer exchange",
   H: "found via DHT",
