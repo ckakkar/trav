@@ -16,7 +16,10 @@ export interface GlobalStats {
   sessionDownloaded: number;
   sessionUploaded: number;
   downloadLimit: number;
+  /** The upload limit in force: the user's, or the automatic one. */
   uploadLimit: number;
+  /** `uploadLimit` was set automatically to keep uploads from slowing downloads. */
+  uploadAuto: boolean;
   connectedPeers: number;
   dhtNodes: number;
   listenPort: number;
@@ -62,7 +65,10 @@ export interface EngineSnapshot {
 
 export interface FileInfo {
   index: number;
+  /** As named in the torrent. */
   path: string;
+  /** Where it is on disk; names are made safe and unique, so this can differ. */
+  diskPath: string | null;
   size: number;
   done: number;
   progress: number;
@@ -117,7 +123,8 @@ export interface TorrentPreview {
   totalSize: number;
   pieceLength: number;
   numPieces: number;
-  files: { path: string; size: number }[];
+  /** `index` counts padding files too, as `filePriorities` expects. */
+  files: { index: number; path: string; size: number }[];
   trackers: string[];
   comment: string | null;
   createdBy: string | null;
@@ -138,6 +145,8 @@ export interface Settings {
   enablePex: boolean;
   enableUpnp: boolean;
   seedRatioLimit: number;
+  autoUploadLimit: boolean;
+  version: number;
 }
 
 export type EngineEvent =

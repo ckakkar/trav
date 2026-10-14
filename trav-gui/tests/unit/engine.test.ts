@@ -13,6 +13,7 @@ const snap = (hashes: string[], rate = 100): EngineSnapshot => ({
     sessionUploaded: 0,
     downloadLimit: 0,
     uploadLimit: 0,
+    uploadAuto: false,
     connectedPeers: 0,
     dhtNodes: 0,
     listenPort: 1,

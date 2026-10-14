@@ -1,7 +1,0 @@
-target
-**/node_modules
-trav-gui/.next
-trav-gui/out
-trav-gui/test-results
-trav-gui/playwright-report
-.git

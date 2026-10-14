@@ -6,6 +6,33 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+Trav is now only the Mac app, and every push to `main` ships to it.
+
+### Added
+- Continuous releases: each push to `main` that passes CI is published as `0.3.<commits on main>` with a universal `Trav.dmg`, the signed update and `latest.json`. The app checks hourly.
+- An automatic upload limit (on by default, Settings › Bandwidth): with no fixed limit, Trav measures queueing delay from the kernel's TCP round-trip times and eases uploads off when they start flooding the uplink, which on asymmetric home connections slows downloads to a crawl. The status bar shows it as "auto".
+- Peer rotation: a download at its connection limit swaps peers that have exchanged no data for a minute for untried ones, every 30 seconds.
+- `make bench`: measures the engine's download speed on a real swarm (`trav-core/examples/fetch.rs`).
+
+### Changed
+- Peer discovery follows how a download is doing rather than how many peers are connected: while fewer than five peers are sending, the DHT and trackers are asked again every two minutes.
+- New peers start with 16 requests in flight (was 8) and are topped up once a quarter have returned (was half), so they reach full speed sooner on high-latency connections.
+- Up to 150 peers per torrent and 600 overall (was 80 and 500); settings still at the old defaults move to the new ones.
+- Raising or removing a speed limit takes effect at once for transfers already being throttled.
+
+### Removed
+- The terminal UI, the `trav` command (`trav get`, the daemon and its web UI) and the Docker image.
+
+### Fixed
+- Torrent files whose names became the same after sanitising (`a:b` and `a?b`), or differed only in case, were written to one file and overwrote each other; they now get " (2)"-style names. Files can no longer take a folder's name.
+- Writes no longer follow symlinks below the save folder (the save folder itself may still be one).
+- DHT replies are only accepted from the node that was asked.
+- Turning the DHT off (or changing the port) now really stops it and frees its port; queries in flight fail at once.
+- HTTP tracker replies are capped at 2 MiB, and pieces awaiting their hash check count against the memory budget for partial pieces (at least two pieces, so huge pieces no longer allow 1 GiB of buffers).
+- `setSettings` with only some fields changed reset the others to defaults.
+- Choosing files when adding a torrent was ignored for torrents with padding files.
+- "Open" in the Files tab used the name from the torrent rather than the file's name on disk.
+
 ## [0.3.0] — 2026-10-14
 
 The desktop app is now **Trav for macOS**: the same UI, with the parts that make it a Mac app.

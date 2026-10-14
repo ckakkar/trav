@@ -147,6 +147,21 @@ async fn rpc_surface() {
             .await
             .is_err()
     );
+    // A partial update changes only what it names.
+    let before = call("getSettings", Value::Null).await.unwrap();
+    let after = call("setSettings", json!({ "uploadLimit": 7_000 }))
+        .await
+        .unwrap();
+    assert_eq!(after["uploadLimit"], 7_000);
+    for key in [
+        "downloadDir",
+        "listenPort",
+        "downloadLimit",
+        "enableDht",
+        "maxPeersPerTorrent",
+    ] {
+        assert_eq!(after[key], before[key], "{key} changed");
+    }
 
     call("remove", json!({ "hash": hash, "deleteFiles": true }))
         .await

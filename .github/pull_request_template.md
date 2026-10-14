@@ -5,8 +5,9 @@
 ## Testing
 
 - [ ] `make check` (fmt, clippy, cargo test, UI typecheck/unit/build)
-- [ ] `make e2e` if UI behaviour changed
-- [ ] Manually exercised in the desktop app (if relevant)
+- [ ] Tried in the app (`make desktop`) if behaviour changed
+
+Merging to `main` publishes a new version of the app; installed copies update to it.
 
 ## Notes
 

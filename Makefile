@@ -1,33 +1,36 @@
-# Common tasks; run `make` for the list. `make check` mirrors CI (minus e2e and desktop bundling).
+# Common tasks for Trav for macOS; run `make` for the list. `make check` mirrors CI.
 .DEFAULT_GOAL := help
-.PHONY: help install install-app uninstall setup check fmt lint test ui-check e2e build desktop desktop-build icons docker clean
+.PHONY: help setup run install install-app dmg check fmt lint test ui-check bench icons clean
 
 APP_DIR ?= /Applications
 
-help: ## Show this list
-	@awk 'BEGIN {FS = ":.*## "} /^[a-z0-9-]+:.*## / {printf "  \033[1m%-14s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
-
-install: ## Install the `trav` command (with the web UI built in) to ~/.cargo/bin
-	cd trav-gui && npm ci && npm run build
-	cargo install --locked --path trav-cli
-	@echo "Installed: try \`trav get <file.torrent>\` or just \`trav\`."
-
 # Local builds skip the signed update archive (that needs the release key);
-# the installed app still updates itself from GitHub releases.
+# an installed copy still updates itself from GitHub releases.
 LOCAL_BUILD = --config '{"bundle":{"createUpdaterArtifacts":false}}'
 
-install-app: ## Build Trav.app and install it in /Applications
-	@if pgrep -f "$(APP_DIR)/Trav.app/Contents/MacOS/" >/dev/null; then echo "Quit Trav first (Trav › Quit Trav), then run make install-app again."; exit 1; fi
+help: ## Show this list
+	@awk 'BEGIN {FS = ":.*## "} /^[a-z0-9-]+:.*## / {printf "  \033[1m%-12s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
+
+setup: ## Install the UI's dependencies
+	cd trav-gui && npm ci
+
+run: ## Run the app with hot reload (uses your library; quit the installed Trav first)
+	cd trav-gui && npm run tauri dev
+
+install: ## Build Trav.app and install it in /Applications
+	@if pgrep -f "$(APP_DIR)/Trav.app/Contents/MacOS/" >/dev/null; then echo "Quit Trav first (Trav › Quit Trav), then run make install again."; exit 1; fi
 	cd trav-gui && npm ci && npm run tauri build -- --bundles app $(LOCAL_BUILD)
 	rm -rf "$(APP_DIR)/Trav.app"
 	cp -R target/release/bundle/macos/Trav.app "$(APP_DIR)/"
-	@echo "Installed $(APP_DIR)/Trav.app: double-click any .torrent or magnet link."
+	@echo "Installed $(APP_DIR)/Trav.app."
 
-uninstall: ## Remove the `trav` command (your downloads and library are kept)
-	cargo uninstall trav-cli
+install-app: install
 
-setup: ## Install UI dependencies
-	cd trav-gui && npm ci
+dmg: ## Trav.app and a .dmg in target/release/bundle/
+	cd trav-gui && npm ci && npm run tauri build -- $(LOCAL_BUILD)
+
+check: lint test ui-check ## Everything CI runs, except bundling the app
+	scripts/check-versions.sh
 
 fmt: ## Format Rust code
 	cargo fmt --all
@@ -36,29 +39,15 @@ lint: ## rustfmt check + clippy (warnings are errors)
 	cargo fmt --all --check
 	cargo clippy --workspace --all-targets -- -D warnings
 
-test: ## Rust unit + integration tests
-	cargo test
+test: ## Engine unit and integration tests
+	cargo test -p trav-core
 
 ui-check: ## UI typecheck, unit tests and production build
 	cd trav-gui && npm run typecheck && npm test && npm run build
 
-check: lint test ui-check ## Everything CI runs, minus e2e
-	scripts/check-versions.sh
-
-e2e: ## Playwright against real daemons
-	cd trav-gui && npm run build
-	cargo build -p trav-cli
-	cd trav-gui && npx playwright test
-
-build: ## Release build of `trav` with the web UI embedded
-	cd trav-gui && npm run build
-	cargo build --release -p trav-cli
-
-desktop: ## Run the Mac app with hot reload
-	cd trav-gui && npm run tauri dev
-
-desktop-build: ## Trav.app and a .dmg in target/release/bundle/
-	cd trav-gui && npm run tauri build -- $(LOCAL_BUILD)
+bench: ## Download TORRENT for SECS (default 60) with the engine and report the speed
+	@test -n "$(TORRENT)" || { echo "usage: make bench TORRENT=file.torrent|magnet [SECS=60]"; exit 1; }
+	cargo run --release -p trav-core --example fetch -- "$(TORRENT)" $(or $(SECS),60)
 
 icons: ## Re-render the app icon and menu bar glyph (scripts/app-icon.swift)
 	swift scripts/app-icon.swift trav-gui/src-tauri/icons/source.png trav-gui/src-tauri/icons/glyph.png
@@ -67,9 +56,6 @@ icons: ## Re-render the app icon and menu bar glyph (scripts/app-icon.swift)
 	cd trav-gui && npx tauri icon src-tauri/icons/source.png >/dev/null
 	cd trav-gui/src-tauri/icons && rm -rf glyph.png android ios icon.ico icon.png 64x64.png Square*Logo.png StoreLogo.png
 
-docker: ## Build the headless Docker image
-	docker build -t trav:local .
-
 clean: ## Remove build output
 	cargo clean
-	rm -rf trav-gui/.next trav-gui/out trav-gui/test-results trav-gui/playwright-report
+	rm -rf trav-gui/.next trav-gui/out

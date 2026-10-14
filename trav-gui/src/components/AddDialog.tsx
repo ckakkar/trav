@@ -4,10 +4,10 @@ import { useEffect, useMemo, useState } from "react";
 import { FolderOpen, Link2, Magnet } from "lucide-react";
 import type { TorrentPreview } from "@/lib/types";
 import { bytes, looksLikeMagnet } from "@/lib/format";
-import { call, isDesktop, pickFolder } from "@/lib/rpc";
+import { call, pickFolder } from "@/lib/rpc";
 import { Modal } from "./Modal";
 
-export type AddItem = { kind: "path"; path: string } | { kind: "bytes"; name: string; b64: string } | { kind: "magnet"; uri: string };
+export type AddItem = { kind: "path"; path: string } | { kind: "magnet"; uri: string };
 
 function magnetInfo(uri: string): { name: string; hash: string } {
   try {
@@ -20,12 +20,17 @@ function magnetInfo(uri: string): { name: string; hash: string } {
   }
 }
 
+/** One priority per file index (padding files included); unlisted files stay normal. */
+function priorities(preview: TorrentPreview, checked: boolean[]): number[] {
+  const out = new Array(Math.max(0, ...preview.files.map((f) => f.index + 1))).fill(1);
+  preview.files.forEach((f, i) => (out[f.index] = checked[i] ? 1 : 0));
+  return out;
+}
+
 function source(item: AddItem) {
   switch (item.kind) {
     case "path":
       return { path: item.path };
-    case "bytes":
-      return { torrent: item.b64 };
     case "magnet":
       return { magnet: item.uri };
   }
@@ -99,7 +104,7 @@ export function AddDialog({
           savePath,
           paused: !startNow,
           sequential,
-          filePriorities: usePrefs ? checked.map((c) => (c ? 1 : 0)) : undefined,
+          filePriorities: usePrefs ? priorities(preview, checked) : undefined,
         });
         onAdded(r.infoHash);
       } catch (e) {
@@ -158,7 +163,7 @@ export function AddDialog({
 
   const isMagnet = item?.kind === "magnet";
   const m = isMagnet ? magnetInfo(item.uri) : null;
-  const title = preview?.name ?? m?.name ?? (item?.kind === "bytes" ? item.name : item?.kind === "path" ? item.path.split(/[\\/]/).pop() : "");
+  const title = preview?.name ?? m?.name ?? (item?.kind === "path" ? item.path.split(/[\\/]/).pop() : "");
 
   return (
     <Modal
@@ -252,20 +257,18 @@ export function AddDialog({
               }}
               spellCheck={false}
             />
-            {isDesktop() && (
-              <button
-                className="btn"
-                onClick={async () => {
-                  const p = await pickFolder(savePath);
-                  if (p) {
-                    setPathTouched(true);
-                    setSavePath(p);
-                  }
-                }}
-              >
-                <FolderOpen size={14} /> Browse
-              </button>
-            )}
+            <button
+              className="btn"
+              onClick={async () => {
+                const p = await pickFolder(savePath);
+                if (p) {
+                  setPathTouched(true);
+                  setSavePath(p);
+                }
+              }}
+            >
+              <FolderOpen size={14} /> Browse
+            </button>
           </div>
         </div>
 

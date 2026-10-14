@@ -7,7 +7,7 @@ import type { TorrentDetails, FileInfo } from "@/lib/types";
 import type { SpeedHistory } from "@/lib/engine";
 import { ago, bytes, date, eta, pct, rate } from "@/lib/format";
 import { Tween } from "@/lib/tween";
-import { copyText, isDesktop, openPath, reveal } from "@/lib/rpc";
+import { copyText, openPath, reveal } from "@/lib/rpc";
 import { PieceMap } from "./PieceMap";
 import { Graph } from "./Graph";
 import { statusLabel } from "./TorrentTable";
@@ -175,11 +175,9 @@ function Overview({ d, actions }: { d: TorrentDetails; actions: DetailActions })
           <span className="path" title={path}>
             {path}
           </span>
-          {isDesktop() && (
-            <button className="icon-btn sm" title="Show in folder" aria-label="Show in folder" onClick={() => reveal(path).catch((e) => actions.toast("Can't open folder", { body: String(e), tone: "error" }))}>
-              <FolderOpen size={13} />
-            </button>
-          )}
+          <button className="icon-btn sm" title="Show in Finder" aria-label="Show in Finder" onClick={() => reveal(path).catch((e) => actions.toast("Can't open folder", { body: String(e), tone: "error" }))}>
+            <FolderOpen size={13} />
+          </button>
         </Stat>
         {d.comment && (
           <Stat label="Comment" wide>
@@ -273,12 +271,12 @@ function Files({ d, actions }: { d: TorrentDetails; actions: DetailActions }) {
                   </option>
                 ))}
               </select>
-              {isDesktop() && d.contentPath && f.progress >= 1 && (
+              {f.diskPath && f.progress >= 1 && (
                 <button
                   className="icon-btn sm"
                   title="Open"
                   aria-label={`Open ${name}`}
-                  onClick={() => openPath(d.files.length === 1 && !f.path.includes("/") ? d.contentPath! : `${d.contentPath}/${f.path}`)}
+                  onClick={() => openPath(f.diskPath!)}
                 >
                   <FolderOpen size={13} />
                 </button>

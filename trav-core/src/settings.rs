@@ -22,6 +22,13 @@ pub struct Settings {
     pub enable_upnp: bool,
     /// Stop seeding once uploaded/size reaches this (0 = never stop).
     pub seed_ratio_limit: f64,
+    /// With no upload limit set, cap uploads automatically whenever they start
+    /// queueing on the uplink and slowing everything else (see `governor`).
+    pub auto_upload_limit: bool,
+    /// Which defaults this file was written with (for migrations). Files from
+    /// before versioning have none, so it defaults to 0 rather than current.
+    #[serde(default)]
+    pub version: u32,
 }
 
 impl Default for Settings {
@@ -29,8 +36,8 @@ impl Default for Settings {
         Self {
             download_dir: default_download_dir(),
             listen_port: 51413,
-            max_peers_per_torrent: 80,
-            max_peers_global: 500,
+            max_peers_per_torrent: 150,
+            max_peers_global: 600,
             max_active_downloads: 5,
             download_limit: 0,
             upload_limit: 0,
@@ -39,6 +46,8 @@ impl Default for Settings {
             enable_pex: true,
             enable_upnp: true,
             seed_ratio_limit: 0.0,
+            auto_upload_limit: true,
+            version: Self::VERSION,
         }
     }
 }
@@ -51,6 +60,24 @@ fn default_download_dir() -> PathBuf {
 }
 
 impl Settings {
+    pub const VERSION: u32 = 1;
+
+    /// Bring settings saved by an older version up to date: values the user
+    /// never changed move to the new defaults.
+    pub fn migrated(mut self) -> Self {
+        if self.version < 1 {
+            // 0.3: more connections per torrent (80 → 150, 500 → 600 overall).
+            if self.max_peers_per_torrent == 80 {
+                self.max_peers_per_torrent = 150;
+            }
+            if self.max_peers_global == 500 {
+                self.max_peers_global = 600;
+            }
+        }
+        self.version = Self::VERSION;
+        self
+    }
+
     /// Clamp values that would wedge the engine.
     pub fn sanitized(mut self) -> Self {
         self.max_peers_per_torrent = self.max_peers_per_torrent.clamp(1, 2000);

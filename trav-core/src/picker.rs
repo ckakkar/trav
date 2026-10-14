@@ -102,7 +102,10 @@ impl Picker {
             partial: HashMap::new(),
             verifying: HashSet::new(),
             sequential: false,
-            max_partial: (PARTIAL_BUDGET / info.piece_length as u64).clamp(8, 1024) as usize,
+            // Pieces being assembled *or* awaiting their hash check hold a full
+            // piece of memory each; keep both within the budget (at least two,
+            // so huge pieces still download in parallel).
+            max_partial: (PARTIAL_BUDGET / info.piece_length as u64).clamp(2, 1024) as usize,
             seed: rand::random(),
         }
     }
@@ -257,7 +260,7 @@ impl Picker {
         }
 
         // 2. Open new pieces.
-        while out.len() < target && self.partial.len() < self.max_partial {
+        while out.len() < target && self.partial.len() + self.verifying.len() < self.max_partial {
             let Some(p) = self.choose_new_piece(peer_has) else {
                 break;
             };
@@ -470,6 +473,29 @@ mod tests {
             private: false,
             raw: vec![],
         }
+    }
+
+    #[test]
+    fn huge_pieces_stay_within_the_memory_budget() {
+        // 128 MiB pieces: the 256 MiB budget allows two partial pieces, not eight.
+        let len = 128 * 1024 * 1024;
+        let inf = info(10, len, 10 * len as u64);
+        let mut p = Picker::new(&inf, Bitfield::new(10));
+        let mut all = Bitfield::new(10);
+        (0..10).for_each(|i| {
+            all.set(i);
+        });
+        p.add_bitfield(&all);
+        let mut out = vec![];
+        p.pick(1, &all, 100_000, &mut out);
+        let pieces: std::collections::HashSet<u32> = out.iter().map(|r| r.piece).collect();
+        assert_eq!(pieces.len(), 2);
+        // A piece waiting for its hash check still counts against the budget.
+        p.verifying.insert(5);
+        p.partial.retain(|k, _| *k == out[0].piece);
+        let mut more = vec![];
+        p.pick(2, &all, 100_000, &mut more);
+        assert!(more.iter().all(|r| r.piece == out[0].piece));
     }
 
     #[test]

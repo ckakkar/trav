@@ -2106,29 +2106,6 @@ body[data-resizing] .main {
   font-size: 30px;
 }
 
-.gate {
-  position: fixed;
-  inset: 0;
-  z-index: 90;
-  display: grid;
-  place-items: center;
-  background: var(--bg);
-}
-.gate-card {
-  width: min(420px, calc(100vw - 32px));
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-.gate-card h2 {
-  margin: 0;
-  font-size: 40px;
-  line-height: 1;
-}
-.gate-card p {
-  margin: 0;
-}
-
 /* View-transition based theme wipe: no cross-fade, the clip-path does the work. */
 ::view-transition-old(root),
 ::view-transition-new(root) {

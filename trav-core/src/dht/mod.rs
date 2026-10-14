@@ -234,14 +234,20 @@ fn id_of(v: &Value) -> Option<NodeId> {
         .and_then(|b| b.try_into().ok())
 }
 
+/// A query awaiting its reply: who we asked, and where the answer goes.
+type Pending = (SocketAddrV4, oneshot::Sender<Result<Value>>);
+
 struct Inner {
     socket: UdpSocket,
     id: NodeId,
     table: Mutex<Table>,
-    pending: Mutex<HashMap<u16, oneshot::Sender<Result<Value>>>>,
+    /// Queries awaiting a reply, by transaction id.
+    pending: Mutex<HashMap<u16, Pending>>,
     tid: AtomicU16,
     secrets: Mutex<([u8; 16], [u8; 16])>,
     store: Mutex<HashMap<NodeId, Vec<(SocketAddrV4, Instant)>>>,
+    /// Stops the receive and maintenance loops and fails queries in flight.
+    cancel: tokio_util::sync::CancellationToken,
 }
 
 #[derive(Clone)]
@@ -293,12 +299,23 @@ enum CandState {
 impl Dht {
     /// Bind the UDP socket and start the receive + maintenance loops.
     pub async fn start(port: u16, known_nodes: Vec<SocketAddr>) -> Result<Self> {
-        let socket = match UdpSocket::bind(("0.0.0.0", port)).await {
-            Ok(s) => s,
-            Err(e) => {
-                debug!("DHT port {port} unavailable ({e}); using ephemeral");
-                UdpSocket::bind(("0.0.0.0", 0)).await?
+        // A DHT that was just stopped may still be releasing the port.
+        let mut bound = None;
+        for attempt in 0..10 {
+            match UdpSocket::bind(("0.0.0.0", port)).await {
+                Ok(s) => {
+                    bound = Some(s);
+                    break;
+                }
+                Err(e) if attempt == 9 => {
+                    debug!("DHT port {port} unavailable ({e}); using ephemeral")
+                }
+                Err(_) => tokio::time::sleep(Duration::from_millis(100)).await,
             }
+        }
+        let socket = match bound {
+            Some(s) => s,
+            None => UdpSocket::bind(("0.0.0.0", 0)).await?,
         };
         let id: NodeId = rand::random();
         let inner = Arc::new(Inner {
@@ -309,15 +326,20 @@ impl Dht {
             tid: AtomicU16::new(rand::random()),
             secrets: Mutex::new((rand::random(), rand::random())),
             store: Mutex::new(HashMap::new()),
+            cancel: tokio_util::sync::CancellationToken::new(),
         });
         let dht = Self { inner };
 
         let weak = Arc::downgrade(&dht.inner);
+        let cancel = dht.inner.cancel.clone();
         tokio::spawn(async move {
             let mut buf = vec![0u8; 2048];
             loop {
                 let Some(inner) = weak.upgrade() else { break };
-                let res = inner.socket.recv_from(&mut buf).await;
+                let res = tokio::select! {
+                    _ = cancel.cancelled() => break,
+                    r = inner.socket.recv_from(&mut buf) => r,
+                };
                 match res {
                     Ok((n, SocketAddr::V4(from))) => Dht { inner }.on_packet(&buf[..n], from).await,
                     Ok(_) => {}
@@ -330,19 +352,30 @@ impl Dht {
         });
 
         let weak = Arc::downgrade(&dht.inner);
+        let cancel = dht.inner.cancel.clone();
         tokio::spawn(async move {
             let mut seeds = known_nodes;
             let mut tick = tokio::time::interval(Duration::from_secs(60));
             let mut rounds = 0u64;
             loop {
-                tick.tick().await;
+                tokio::select! {
+                    _ = cancel.cancelled() => break,
+                    _ = tick.tick() => {}
+                }
                 let Some(inner) = weak.upgrade() else { break };
                 let dht = Dht { inner };
-                if dht.node_count() < 32 {
-                    dht.bootstrap(std::mem::take(&mut seeds)).await;
-                    info!("DHT bootstrapped: {} nodes", dht.node_count());
+                let round = async {
+                    if dht.node_count() < 32 {
+                        dht.bootstrap(std::mem::take(&mut seeds)).await;
+                        info!("DHT bootstrapped: {} nodes", dht.node_count());
+                    }
+                    dht.maintain().await;
+                };
+                // Dropping the round mid-way (e.g. during a DNS lookup) releases the socket.
+                tokio::select! {
+                    _ = cancel.cancelled() => break,
+                    _ = round => {}
                 }
-                dht.maintain().await;
                 rounds += 1;
                 if rounds.is_multiple_of(5) {
                     let mut s = dht.inner.secrets.lock();
@@ -357,6 +390,13 @@ impl Dht {
         });
 
         Ok(dht)
+    }
+
+    /// Stop for good: the loops end, queries in flight fail at once, and the
+    /// socket closes as soon as the last lookup notices.
+    pub fn stop(&self) {
+        self.inner.cancel.cancel();
+        self.inner.pending.lock().clear();
     }
 
     pub fn port(&self) -> u16 {
@@ -574,8 +614,11 @@ impl Dht {
 
     async fn query(&self, addr: SocketAddrV4, method: &str, args: Value) -> Result<Value> {
         let tid = self.inner.tid.fetch_add(1, Ordering::Relaxed);
+        if self.inner.cancel.is_cancelled() {
+            return Err(Error::Timeout("dht stopped"));
+        }
         let (tx, rx) = oneshot::channel();
-        self.inner.pending.lock().insert(tid, tx);
+        self.inner.pending.lock().insert(tid, (addr, tx));
         let msg = DictBuilder::new()
             .value("a", args)
             .bytes("q", method)
@@ -587,9 +630,12 @@ impl Dht {
             self.inner.pending.lock().remove(&tid);
             return Err(e.into());
         }
-        let out = match tokio::time::timeout(QUERY_TIMEOUT, rx).await {
-            Ok(Ok(r)) => r,
-            _ => Err(Error::Timeout("dht query")),
+        let out = tokio::select! {
+            _ = self.inner.cancel.cancelled() => Err(Error::Timeout("dht stopped")),
+            r = tokio::time::timeout(QUERY_TIMEOUT, rx) => match r {
+                Ok(Ok(r)) => r,
+                _ => Err(Error::Timeout("dht query")),
+            },
         };
         self.inner.pending.lock().remove(&tid);
         match &out {
@@ -627,7 +673,19 @@ impl Dht {
                 let Ok(tid) = <[u8; 2]>::try_from(t).map(u16::from_be_bytes) else {
                     return;
                 };
-                if let Some(tx) = self.inner.pending.lock().remove(&tid) {
+                // Only the node we asked may answer: a matching transaction id
+                // from anywhere else is ignored (it would let a spoofer inject
+                // nodes and peers into our lookups).
+                let tx = {
+                    let mut pending = self.inner.pending.lock();
+                    match pending.get(&tid) {
+                        Some((asked, _)) if *asked == from => {
+                            pending.remove(&tid).map(|(_, tx)| tx)
+                        }
+                        _ => None,
+                    }
+                };
+                if let Some(tx) = tx {
                     let res = match msg.get("r") {
                         Some(r) => Ok(r.clone()),
                         None => Err(Error::Protocol("dht error response".into())),
@@ -859,5 +917,51 @@ mod tests {
         c.ping(b_addr).await;
         let found = c.get_peers(ih, None).await;
         assert_eq!(found, vec!["127.0.0.1:4242".parse::<SocketAddr>().unwrap()]);
+    }
+
+    #[tokio::test]
+    async fn replies_only_count_from_the_node_asked() {
+        let a = Dht::start(0, vec![]).await.unwrap();
+        let asked: SocketAddrV4 = "127.0.0.1:6881".parse().unwrap();
+        let spoofer: SocketAddrV4 = "127.0.0.1:6999".parse().unwrap();
+        let (tx, mut rx) = oneshot::channel();
+        a.inner.pending.lock().insert(42, (asked, tx));
+        let reply = DictBuilder::new()
+            .value("r", DictBuilder::new().bytes("id", vec![1u8; 20]).build())
+            .bytes("t", 42u16.to_be_bytes().to_vec())
+            .bytes("y", "r")
+            .build()
+            .encode();
+        a.on_packet(&reply, spoofer).await;
+        assert!(
+            rx.try_recv().is_err(),
+            "a reply from elsewhere must be ignored"
+        );
+        a.on_packet(&reply, asked).await;
+        assert!(rx.try_recv().unwrap().is_ok());
+    }
+
+    #[tokio::test]
+    async fn stopping_frees_the_port_and_fails_queries() {
+        let a = Dht::start(0, vec![]).await.unwrap();
+        let port = a.port();
+        // A query to a silent address is in flight when we stop.
+        let silent: SocketAddrV4 = "127.0.0.1:9".parse().unwrap();
+        let pending = {
+            let a = a.clone();
+            tokio::spawn(async move {
+                let t = Instant::now();
+                let args = DictBuilder::new().bytes("id", vec![0u8; 20]).build();
+                let r = a.query(silent, "ping", args).await;
+                (r.is_err(), t.elapsed())
+            })
+        };
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        a.stop();
+        let (failed, took) = pending.await.unwrap();
+        assert!(failed && took < QUERY_TIMEOUT);
+        drop(a);
+        let b = Dht::start(port, vec![]).await.unwrap();
+        assert_eq!(b.port(), port);
     }
 }

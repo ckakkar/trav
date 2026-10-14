@@ -43,6 +43,12 @@ const MAX_CANDIDATES: usize = 3000;
 const CHOKE_INTERVAL: Duration = Duration::from_secs(10);
 const OPTIMISTIC_INTERVAL: Duration = Duration::from_secs(30);
 const PEX_INTERVAL: Duration = Duration::from_secs(60);
+/// How often a download at its connection limit swaps idle peers for new ones.
+const ROTATE_INTERVAL: Duration = Duration::from_secs(30);
+/// A peer that has neither sent nor received data for this long is idle.
+const IDLE_PEER: Duration = Duration::from_secs(60);
+/// While a download is starving, look for peers this often (DHT and trackers).
+const STARVING_RETRY: Duration = Duration::from_secs(120);
 
 pub(crate) fn now_unix() -> i64 {
     std::time::SystemTime::now()
@@ -123,6 +129,10 @@ pub(crate) struct PeerState {
     hash_fails: u8,
     /// We hung up on purpose (pause, recheck, seed-to-seed): not held against the peer.
     kicked: bool,
+    /// Dropped to make room for untried peers: retry it much later.
+    rotated: bool,
+    /// Last time data moved in either direction.
+    last_exchange: Instant,
 }
 
 impl PeerState {
@@ -229,6 +239,7 @@ pub(crate) struct State {
     last_choke: Instant,
     last_optimistic: Instant,
     last_pex: Instant,
+    last_rotate: Instant,
     queue_pos: usize,
     dirty: bool,
 }
@@ -342,6 +353,7 @@ impl Torrent {
             last_choke: now,
             last_optimistic: now - OPTIMISTIC_INTERVAL,
             last_pex: now,
+            last_rotate: now,
             queue_pos: init.queue_pos,
             dirty: true,
         };
@@ -435,7 +447,7 @@ impl Torrent {
             }
             Cmd::SetFilePriorities(prio) => {
                 if let Some(meta) = st.meta.clone()
-                    && prio.len() == meta.info.files.len()
+                    && let Some(prio) = full_priorities(&meta.info, prio)
                 {
                     let was_complete = st.picker.as_ref().is_some_and(Picker::wanted_complete);
                     st.file_priorities = prio;
@@ -485,10 +497,9 @@ impl Torrent {
                 if st.phase.is_active() {
                     self.connect_more(&mut st);
                 }
-                let few = st.peers.len() < 10;
                 st.dht_next = Instant::now()
-                    + if few {
-                        Duration::from_secs(120)
+                    + if starving(&st) {
+                        STARVING_RETRY
                     } else {
                         Duration::from_secs(900)
                     };
@@ -891,6 +902,8 @@ impl Torrent {
                 pex_sent: HashSet::new(),
                 hash_fails: 0,
                 kicked: false,
+                rotated: false,
+                last_exchange: Instant::now(),
             },
         );
         self.ctx.connections.fetch_add(1, Ordering::Relaxed);
@@ -924,7 +937,10 @@ impl Torrent {
             });
             c.connected = false;
             c.seed = is_seed;
-            if p.kicked {
+            if p.rotated {
+                // Idle when we dropped it; others get a turn first.
+                c.next_attempt = Instant::now() + Duration::from_secs(600);
+            } else if p.kicked {
                 // Our decision, not a flaky peer: redial as soon as we are active again.
                 c.next_attempt = Instant::now();
             } else {
@@ -946,7 +962,7 @@ impl Torrent {
             global.saturating_sub(self.ctx.connections.load(Ordering::Relaxed) + st.connecting);
         let n = room
             .min(global_room)
-            .min(10)
+            .min(20)
             .min(self.ctx.half_open.available_permits().max(1));
         if n == 0 {
             return;
@@ -1200,8 +1216,7 @@ impl Torrent {
         idx: usize,
         res: Result<AnnounceResponse, String>,
     ) {
-        let few_peers = st.peers.len() < 15;
-        let complete = st.picker.as_ref().is_some_and(Picker::wanted_complete);
+        let starving = starving(st);
         let active = st.phase.is_active();
         let Some(t) = st.trackers.get_mut(idx) else {
             return;
@@ -1223,7 +1238,7 @@ impl Torrent {
                 let mut wait = r
                     .interval
                     .clamp(Duration::from_secs(60), Duration::from_secs(3 * 3600));
-                if few_peers && !complete {
+                if starving {
                     let floor = t
                         .min_interval
                         .unwrap_or(Duration::from_secs(120))
@@ -1268,6 +1283,47 @@ impl Torrent {
             let peers = dht.get_peers(ih, Some(port)).await;
             me.send(Cmd::DhtDone(peers));
         });
+    }
+
+    /// At the connection limit with untried peers waiting, drop a few peers
+    /// that have exchanged no data for a while, so their slots go to peers
+    /// that might send. (Without this a download can sit on a full set of
+    /// connections that never deliver.)
+    fn rotate_peers(&self, st: &mut State) {
+        let max = self.ctx.settings.read().max_peers_per_torrent;
+        if st.peers.len() + st.connecting < max * 9 / 10
+            || st.picker.as_ref().is_none_or(Picker::wanted_complete)
+        {
+            return;
+        }
+        let now = Instant::now();
+        let untried = st
+            .candidates
+            .values()
+            .filter(|c| !c.connected && !c.connecting && c.fails == 0 && c.next_attempt <= now)
+            .count();
+        let quota = (max / 20).max(2).min(untried);
+        if quota == 0 {
+            return;
+        }
+        let mut idle: Vec<(PeerKey, u64)> = st
+            .peers
+            .iter()
+            .filter(|(_, p)| {
+                !p.optimistic
+                    && now.duration_since(p.connected_at) >= IDLE_PEER
+                    && now.duration_since(p.last_exchange) >= IDLE_PEER
+            })
+            .map(|(k, p)| (*k, p.down.total() + p.up.total()))
+            .collect();
+        // Least useful over the whole connection first.
+        idle.sort_by_key(|&(_, bytes)| bytes);
+        for (k, _) in idle.into_iter().take(quota) {
+            if let Some(p) = st.peers.get_mut(&k) {
+                p.rotated = true;
+                let _ = p.tx.send(PeerCmd::Disconnect);
+            }
+        }
     }
 
     // ── Choking & PEX ────────────────────────────────────────────────────────
@@ -1371,11 +1427,19 @@ impl Torrent {
         if !st.phase.is_active() {
             return;
         }
+        let now = Instant::now();
+        if starving(&st) {
+            // Few peers are actually sending: look for more sooner.
+            st.dht_next = st.dht_next.min(now + STARVING_RETRY);
+        }
+        if st.phase == Phase::Active && now.duration_since(st.last_rotate) >= ROTATE_INTERVAL {
+            st.last_rotate = now;
+            self.rotate_peers(&mut st);
+        }
         self.connect_more(&mut st);
         self.announce_due(&mut st);
         self.dht_due(&mut st);
 
-        let now = Instant::now();
         if st.phase == Phase::Active {
             if now.duration_since(st.last_choke) >= CHOKE_INTERVAL {
                 st.last_choke = now;
@@ -1470,6 +1534,7 @@ impl Torrent {
                 &m.info,
                 st.picker.as_ref().map(Picker::have),
                 &st.file_priorities,
+                st.storage.as_deref(),
             ),
             None => Vec::new(),
         };
@@ -1695,6 +1760,13 @@ fn broadcast(st: &State, mk: impl Fn() -> PeerCmd) {
     }
 }
 
+/// Downloading, but fewer than five peers are actually sending us data.
+fn starving(st: &State) -> bool {
+    st.phase == Phase::Active
+        && st.picker.as_ref().is_some_and(|p| !p.wanted_complete())
+        && st.peers.values().filter(|p| p.down.rate() > 0).count() < 5
+}
+
 fn add_candidate(st: &mut State, addr: SocketAddr, source: PeerSource) {
     if addr.port() == 0 || addr.ip().is_unspecified() || st.banned.contains(&addr.ip()) {
         return;
@@ -1728,6 +1800,16 @@ fn backoff(fails: u32) -> Duration {
     Duration::from_secs(30u64.saturating_mul(1 << fails.min(7)).min(3600))
 }
 
+/// File priorities are indexed like the torrent's file list (padding files
+/// included). A shorter list covers the leading files; the rest stay normal.
+pub(crate) fn full_priorities(info: &Info, mut prio: Vec<u8>) -> Option<Vec<u8>> {
+    if prio.is_empty() || prio.len() > info.files.len() {
+        return None;
+    }
+    prio.resize(info.files.len(), 1);
+    Some(prio)
+}
+
 /// Piece priority = max priority of the (non-pad) files it overlaps.
 fn piece_priorities(info: &Info, file_prio: &[u8]) -> Vec<u8> {
     let mut out = vec![0u8; info.num_pieces()];
@@ -1745,7 +1827,12 @@ fn piece_priorities(info: &Info, file_prio: &[u8]) -> Vec<u8> {
     out
 }
 
-fn file_progress(info: &Info, have: Option<&Bitfield>, prio: &[u8]) -> Vec<FileInfo> {
+fn file_progress(
+    info: &Info,
+    have: Option<&Bitfield>,
+    prio: &[u8],
+    storage: Option<&crate::storage::Storage>,
+) -> Vec<FileInfo> {
     let mut done = vec![0u64; info.files.len()];
     if let Some(have) = have {
         for piece in have.iter_ones() {
@@ -1767,6 +1854,9 @@ fn file_progress(info: &Info, have: Option<&Bitfield>, prio: &[u8]) -> Vec<FileI
         .map(|(i, f)| FileInfo {
             index: i,
             path: f.display_path(),
+            disk_path: storage
+                .and_then(|s| s.files().get(i))
+                .map(|sf| sf.path.to_string_lossy().into_owned()),
             size: f.length,
             done: done[i],
             progress: if f.length == 0 {
@@ -1777,4 +1867,53 @@ fn file_progress(info: &Info, have: Option<&Bitfield>, prio: &[u8]) -> Vec<FileI
             priority: prio.get(i).copied().unwrap_or(1),
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::metainfo::FileEntry;
+
+    fn padded() -> Info {
+        let file = |name: &str, length: u64, offset: u64, pad: bool| FileEntry {
+            path: vec![name.into()],
+            length,
+            offset,
+            pad,
+        };
+        Info {
+            name: "album".into(),
+            piece_length: 16,
+            pieces: vec![[0; 20]; 4],
+            files: vec![
+                file("a.flac", 10, 0, false),
+                file(".pad/6", 6, 10, true),
+                file("b.flac", 16, 16, false),
+                file("c.flac", 30, 32, false),
+            ],
+            multi_file: true,
+            total_length: 62,
+            private: false,
+            raw: vec![],
+        }
+    }
+
+    #[test]
+    fn priorities_follow_file_indexes_including_padding() {
+        let info = padded();
+        // Skip b.flac (index 2); c.flac is left out and stays normal.
+        assert_eq!(
+            full_priorities(&info, vec![1, 0, 0]),
+            Some(vec![1, 0, 0, 1])
+        );
+        assert_eq!(
+            full_priorities(&info, vec![0, 1, 1, 2]),
+            Some(vec![0, 1, 1, 2])
+        );
+        assert_eq!(full_priorities(&info, vec![]), None);
+        assert_eq!(full_priorities(&info, vec![1; 5]), None);
+        // Piece 1 (bytes 16..32) belongs to b.flac only: skipped.
+        let pieces = piece_priorities(&info, &full_priorities(&info, vec![1, 0, 0]).unwrap());
+        assert_eq!(pieces, vec![1, 0, 1, 1]);
+    }
 }

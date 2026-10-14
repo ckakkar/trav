@@ -1,72 +1,78 @@
 name: Release
 
-# Push a tag `vX.Y.Z` (matching the versions in the repo) to publish a GitHub
-# release with:
-#   - Trav for macOS: a universal (Apple Silicon + Intel) .dmg, plus the signed
-#     update archive and latest.json that installed copies update from
-#   - `trav` CLI/daemon archives for Linux, macOS and Windows + SHA256SUMS
-#   - a multi-arch Docker image on ghcr.io
-#
-# The release is drafted first and published once every asset is uploaded, so
-# installed apps only ever see complete releases. Needs the
-# TAURI_SIGNING_PRIVATE_KEY secret; Apple Developer ID signing is optional
-# (see CONTRIBUTING.md).
+# Every push to main that passes CI becomes a new version of Trav for macOS:
+#   version  <major.minor from tauri.conf.json>.<number of commits on main>
+#   assets   Trav.dmg (one universal download for Apple Silicon and Intel),
+#            Trav.app.tar.gz + .sig (the signed update) and latest.json
+# Installed copies read releases/latest/download/latest.json and update
+# themselves. Needs the TAURI_SIGNING_PRIVATE_KEY secret; Apple Developer ID
+# signing is optional (see CONTRIBUTING.md). Run it by hand to rebuild a commit.
 on:
-  push:
-    tags: ["v*"]
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: write
 
-jobs:
-  prepare:
-    runs-on: ubuntu-latest
-    outputs:
-      release_id: ${{ steps.release.outputs.id }}
-      version: ${{ steps.v.outputs.version }}
-    steps:
-      - uses: actions/checkout@v7
-      - name: Tag matches repository versions
-        run: scripts/check-versions.sh
-      - id: v
-        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
-      - name: Release notes from CHANGELOG
-        run: |
-          awk -v v="${GITHUB_REF_NAME#v}" '
-            $0 ~ "^## \\[" v "\\]" {on=1; next}
-            on && /^## \[/ {exit}
-            on {print}' CHANGELOG.md > notes.md
-          test -s notes.md || echo "Release ${GITHUB_REF_NAME}" > notes.md
-      - id: release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh release create "$GITHUB_REF_NAME" --draft --title "Trav $GITHUB_REF_NAME" --notes-file notes.md
-          echo "id=$(gh release view "$GITHUB_REF_NAME" --json databaseId -q .databaseId)" >> "$GITHUB_OUTPUT"
+concurrency:
+  group: release
+  cancel-in-progress: false
 
+jobs:
   app:
     name: Trav for macOS
-    needs: prepare
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
     runs-on: macos-26
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+        with:
+          ref: ${{ env.SHA }}
+          # The commit count is the version; the history is the release notes.
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Version
+        id: v
+        run: |
+          base=$(node -p "require('./trav-gui/src-tauri/tauri.conf.json').version.split('.').slice(0, 2).join('.')")
+          version="$base.$(git rev-list --count HEAD)"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if gh release view "v$version" >/dev/null 2>&1; then
+            echo "v$version is already released."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - if: steps.v.outputs.skip != 'true'
+        uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: npm
           cache-dependency-path: trav-gui/package-lock.json
-      - uses: dtolnay/rust-toolchain@stable
+      - if: steps.v.outputs.skip != 'true'
+        uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-apple-darwin,x86_64-apple-darwin
-      - uses: Swatinem/rust-cache@v2
+      - if: steps.v.outputs.skip != 'true'
+        uses: Swatinem/rust-cache@v2
         with:
           key: app-universal
-      - run: npm ci
+      - if: steps.v.outputs.skip != 'true'
+        run: npm ci
         working-directory: trav-gui
+
       # Developer ID signing and notarization, only when those secrets exist:
       # the bundler treats empty values as "sign with nothing" and fails.
       # Without them the app is ad-hoc signed.
       - name: Apple signing (optional)
+        if: steps.v.outputs.skip != 'true'
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
@@ -78,136 +84,39 @@ jobs:
           for k in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
             if [ -n "${!k}" ]; then { echo "$k<<__END__"; echo "${!k}"; echo "__END__"; } >> "$GITHUB_ENV"; fi
           done
+
       - name: Build (universal, with the signed update archive)
+        if: steps.v.outputs.skip != 'true'
         working-directory: trav-gui
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
-        run: npm run tauri build -- --target universal-apple-darwin
-      - name: Upload the app, update archive and latest.json
+          VERSION: ${{ steps.v.outputs.version }}
+        run: npm run tauri build -- --target universal-apple-darwin --config "{\"version\":\"$VERSION\"}"
+
+      - name: Publish
+        if: steps.v.outputs.skip != 'true'
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          VERSION: ${{ needs.prepare.outputs.version }}
+          VERSION: ${{ steps.v.outputs.version }}
         run: |
           b=target/universal-apple-darwin/release/bundle
           mkdir dist
-          cp "$b"/dmg/*.dmg "dist/Trav-$VERSION-macOS.dmg"
-          cp "$b/macos/Trav.app.tar.gz" "dist/Trav-$VERSION-macOS.app.tar.gz"
-          cp "$b/macos/Trav.app.tar.gz.sig" "dist/Trav-$VERSION-macOS.app.tar.gz.sig"
-          awk -v v="$VERSION" '
-            $0 ~ "^## \\[" v "\\]" {on=1; next}
-            on && /^## \[/ {exit}
-            on {print}' CHANGELOG.md > notes.md
-          python3 scripts/latest-json.py --version "$VERSION" \
-            --url "https://github.com/$GITHUB_REPOSITORY/releases/download/$GITHUB_REF_NAME/Trav-$VERSION-macOS.app.tar.gz" \
-            --signature-file "dist/Trav-$VERSION-macOS.app.tar.gz.sig" --notes notes.md > dist/latest.json
-          gh release upload "$GITHUB_REF_NAME" dist/* --clobber
+          cp "$b"/dmg/*.dmg dist/Trav.dmg
+          cp "$b/macos/Trav.app.tar.gz" dist/Trav.app.tar.gz
+          cp "$b/macos/Trav.app.tar.gz.sig" dist/Trav.app.tar.gz.sig
 
-  cli:
-    needs: prepare
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-22.04
-            target: x86_64-unknown-linux-gnu
-          - os: ubuntu-22.04-arm
-            target: aarch64-unknown-linux-gnu
-          - os: macos-latest
-            target: aarch64-apple-darwin
-          - os: macos-latest
-            target: x86_64-apple-darwin
-          - os: windows-latest
-            target: x86_64-pc-windows-msvc
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 24
-          cache: npm
-          cache-dependency-path: trav-gui/package-lock.json
-      - name: Build the web UI (embedded into the binary)
-        working-directory: trav-gui
-        run: npm ci && npm run build
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.target }}
-      - uses: Swatinem/rust-cache@v2
-        with:
-          key: cli-${{ matrix.target }}
-      - run: cargo build --release --locked -p trav-cli --target ${{ matrix.target }}
-      - name: Package
-        shell: bash
-        run: |
-          name="trav-${{ needs.prepare.outputs.version }}-${{ matrix.target }}"
-          mkdir "$name"
-          cp README.md LICENSE CHANGELOG.md "$name/"
-          if [[ "${{ matrix.target }}" == *windows* ]]; then
-            cp "target/${{ matrix.target }}/release/trav.exe" "$name/"
-            7z a "$name.zip" "$name" > /dev/null
-            echo "ASSET=$name.zip" >> "$GITHUB_ENV"
+          # What changed since the last release (or lately, for the first one).
+          prev=$(gh release list --limit 1 --json tagName --jq '.[0].tagName // empty')
+          if [ -n "$prev" ] && git rev-parse -q --verify "refs/tags/$prev" >/dev/null; then
+            range="$prev..HEAD"
           else
-            cp "target/${{ matrix.target }}/release/trav" "$name/"
-            tar czf "$name.tar.gz" "$name"
-            echo "ASSET=$name.tar.gz" >> "$GITHUB_ENV"
+            range="-15"
           fi
-      - name: Upload
-        shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release upload "$GITHUB_REF_NAME" "$ASSET" --clobber
+          git log --no-merges --pretty='- %s' $range > notes.md
+          [ -s notes.md ] || echo "- Maintenance release" > notes.md
 
-  checksums:
-    needs: [cli, app]
-    runs-on: ubuntu-latest
-    steps:
-      - env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          mkdir assets && cd assets
-          gh release download "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY"
-          sha256sum * > SHA256SUMS
-          gh release upload "$GITHUB_REF_NAME" SHA256SUMS --repo "$GITHUB_REPOSITORY" --clobber
+          python3 scripts/latest-json.py --version "$VERSION" \
+            --url "https://github.com/$GITHUB_REPOSITORY/releases/download/v$VERSION/Trav.app.tar.gz" \
+            --signature-file dist/Trav.app.tar.gz.sig --notes notes.md > dist/latest.json
 
-  publish:
-    name: Publish the release
-    needs: [prepare, checksums]
-    runs-on: ubuntu-latest
-    steps:
-      - env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft=false --latest
-
-  docker:
-    needs: prepare
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
-    steps:
-      - uses: actions/checkout@v7
-      - uses: docker/setup-qemu-action@v4
-      - uses: docker/setup-buildx-action@v4
-      - uses: docker/login-action@v4
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - id: meta
-        uses: docker/metadata-action@v6
-        with:
-          images: ghcr.io/${{ github.repository }}
-          tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest
-      - uses: docker/build-push-action@v7
-        with:
-          context: .
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          gh release create "v$VERSION" dist/* --target "$SHA" --title "Trav $VERSION" --notes-file notes.md --latest

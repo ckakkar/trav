@@ -1,7 +1,6 @@
-//! Transport-agnostic JSON command surface.
-//!
-//! The desktop app routes Tauri `invoke("rpc", …)` here and the daemon routes
-//! `POST /api/rpc` here, so both frontends speak exactly the same API.
+//! The engine's JSON command surface. The Mac app routes the UI's
+//! `invoke("rpc", …)` calls here, so method names and payloads are plain JSON
+//! (see trav-gui/src/lib/types.ts for their shapes).
 
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -178,8 +177,16 @@ pub async fn dispatch(h: &EngineHandle, method: &str, params: Value) -> Result<V
         }
         "getSettings" => Ok(to_json(&h.settings())),
         "setSettings" => {
+            // Fields left out keep their current values (not the defaults).
+            let Value::Object(changes) = params else {
+                return Err("bad settings: expected an object".into());
+            };
+            let mut merged = to_json(&h.settings());
+            if let Value::Object(current) = &mut merged {
+                current.extend(changes);
+            }
             let s: Settings =
-                serde_json::from_value(params).map_err(|e| format!("bad settings: {e}"))?;
+                serde_json::from_value(merged).map_err(|e| format!("bad settings: {e}"))?;
             h.update_settings(s).await.map_err(|e| e.to_string())?;
             Ok(to_json(&h.settings()))
         }

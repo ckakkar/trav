@@ -1,24 +1,18 @@
 # Using Trav
 
-Trav is a BitTorrent client with four ways in, all driven by the same engine:
-
-| You want to… | Use |
-|---|---|
-| Download one torrent and be done | [`trav get`](#1-download-a-torrent-in-one-command-trav-get) |
-| Manage downloads in a window | [the Mac app](#2-the-mac-app) |
-| Manage downloads in a terminal | [the terminal UI](#3-the-terminal-ui) |
-| Run it on a server or NAS and use it from a browser | [the daemon](#4-the-daemon-and-web-ui) |
+Trav is a BitTorrent client for the Mac.
 
 **Contents:**
 [Install](#install) ·
-[`trav get`](#1-download-a-torrent-in-one-command-trav-get) ·
-[Mac app](#2-the-mac-app) ·
-[Terminal UI](#3-the-terminal-ui) ·
-[Daemon & web UI](#4-the-daemon-and-web-ui) ·
+[Adding torrents](#adding-torrents) ·
+[The list and the details](#the-list-and-the-details) ·
+[Menus and keys](#menus-and-keys) ·
+[Removing](#removing) ·
+[Dock, menu bar and closing](#the-dock-the-menu-bar-and-closing) ·
+[Updates](#updates) ·
 [Settings](#settings) ·
+[Speed](#speed) ·
 [Where things live](#where-things-live) ·
-[Making a torrent](#making-a-torrent) ·
-[Scripting](#scripting-the-json-api) ·
 [Troubleshooting](#troubleshooting) ·
 [Limitations](#limitations)
 
@@ -26,110 +20,31 @@ Trav is a BitTorrent client with four ways in, all driven by the same engine:
 
 ## Install
 
-### The Mac app
+Download **[Trav.dmg](https://github.com/ckakkar/trav/releases/latest/download/Trav.dmg)**, open it and drag **Trav** into Applications. One download runs on Apple Silicon and Intel Macs (macOS 11 or later). From then on Trav [keeps itself up to date](#updates).
 
-Download **Trav-x.y.z-macOS.dmg** from the [latest release](https://github.com/ckakkar/trav/releases/latest), open it and drag **Trav** into Applications. One download runs on Apple Silicon and Intel Macs (macOS 11 or later). After that, Trav [keeps itself up to date](#updates).
+> **First launch:** Trav isn't notarized by Apple (that needs a paid developer account), so the first time macOS says it can't verify Trav. Open **System Settings › Privacy & Security**, scroll to the message about Trav and click **Open Anyway**. You only do this once; updates install without asking again.
 
-> **First launch:** release builds aren't notarized by Apple (that needs a paid developer account), so the first time macOS says it can't verify Trav. Open **System Settings › Privacy & Security**, scroll to the message about Trav and click **Open Anyway**. You only do this once; updates install without asking again.
+To build it yourself instead, see [CONTRIBUTING](CONTRIBUTING.md) (`make install`).
 
-### From a checkout
+**Uninstall:** turn off **Open at login** if you'd switched it on, then drag Trav to the Bin. Your downloads and [library](#where-things-live) stay; delete the library folder too for a clean slate.
 
-You need [Rust](https://rustup.rs) 1.90 or newer and [Node](https://nodejs.org) 24 LTS.
-
-```bash
-git clone https://github.com/ckakkar/trav && cd trav
-make install        # the `trav` command → ~/.cargo/bin (make sure that is on your PATH)
-make install-app    # Trav.app → /Applications (quit Trav first if it's running)
-```
-
-Run `make` on its own to see every task; `make desktop-build` also produces a `.dmg` in `target/release/bundle/`. The `trav` command also builds on Linux and Windows; the app is macOS-only.
-
-### Docker (headless)
-
-```bash
-docker run -d --name trav -e TRAV_TOKEN=pick-a-secret \
-  -p 9696:9696 -p 51413:51413 -p 51413:51413/udp \
-  -v trav-data:/data -v ~/Downloads:/downloads ghcr.io/ckakkar/trav:latest
-```
-
-Then open `http://<host>:9696/?token=pick-a-secret`. See [the daemon](#4-the-daemon-and-web-ui).
-
-### Uninstall
-
-`make uninstall` removes the `trav` command; drag `Trav.app` to the Bin (and turn off **Open at login** first if you'd switched it on). Neither touches your downloads or your [library](#where-things-live). Delete the library folder too if you want a clean slate.
-
----
-
-## 1. Download a torrent in one command: `trav get`
-
-```bash
-trav get ubuntu-26.04-desktop-amd64.iso.torrent
-```
-
-That downloads into the **current folder**, shows live progress, and exits when the download is complete:
-
-```
-Downloading to /Users/you/Downloads
-ubuntu-26.04-desktop-amd64.iso  ████████████▋·······  63.4%  3.8 GiB / 6.0 GiB  ↓ 11.2 MiB/s  48 peers · 3m21s left
-✓ ubuntu-26.04-desktop-amd64.iso  6.0 GiB  →  /Users/you/Downloads/ubuntu-26.04-desktop-amd64.iso
-```
-
-### More examples
-
-```bash
-trav get 'magnet:?xt=urn:btih:…'                  # a magnet link (quote it: it contains & and ?)
-trav get c12fe1c06bba254a9dc9f519b335aa7c1367a88a  # a bare info-hash works too
-trav get movie.torrent -o ~/Movies                # choose the folder
-trav get a.torrent b.torrent 'magnet:?…'          # several at once
-trav get show.torrent --sequential                # fetch in order, to start watching early
-trav get linux.iso.torrent --seed                 # keep sharing afterwards until Ctrl-C
-```
-
-| Option | Meaning |
-|---|---|
-| `-o, --output DIR` | Folder to download into. Created if missing. Default: the current folder. |
-| `--seed` | Don't exit when done; keep uploading until you press Ctrl-C (or your [ratio limit](#settings) is reached). |
-| `--sequential` | Download pieces in order instead of rarest-first, so the start of a video is playable early. Slightly worse for the swarm; use it when you need it. |
-
-### Stopping and resuming
-
-Press **Ctrl-C** at any time. Trav tells the trackers it is leaving and exits. To carry on later, **run the same command again**: Trav verifies what is already on disk (`verifying data on disk …%`) and downloads only what is missing. Nothing is downloaded twice.
-
-### What it does and doesn't touch
-
-- It runs a private, throwaway engine. It works **while the Mac app or a daemon is open**, and the torrent does **not** appear in your library afterwards. If you want it in the library, open it in the app or use `trav file.torrent`.
-- It uses your saved [settings](#settings) (rate limits, port, DHT, …) but never changes them.
-- Exit status: `0` everything finished, `1` something failed (the reason is printed), `130` you stopped it first. Handy in scripts:
-
-  ```bash
-  trav get "$TORRENT" -o /srv/media && notify-send "done"
-  ```
-
-- When output isn't a terminal (piped, cron, CI) it prints a plain status line every 10 seconds instead of redrawing.
-
----
-
-## 2. The Mac app
-
-Open **Trav** from Applications. Downloads go to `~/Downloads` unless you change it.
-
-### Adding torrents
+## Adding torrents
 
 Any of these opens the **Add** dialog:
 
 - **Double-click a `.torrent` file** in Finder. Trav is registered as the handler.
-- **Click a `magnet:` link** in your browser. Trav is the `magnet:` handler; allow the browser to open it.
+- **Click a `magnet:` link** in your browser and allow it to open Trav.
 - **Drag** `.torrent` files onto the window.
 - **⌘V** anywhere in the window to paste a magnet link (or several, one per line).
-- **File › Open Torrent File… (⌘O)** to pick `.torrent` files, or **File › Add Magnet Link… (⌘U)**.
+- **File › Open Torrent File… (⌘O)**, or **File › Add Magnet Link… (⌘U)**.
 
-In the Add dialog you can untick files you don't want, pick a different save folder, turn on **Sequential download**, and untick **Start immediately** to add it paused. If Trav is already running, opening a torrent from Finder or a browser hands it to the open window.
+In the Add dialog you can untick files you don't want, pick a different save folder, turn on **Sequential download** (to play media while it downloads), and untick **Start immediately** to add it paused.
 
 > **Torrents still open in another app (uTorrent, Transmission, …)?** macOS keeps whichever app was the default first. Select any `.torrent` file in Finder, press ⌘I, choose Trav under **Open with** and click **Change All…**. macOS has no setting for `magnet:` links, so paste those into Trav with ⌘V, or uninstall the other app.
 
-### The list and the detail panel
+## The list and the details
 
-Click a torrent to select it (⇧/⌘-click for several). **Right-click**, or use the **Transfers** menu, to pause/resume, verify local data, ask trackers for more peers, show in Finder, copy the magnet link, change the queue order or remove. The panel below has five tabs (⌘I shows or hides it):
+Click a torrent to select it (⇧/⌘-click for several). **Right-click**, or use the **Transfers** menu, to pause or resume, verify local data, ask trackers for more peers, show in Finder, copy the magnet link, change the queue order or remove. The panel below has five tabs (⌘I shows or hides it):
 
 | Tab | Shows |
 |---|---|
@@ -139,9 +54,7 @@ Click a torrent to select it (⇧/⌘-click for several). **Right-click**, or us
 | **Trackers** | each tracker's status, peers/seeds it reports and when it's next contacted |
 | **Speed** | a live graph of download and upload |
 
-### Menus and keys
-
-Everything is in the menu bar with its shortcut, as in any Mac app:
+## Menus and keys
 
 | Menu | Items |
 |---|---|
@@ -152,7 +65,7 @@ Everything is in the menu bar with its shortcut, as in any Mac app:
 | **Transfers** | Pause/Resume (⌘.), Pause All (⌥⌘.), Resume All (⌥⌘/), Show in Finder (⌘R), Copy Magnet Link (⇧⌘C), Download in Order, Move to Top/Bottom of Queue, Verify Local Data, Ask Trackers for More Peers, Remove… (⌘⌫), Remove and Move Data to Trash… (⌥⌘⌫) |
 | **Window**, **Help** | Minimize, Zoom, Bring All to Front · Trav Help, Release Notes, Report an Issue |
 
-And in the list:
+In the list:
 
 | Keys | Action |
 |---|---|
@@ -165,166 +78,68 @@ And in the list:
 
 **Themes:** Ink (dark) → Paper (light) → Phosphor (terminal green), with ⇧⌘L or in Settings.
 
-### Removing
+## Removing
 
-**Remove** keeps the downloaded files where they are. **Remove and Move Data to Trash** puts them in the Trash, so a mistake can be undone from Finder. (The terminal UI and the web UI delete permanently; they ask first.)
+**Remove** keeps the downloaded files where they are. **Remove and Move Data to Trash** puts them in the Trash, so a mistake can be undone from Finder.
 
-### The Dock, the menu bar and closing
+## The Dock, the menu bar and closing
 
 The **Dock icon** shows a progress bar across everything that's downloading. The **menu bar icon** shows live speeds and has Pause all / Resume all. Closing the window **keeps Trav running** so it can finish and keep seeding; click the Dock icon (or ⌘0) to bring the window back. **Trav › Quit Trav** (⌘Q) stops it; it saves progress and tells trackers it's leaving first. You get a notification when a download completes (switch it off in Settings).
 
-Trav remembers the window's size and position. In **Settings › App** you can also have it **open at login** (it starts in the background, in the Dock and menu bar) and **keep the Mac awake** while transferring (on by default; the display can still sleep).
+Trav remembers the window's size and position.
 
-### Updates
+## Updates
 
-Trav checks GitHub for a new release shortly after it opens and every six hours, and **Trav › Check for Updates…** checks right away. When there's one it shows what's new; **Install & relaunch** downloads it, verifies its signature (Trav refuses anything that isn't signed with the project's key), replaces itself, stops transfers cleanly and reopens. Transfers carry on after the relaunch. Turn the automatic check off in **Settings › App**.
-
----
-
-## 3. The terminal UI
-
-```bash
-trav                          # open your library
-trav file.torrent 'magnet:?…' # …and add these first
-trav -s ~/Media               # change the default download folder (saved)
-trav --web                    # also serve the web UI on http://127.0.0.1:9696 while it runs
-```
-
-Press **a** (or **o**), paste a magnet link, an info-hash or a path to a `.torrent` (`~` works), then Enter. **?** shows every key:
-
-| Keys | Action |
-|---|---|
-| j k ↑ ↓ · g G | move · first / last |
-| a o | add a magnet / `.torrent` path |
-| space p | pause / resume |
-| P U | pause all / resume all |
-| d / D | remove (keep data) / remove **and delete data** (asks y/n) |
-| r | force recheck |
-| R | reannounce to trackers and DHT |
-| s | toggle sequential download |
-| tab 1–5 · J K | detail panel tabs · scroll it |
-| q esc | quit (progress is saved) |
-
-The terminal UI and the Mac app share one library, but only one can have it open at a time (see [troubleshooting](#another-trav-instance-is-using-the-library)).
-
----
-
-## 4. The daemon and web UI
-
-`trav --daemon` runs the engine without a terminal UI and serves the same interface as the Mac app in a browser.
-
-```bash
-trav --daemon                                          # http://127.0.0.1:9696, this machine only
-trav --daemon --web-bind 0.0.0.0:9696 --token s3cret   # reachable from your network
-```
-
-- Without `--token`, the web UI is **loopback-only**: Trav refuses to listen on a network address unless a token is set.
-- With a token, open `http://<host>:9696/?token=s3cret` once; the browser remembers it. Scripts send it as `Authorization: Bearer s3cret` (or an `X-Trav-Token` header).
-- `TRAV_TOKEN` and `TRAV_STATE_DIR` can be set as environment variables instead of flags.
-- `trav --health-check --web-bind 127.0.0.1:9696` exits 0 if a daemon is answering (used by the Docker image).
-- Logs go to stderr (`docker logs trav`). Stop with Ctrl-C or `SIGTERM`; it saves state first.
-
-**Docker volumes:** `/data` holds the library (settings, resume data), `/downloads` is where files go. Publish port 51413 over TCP and UDP so peers can reach you.
-
----
+Every change published to Trav's GitHub repository becomes a new version within minutes. Trav checks for one shortly after it opens and every hour, and **Trav › Check for Updates…** checks right away. When there's one it shows what changed; **Install & relaunch** downloads it, verifies its signature (Trav refuses anything not signed with the project's key), replaces itself, stops transfers cleanly and reopens. Transfers carry on after the relaunch. Turn the automatic check off in **Settings › App**.
 
 ## Settings
 
-Change settings in the app or web UI (**⌘,**), or in the terminal with `-s/--save-path` and `-p/--port` (both are saved). They live in `settings.json` in the [library folder](#where-things-live), which you can also edit while Trav is closed.
+Open them with **⌘,**. Engine settings are saved with **Save**; Interface and App settings apply at once.
 
-| Setting (`settings.json` key) | Default | What it does |
+| Setting | Default | What it does |
 |---|---|---|
-| Default save folder (`downloadDir`) | `~/Downloads` | where new torrents go unless you pick another |
-| Listen port (`listenPort`) | 51413 | TCP for peers, UDP for DHT; if taken, the next free port is used |
-| Download / upload limit (`downloadLimit`, `uploadLimit`) | 0 = unlimited | bytes per second, for everything combined |
-| Active downloads (`maxActiveDownloads`) | 5 | more than this wait in the queue; 0 = no limit |
-| Peers per torrent / overall (`maxPeersPerTorrent`, `maxPeersGlobal`) | 80 / 500 | connection caps |
-| Upload slots per torrent (`uploadSlots`) | 8 | peers you upload to at once |
-| DHT (`enableDht`) | on | trackerless peer discovery; needed for most magnet links |
-| Peer exchange (`enablePex`) | on | learn about peers from peers |
-| UPnP port forwarding (`enableUpnp`) | on | ask your router to open the listen port |
-| Stop seeding at ratio (`seedRatioLimit`) | 0 = seed forever | e.g. `2` stops once you've uploaded twice the size; resuming a stopped torrent overrides it |
+| Default save folder | `~/Downloads` | where new torrents go unless you pick another |
+| Listen port | 51413 | TCP for peers, UDP for DHT; if taken, the next free port is used |
+| Download / upload limit | 0 = no limit | bytes per second, for everything combined |
+| Keep uploads from slowing downloads | on | with no upload limit set, eases uploads off when they start queueing on your connection (see [Speed](#speed)) |
+| Active downloads | 5 | more than this wait in the queue; 0 = no limit |
+| Peers per torrent / overall | 150 / 600 | connection caps |
+| Upload slots per torrent | 8 | peers you upload to at once |
+| DHT | on | trackerless peer discovery; needed for most magnet links |
+| Peer exchange | on | learn about peers from peers |
+| UPnP port forwarding | on | ask your router to open the listen port |
+| Stop seeding at ratio | 0 = seed forever | e.g. `2` stops once you've uploaded twice the size; resuming a stopped torrent overrides it |
+| Theme, notifications, confirm before removing | | Interface |
+| Check for updates automatically, open at login, keep the Mac awake while transferring | on, off, on | App |
 
-The Mac app also has **Interface** settings (theme, completion notifications, confirm before removing) and **App** settings: check for updates automatically (on), open at login (off) and keep the Mac awake while transferring (on). Those apply instantly and are kept by the app, not in `settings.json`.
+Engine settings live in `settings.json` in the [library folder](#where-things-live).
 
----
+## Speed
+
+On a healthy torrent Trav downloads as fast as your connection allows. When a download is slow, the cause is usually one of these:
+
+- **Few peers have it.** The Trackers tab shows how many seeds and peers each tracker knows about. Trav keeps looking: while fewer than five peers are sending, it asks the DHT and trackers for more every two minutes, and when it's at its connection limit it swaps idle peers for new ones every 30 seconds.
+- **Your connection can't accept incoming peers.** The status bar shows **● open** once another peer has connected *to* you. If it never appears, you can only reach peers that are reachable themselves. Turn on **UPnP** in Settings, or forward the listen port (TCP and UDP, default 51413) on your router. Many mobile and fibre providers share one public address between customers (CGNAT); then no router setting helps, but IPv6 does if your provider and router support it.
+- **Uploads are filling your connection.** Uploading at full speed queues up in front of your connection's uplink, and then everything else, downloads included, waits behind it. With no upload limit set, Trav measures how much its connections' round-trip time grows and eases uploads off when they cause queueing; the status bar then shows the upload limit as **auto**. If downloads still crawl while seeding, set a fixed upload limit around 80% of your upload speed.
+- **A limit is set.** Check the download/upload limits in Settings (the status bar shows them).
 
 ## Where things live
 
-Your **library** (the list of torrents and their progress) is stored here:
-
-| OS | Folder |
+| Where | What |
 |---|---|
-| macOS | `~/Library/Application Support/trav` |
-| Linux | `~/.local/share/trav` |
-| Windows | `%APPDATA%\trav` |
-| Docker | `/data` |
+| `~/Library/Application Support/trav` | your **library**: the list of torrents and their progress |
+| `…/trav/settings.json` | your [settings](#settings) |
+| `…/trav/torrents/<info-hash>.torrent` / `.json` | each torrent's metadata and resume data |
+| `…/trav/dht.json` | known DHT nodes, so the next start finds peers faster |
+| `…/trav/logs/` | daily logs, last 7 kept (`trav-desktop.*`) |
 
-Set `TRAV_STATE_DIR` (or `--state-dir`) to use another folder, for example a second, separate library.
-
-| Inside | Contents |
-|---|---|
-| `settings.json` | your [settings](#settings) |
-| `torrents/<info-hash>.torrent` / `.json` | each torrent's metadata and resume data (which pieces you have, priorities, totals) |
-| `dht.json` | known DHT nodes, so the next start finds peers faster |
-| `logs/` | daily logs, last 7 kept: `trav-desktop.*` (Mac app), `trav.*` (terminal UI), `trav-get.*` |
-| `.lock` | held while a Trav has the library open |
-
-The downloaded files themselves are only in your download folders. Removing a torrent keeps them unless you choose **remove and delete data**.
-
----
-
-## Making a torrent
-
-```bash
-trav --create ./my-album -o my-album.torrent --tracker udp://tracker.example:1337/announce
-```
-
-Works on a file or a folder; the piece size is picked automatically. Add `--private` for private trackers (disables DHT and PEX for it). The info-hash is printed first. To seed it, open the `.torrent` in Trav and point the save folder at the folder that *contains* `my-album`.
-
----
-
-## Scripting: the JSON API
-
-The Mac app, web UI and daemon all speak the same API. With a daemon running:
-
-```bash
-api() { curl -s http://127.0.0.1:9696/api/rpc -H 'content-type: application/json' -d "$1"; }
-
-api '{"method":"add","params":{"magnet":"magnet:?xt=urn:btih:…","savePath":"/srv/media"}}'
-api '{"method":"snapshot"}'                         # every torrent + global stats
-api '{"method":"details","params":{"hash":"<info-hash>"}}'
-api '{"method":"pause","params":{"hashes":["<hash1>","<hash2>"]}}'
-api '{"method":"remove","params":{"hash":"<info-hash>","deleteFiles":true}}'
-api '{"method":"setSettings","params":{"downloadLimit":5000000}}'
-```
-
-Responses are `{"ok":true,"result":…}` or `{"ok":false,"error":"…"}`. Add `-H 'authorization: Bearer <token>'` if the daemon has a token.
-
-| Method | Params |
-|---|---|
-| `snapshot` | none |
-| `details` | `hash` |
-| `add` | one of `magnet`, `path` (a `.torrent` on the server), `torrent` (base64 contents); optional `savePath`, `paused`, `sequential`, `filePriorities` |
-| `inspect` | same sources as `add`; returns the file list without adding |
-| `pause` `resume` `recheck` `reannounce` | `hash` or `hashes` |
-| `remove` | `hash` or `hashes`, `deleteFiles` |
-| `pauseAll` `resumeAll` | none |
-| `setFilePriorities` | `hash`, `priorities` (one per file: 0 skip, 1 normal, 2 high) |
-| `setSequential` | `hash`, `enabled` |
-| `setQueuePosition` | `hash`, `position` (0 = top) |
-| `addPeers` | `hash`, `peers` (`["1.2.3.4:6881", …]`) |
-| `getSettings` / `setSettings` | none / the [settings](#settings) object (camelCase keys) |
-
-Live events (added, metadata received, completed, error, removed) stream as server-sent events from `GET /api/events`.
-
----
+The downloaded files themselves are only in your download folders. File names from a torrent are made safe for macOS and unique (two names that differ only in case, or in characters macOS can't store, get a " (2)" suffix).
 
 ## Troubleshooting
 
 ### "Another Trav instance is using" the library
 
-The error reads *another Trav instance is using …*. Only one Trav can have the library open: the Mac app, the terminal UI or a daemon. Either add the torrent in the one that's running, quit it first (Mac app: **Trav › Quit Trav** or ⌘Q; closing the window isn't enough), or use [`trav get`](#1-download-a-torrent-in-one-command-trav-get), which doesn't need the library.
+Only one copy of Trav can have the library open. Quit the other one (**Trav › Quit Trav**; closing the window isn't enough).
 
 ### Stuck on "looking for peers…" or 0 peers
 
@@ -337,31 +152,21 @@ The error reads *another Trav instance is using …*. Only one Trav can have the
 
 A magnet link has no file list until a peer sends it, so this is the same problem as having no peers (see above). Once one peer answers, it moves on and saves the `.torrent` so it never has to fetch it again.
 
-### Slow, or "not connectable"
-
-The status bar shows **● open** once another peer has connected *to* you. If it never appears, you can only reach peers that are themselves reachable, which roughly halves your options. Turn on **UPnP** in Settings, or forward the listen port (TCP and UDP, default 51413) on your router to this machine. Also check you haven't set a download/upload limit, and that the [upload limit](#settings) isn't tiny: peers favour those who upload back.
-
 ### A torrent shows "Error"
 
-The reason is shown under its name and in the Overview tab. **disk write failed** usually means the disk is full or the folder isn't writable. Free some space (or fix permissions), then **resume** it; verified data is kept. **invalid file layout** means the torrent's file names can't be stored safely on this system.
+The reason is shown under its name and in the Overview tab. **disk write failed** usually means the disk is full or the folder isn't writable. Free some space (or fix permissions), then **resume** it; verified data is kept. **refusing to write through a symlink** means something below the save folder is a symlink; Trav won't follow it out of the folder.
 
 ### Files were moved or deleted behind Trav's back
 
-Trav notices on the next start and re-verifies, then downloads whatever is missing. To force it now: **recheck** (`r` in the terminal UI, right-click in the app).
-
-### "Web UI not built"
-
-The `trav` binary embeds the web UI at build time. Build with `make install` (or `make build`), not plain `cargo build`. The JSON API works either way.
+Trav notices on the next start and re-verifies, then downloads whatever is missing. To force it now: right-click › **Verify Local Data**.
 
 ### Getting logs
 
-Logs are in `logs/` in the [library folder](#where-things-live) (the daemon logs to stderr). For much more detail, start with `RUST_LOG=debug`, e.g. `RUST_LOG=debug trav get file.torrent`, and include the log in a bug report.
+Logs are in `~/Library/Application Support/trav/logs`. For much more detail, quit Trav and start it from Terminal with `RUST_LOG=debug /Applications/Trav.app/Contents/MacOS/trav-desktop`, then include the log in a bug report.
 
 ### Peer flags
 
 The Peers tab uses µTorrent-style flags: **D** downloading from them · **d** you want data but they're choking you · **U** uploading to them · **u** they want data but you're choking them · **K** they'd send but you're not interested · **?** you'd send but they're not interested · **O** optimistic unchoke · **S** snubbed (stopped sending) · **I** they connected to you · **X** found via peer exchange · **H** found via DHT.
-
----
 
 ## Limitations
 

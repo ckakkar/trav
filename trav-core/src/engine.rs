@@ -19,6 +19,7 @@ use crate::bitfield::Bitfield;
 use crate::ctx::{Ctx, HALF_OPEN_LIMIT, generate_peer_id};
 use crate::dht::Dht;
 use crate::error::{Error, Result};
+use crate::governor::UploadGovernor;
 use crate::limiter::RateLimiter;
 use crate::magnet::Magnet;
 use crate::message::Event;
@@ -85,6 +86,7 @@ struct Session {
     listener: parking_lot::Mutex<Option<JoinHandle<()>>>,
     running: AtomicBool,
     seq: AtomicU64,
+    governor: parking_lot::Mutex<UploadGovernor>,
 }
 
 /// Cloneable handle to a running engine.
@@ -109,7 +111,11 @@ impl Engine {
     ) -> Result<EngineHandle> {
         let store = Store::new(state_dir.into())?;
         let settings = overrides
-            .or_else(|| store.load::<Settings>("settings.json"))
+            .or_else(|| {
+                store
+                    .load::<Settings>("settings.json")
+                    .map(Settings::migrated)
+            })
             .unwrap_or_default()
             .sanitized();
         let _ = store.save("settings.json", &settings);
@@ -133,6 +139,8 @@ impl Engine {
             session_down: AtomicU64::new(0),
             session_up: AtomicU64::new(0),
             upnp_status: RwLock::new(None),
+            rtt_samples: parking_lot::Mutex::new(Vec::new()),
+            auto_upload_cap: AtomicU64::new(0),
         });
 
         let (snapshot_tx, snapshot_rx) = watch::channel(Arc::new(EngineSnapshot::empty()));
@@ -143,6 +151,7 @@ impl Engine {
             listener: parking_lot::Mutex::new(None),
             running: AtomicBool::new(true),
             seq: AtomicU64::new(0),
+            governor: parking_lot::Mutex::new(UploadGovernor::default()),
         });
 
         s.bind_listener().await;
@@ -164,6 +173,9 @@ impl Engine {
                 }
                 n += 1;
                 s.apply_queue();
+                if n.is_multiple_of(4) {
+                    s.govern_uploads();
+                }
                 s.publish();
                 if n.is_multiple_of(
                     (SAVE_INTERVAL.as_millis() / SNAPSHOT_INTERVAL.as_millis()) as u64,
@@ -189,8 +201,10 @@ impl Engine {
                 .info
                 .files
                 .iter()
-                .filter(|f| !f.pad)
-                .map(|f| PreviewFile {
+                .enumerate()
+                .filter(|(_, f)| !f.pad)
+                .map(|(index, f)| PreviewFile {
+                    index,
                     path: f.display_path(),
                     size: f.length,
                 })
@@ -275,9 +289,12 @@ impl Session {
     }
 
     async fn start_dht(self: &Arc<Self>) {
-        let enabled = self.ctx.settings.read().enable_dht;
-        if !enabled {
-            *self.ctx.dht.write() = None;
+        // Stop the running DHT first, so its socket and loops really go away.
+        let old = self.ctx.dht.write().take();
+        if let Some(old) = old {
+            old.stop();
+        }
+        if !self.ctx.settings.read().enable_dht {
             return;
         }
         let port = self.ctx.listen_port.load(Ordering::Relaxed);
@@ -356,6 +373,43 @@ impl Session {
         }
     }
 
+    /// Every 2 s: set the automatic upload limit from measured queueing delay
+    /// (see `governor`), unless the user set a limit or turned it off.
+    fn govern_uploads(&self) {
+        let samples = std::mem::take(&mut *self.ctx.rtt_samples.lock());
+        let (auto, fixed) = {
+            let s = self.ctx.settings.read();
+            (s.auto_upload_limit && s.upload_limit == 0, s.upload_limit)
+        };
+        let mut g = self.governor.lock();
+        if !auto {
+            g.reset();
+            self.ctx.auto_upload_cap.store(0, Ordering::Relaxed);
+            self.ctx.up.set_rate(fixed);
+            return;
+        }
+        let upload: u64 = self
+            .torrents
+            .read()
+            .values()
+            .map(|t| t.summary().upload_rate)
+            .sum();
+        let before = g.cap();
+        let cap = g.step(&samples, upload);
+        if cap != before {
+            debug!(
+                ?cap,
+                upload,
+                samples = samples.len(),
+                "automatic upload limit"
+            );
+        }
+        self.ctx
+            .auto_upload_cap
+            .store(cap.unwrap_or(0), Ordering::Relaxed);
+        self.ctx.up.set_rate(cap.unwrap_or(0));
+    }
+
     fn publish(&self) {
         let mut torrents: Vec<_> = self.torrents.read().values().map(|t| t.summary()).collect();
         torrents.sort_by(|a, b| {
@@ -370,7 +424,13 @@ impl Session {
             session_downloaded: self.ctx.session_down.load(Ordering::Relaxed),
             session_uploaded: self.ctx.session_up.load(Ordering::Relaxed),
             download_limit: settings.download_limit,
-            upload_limit: settings.upload_limit,
+            upload_limit: if settings.upload_limit > 0 {
+                settings.upload_limit
+            } else {
+                self.ctx.auto_upload_cap.load(Ordering::Relaxed)
+            },
+            upload_auto: settings.upload_limit == 0
+                && self.ctx.auto_upload_cap.load(Ordering::Relaxed) > 0,
             connected_peers: self.ctx.connections.load(Ordering::Relaxed),
             dht_nodes: self.ctx.dht().map(|d| d.node_count()).unwrap_or(0),
             listen_port: self.ctx.listen_port.load(Ordering::Relaxed),
@@ -472,7 +532,7 @@ impl EngineHandle {
             .save_path
             .unwrap_or_else(|| s.ctx.settings.read().download_dir.clone());
         let file_priorities = match (&meta, req.file_priorities) {
-            (Some(m), Some(p)) if p.len() == m.info.files.len() => p,
+            (Some(m), Some(p)) => crate::torrent::full_priorities(&m.info, p).unwrap_or_default(),
             _ => Vec::new(),
         };
         if let Some(m) = &meta {
@@ -686,6 +746,10 @@ impl EngineHandle {
             tokio::time::timeout(Duration::from_secs(5), futures::future::join_all(waits)).await;
         if let Some(h) = self.s.listener.lock().take() {
             h.abort();
+        }
+        let dht = self.s.ctx.dht.write().take();
+        if let Some(d) = dht {
+            d.stop();
         }
         // Give the fire-and-forget "stopped" announces a moment to leave.
         tokio::time::sleep(Duration::from_millis(300)).await;

@@ -10,6 +10,7 @@ repository.workspace = true
 description = "Headless async BitTorrent engine"
 
 [dependencies]
+libc = "0.2"
 tokio.workspace = true
 thiserror.workspace = true
 bytes.workspace = true

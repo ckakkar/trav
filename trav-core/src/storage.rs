@@ -4,9 +4,10 @@
 //! wrappers which hop onto Tokio's blocking pool. Positioned reads/writes
 //! (`pread`/`pwrite`) let concurrent jobs share one handle without seeking.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs::{File, OpenOptions};
 use std::io;
+use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -28,6 +29,8 @@ pub struct StorageFile {
 }
 
 pub struct Storage {
+    /// The save folder: nothing below it may be a symlink.
+    jail_root: PathBuf,
     /// `save_path/<name>` — the file (single) or folder (multi) shown to the user.
     content_root: PathBuf,
     files: Vec<StorageFile>,
@@ -59,7 +62,10 @@ impl Storage {
                 })
             })
             .collect::<Result<Vec<_>>>()?;
+        let mut files = files;
+        unique_paths(&mut files, save_path);
         Ok(Self {
+            jail_root: save_path.to_path_buf(),
             content_root,
             files,
             total_length: info.total_length,
@@ -113,6 +119,7 @@ impl Storage {
             return Ok(h.clone());
         }
         let f = &self.files[idx];
+        self.refuse_symlinks(&f.path)?;
         let file = if create {
             if let Some(parent) = f.path.parent() {
                 std::fs::create_dir_all(parent)?;
@@ -122,6 +129,7 @@ impl Storage {
                 .write(true)
                 .create(true)
                 .truncate(false)
+                .custom_flags(libc::O_NOFOLLOW)
                 .open(&f.path)?;
             // Sparse-allocate to the final size so later reads past EOF behave.
             if file.metadata()?.len() < f.length {
@@ -129,9 +137,16 @@ impl Storage {
             }
             file
         } else {
-            match OpenOptions::new().read(true).write(true).open(&f.path) {
+            let open = |write: bool| {
+                OpenOptions::new()
+                    .read(true)
+                    .write(write)
+                    .custom_flags(libc::O_NOFOLLOW)
+                    .open(&f.path)
+            };
+            match open(true) {
                 Ok(file) => file,
-                Err(_) => File::open(&f.path)?,
+                Err(_) => open(false)?,
             }
         };
         let file = Arc::new(file);
@@ -141,6 +156,24 @@ impl Storage {
         }
         map.insert(idx, file.clone());
         Ok(file)
+    }
+
+    /// Every component between the save folder and `path` must be a real file
+    /// or directory. A symlink there, made by anything else, would redirect our
+    /// writes outside the folder; the file itself is also opened with O_NOFOLLOW.
+    fn refuse_symlinks(&self, path: &Path) -> io::Result<()> {
+        for a in path.ancestors() {
+            if a == self.jail_root || !a.starts_with(&self.jail_root) {
+                break;
+            }
+            if std::fs::symlink_metadata(a).is_ok_and(|m| m.file_type().is_symlink()) {
+                return Err(io::Error::new(
+                    io::ErrorKind::PermissionDenied,
+                    format!("refusing to write through a symlink: {}", a.display()),
+                ));
+            }
+        }
+        Ok(())
     }
 
     pub fn write(&self, offset: u64, data: &[u8]) -> io::Result<()> {
@@ -197,6 +230,9 @@ impl Storage {
     /// Zero-length files never receive a write; materialise them explicitly.
     pub fn create_empty_files(&self) {
         for f in self.files.iter().filter(|f| f.length == 0 && !f.pad) {
+            if self.refuse_symlinks(&f.path).is_err() {
+                continue;
+            }
             if let Some(parent) = f.path.parent() {
                 let _ = std::fs::create_dir_all(parent);
             }
@@ -204,6 +240,7 @@ impl Storage {
                 .write(true)
                 .create(true)
                 .truncate(false)
+                .custom_flags(libc::O_NOFOLLOW)
                 .open(&f.path);
         }
     }
@@ -241,6 +278,49 @@ impl Storage {
         tokio::task::spawn_blocking(move || me.write(offset, &data))
             .await
             .map_err(io::Error::other)?
+    }
+}
+
+/// Give every payload file its own path. Sanitizing can map distinct names
+/// onto one (`a:b` and `a?b` both become `a_b`), and macOS volumes ignore
+/// case; two files on one path would overwrite each other while each piece
+/// still passes its hash check. Later duplicates become "name (2).ext", ….
+fn unique_paths(files: &mut [StorageFile], root: &Path) {
+    let key = |p: &Path| p.to_string_lossy().to_lowercase();
+    // Directories files live in are taken too: a file can't share a folder's name.
+    let mut taken: HashSet<String> = files
+        .iter()
+        .filter(|f| !f.pad)
+        .flat_map(|f| {
+            f.path
+                .ancestors()
+                .skip(1)
+                .take_while(|a| a.starts_with(root) && *a != root)
+                .map(key)
+                .collect::<Vec<_>>()
+        })
+        .collect();
+    for f in files.iter_mut().filter(|f| !f.pad) {
+        if taken.insert(key(&f.path)) {
+            continue;
+        }
+        let stem = f
+            .path
+            .file_stem()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let ext = f
+            .path
+            .extension()
+            .map(|e| format!(".{}", e.to_string_lossy()))
+            .unwrap_or_default();
+        for n in 2.. {
+            let candidate = f.path.with_file_name(format!("{stem} ({n}){ext}"));
+            if taken.insert(key(&candidate)) {
+                f.path = candidate;
+                break;
+            }
+        }
     }
 }
 
@@ -344,5 +424,67 @@ mod tests {
         s.delete_files();
         assert!(!dir.join("t").exists());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn colliding_names_get_their_own_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let s = Storage::new(
+            dir.path(),
+            &info(&[("a:b.txt", 4), ("a?b.txt", 4), ("README", 4), ("readme", 4)]),
+        )
+        .unwrap();
+        let names: Vec<String> = s
+            .files()
+            .iter()
+            .map(|f| f.path.file_name().unwrap().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(names, ["a_b.txt", "a_b (2).txt", "README", "readme (2)"]);
+        s.write(0, b"1111222233334444").unwrap();
+        assert_eq!(s.read(0, 16).unwrap(), b"1111222233334444");
+    }
+
+    #[test]
+    fn a_file_cannot_take_a_folders_name() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut i = info(&[("x", 4), ("y", 4)]);
+        i.files[1].path = vec!["x".into(), "inner".into()];
+        let s = Storage::new(dir.path(), &i).unwrap();
+        assert_eq!(s.files()[0].path.file_name().unwrap(), "x (2)");
+        s.write(0, b"aaaabbbb").unwrap();
+        assert_eq!(
+            std::fs::read(dir.path().join("t/x/inner")).unwrap(),
+            b"bbbb"
+        );
+    }
+
+    #[test]
+    fn will_not_write_through_symlinks() {
+        let dir = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        // Something else left a symlink where the torrent's folder goes.
+        std::os::unix::fs::symlink(outside.path(), dir.path().join("t")).unwrap();
+        let s = Storage::new(dir.path(), &info(&[("a", 4)])).unwrap();
+        let err = s.write(0, b"evil").unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::PermissionDenied);
+        assert!(!outside.path().join("a").exists());
+
+        // A symlinked file is refused too.
+        std::fs::remove_file(dir.path().join("t")).unwrap();
+        std::fs::create_dir(dir.path().join("t")).unwrap();
+        std::os::unix::fs::symlink(outside.path().join("target"), dir.path().join("t/a")).unwrap();
+        assert!(s.write(0, b"evil").is_err());
+        assert!(!outside.path().join("target").exists());
+    }
+
+    #[test]
+    fn the_save_folder_itself_may_be_a_symlink() {
+        let real = tempfile::tempdir().unwrap();
+        let links = tempfile::tempdir().unwrap();
+        let save = links.path().join("Downloads");
+        std::os::unix::fs::symlink(real.path(), &save).unwrap();
+        let s = Storage::new(&save, &info(&[("a", 4)])).unwrap();
+        s.write(0, b"good").unwrap();
+        assert_eq!(std::fs::read(real.path().join("t/a")).unwrap(), b"good");
     }
 }

@@ -1,91 +1,28 @@
-// Transport: Tauri IPC inside the desktop app, HTTP against `trav --daemon`
-// everywhere else. Both land in trav-core's `rpc::dispatch`, so the method
-// names and payloads are identical.
+// The bridge to the app's Rust side (src-tauri): every engine call is an IPC
+// `rpc` command routed to trav-core's `rpc::dispatch`, plus the native
+// integrations (dialogs, Finder, menu bar, updates, login item, keep-awake).
 
+import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import type { EngineEvent } from "./types";
 
-export class AuthError extends Error {
-  constructor() {
-    super("unauthorized");
-  }
-}
-
-export const isDesktop = (): boolean => typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
-
-export const isMac = (): boolean =>
-  typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
-
-const TOKEN_KEY = "trav.token";
-
-function apiBase(): string {
-  return (process.env.NEXT_PUBLIC_TRAV_API ?? "").replace(/\/$/, "");
-}
-
-export function getToken(): string | null {
-  try {
-    const fromUrl = new URLSearchParams(window.location.search).get("token");
-    if (fromUrl) {
-      localStorage.setItem(TOKEN_KEY, fromUrl);
-      return fromUrl;
-    }
-    return localStorage.getItem(TOKEN_KEY);
-  } catch {
-    return null;
-  }
-}
-
-export function setToken(t: string) {
-  try {
-    localStorage.setItem(TOKEN_KEY, t);
-  } catch {
-    /* storage unavailable */
-  }
-}
-
 export async function call<T = unknown>(method: string, params?: unknown): Promise<T> {
-  if (isDesktop()) {
-    const { invoke } = await import("@tauri-apps/api/core");
-    return invoke<T>("rpc", { method, params: params ?? null });
-  }
-  const token = getToken();
-  const res = await fetch(`${apiBase()}/api/rpc`, {
-    method: "POST",
-    headers: { "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}) },
-    body: JSON.stringify({ method, params: params ?? null }),
-  });
-  if (res.status === 401) throw new AuthError();
-  const body = (await res.json().catch(() => null)) as { ok: boolean; result?: T; error?: string } | null;
-  if (!body) throw new Error(`HTTP ${res.status}`);
-  if (!body.ok) throw new Error(body.error ?? "request failed");
-  return body.result as T;
+  return invoke<T>("rpc", { method, params: params ?? null });
 }
 
-/** Subscribe to engine events (completion, errors…). Returns an unsubscribe fn. */
-export function onEngineEvent(cb: (e: EngineEvent) => void): () => void {
-  if (isDesktop()) {
-    let off: (() => void) | undefined;
-    let dead = false;
-    import("@tauri-apps/api/event").then(({ listen }) =>
-      listen<EngineEvent>("trav://event", (e) => cb(e.payload)).then((u) => (dead ? u() : (off = u))),
-    );
-    return () => {
-      dead = true;
-      off?.();
-    };
-  }
-  const token = getToken();
-  const es = new EventSource(`${apiBase()}/api/events${token ? `?token=${encodeURIComponent(token)}` : ""}`);
-  es.onmessage = (m) => {
-    try {
-      cb(JSON.parse(m.data));
-    } catch {
-      /* ignore malformed */
-    }
+/** Subscribe to an app event; returns an unsubscribe function. */
+function subscribe<T>(event: string, cb: (payload: T) => void): () => void {
+  let off: (() => void) | undefined;
+  let dead = false;
+  listen<T>(event, (e) => cb(e.payload)).then((u) => (dead ? u() : (off = u)));
+  return () => {
+    dead = true;
+    off?.();
   };
-  return () => es.close();
 }
 
-// ── Desktop-only integrations (no-ops / fallbacks on the web) ─────────────────
+/** Engine events (completion, errors, metadata…). */
+export const onEngineEvent = (cb: (e: EngineEvent) => void) => subscribe<EngineEvent>("trav://event", cb);
 
 export async function pickTorrentFiles(): Promise<string[]> {
   const { open } = await import("@tauri-apps/plugin-dialog");
@@ -95,47 +32,28 @@ export async function pickTorrentFiles(): Promise<string[]> {
 }
 
 export async function pickFolder(defaultPath?: string): Promise<string | null> {
-  if (!isDesktop()) return null;
   const { open } = await import("@tauri-apps/plugin-dialog");
   const r = await open({ directory: true, multiple: false, defaultPath });
   return typeof r === "string" ? r : null;
 }
 
 export async function reveal(path: string) {
-  if (!isDesktop()) return;
   const { revealItemInDir } = await import("@tauri-apps/plugin-opener");
   await revealItemInDir(path);
 }
 
 export async function openPath(path: string) {
-  if (!isDesktop()) return;
   const { openPath } = await import("@tauri-apps/plugin-opener");
   await openPath(path);
 }
 
-/** Paths/magnets handed to the app by the OS (file association, magnet: links, CLI args). */
-export async function takePendingOpens(): Promise<string[]> {
-  if (!isDesktop()) return [];
-  const { invoke } = await import("@tauri-apps/api/core");
-  return invoke<string[]>("take_pending_opens");
-}
+/** Torrent files and magnet links handed to the app by Finder and browsers. */
+export const takePendingOpens = () => invoke<string[]>("take_pending_opens");
 
-export function onOpenRequest(cb: () => void): () => void {
-  if (!isDesktop()) return () => {};
-  let off: (() => void) | undefined;
-  let dead = false;
-  import("@tauri-apps/api/event").then(({ listen }) =>
-    listen("trav://open", () => cb()).then((u) => (dead ? u() : (off = u))),
-  );
-  return () => {
-    dead = true;
-    off?.();
-  };
-}
+export const onOpenRequest = (cb: () => void) => subscribe<null>("trav://open", () => cb());
 
-/** Native file drag & drop (desktop). Web drag & drop is handled with DOM events. */
+/** Files dragged onto the window. */
 export function onNativeDrop(onHover: (over: boolean) => void, onDrop: (paths: string[]) => void): () => void {
-  if (!isDesktop()) return () => {};
   let off: (() => void) | undefined;
   let dead = false;
   import("@tauri-apps/api/webview").then(({ getCurrentWebview }) =>
@@ -166,44 +84,12 @@ export async function copyText(text: string): Promise<boolean> {
   }
 }
 
-export function fileToBase64(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const r = new FileReader();
-    r.onload = () => {
-      const s = String(r.result);
-      resolve(s.slice(s.indexOf(",") + 1));
-    };
-    r.onerror = () => reject(r.error);
-    r.readAsDataURL(file);
-  });
-}
-
-// ── macOS app: menu bar, updates, login item, keep-awake ─────────────────────
-
-async function invokeDesktop<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
-  const { invoke } = await import("@tauri-apps/api/core");
-  return invoke<T>(cmd, args);
-}
-
-function listenDesktop<T>(event: string, cb: (payload: T) => void): () => void {
-  if (!isDesktop()) return () => {};
-  let off: (() => void) | undefined;
-  let dead = false;
-  import("@tauri-apps/api/event").then(({ listen }) =>
-    listen<T>(event, (e) => cb(e.payload)).then((u) => (dead ? u() : (off = u))),
-  );
-  return () => {
-    dead = true;
-    off?.();
-  };
-}
-
 /** Menu bar commands (ids like "open-torrent", "filter:seeding", "remove"). */
-export const onMenu = (cb: (id: string) => void) => listenDesktop<string>("trav://menu", cb);
+export const onMenu = (cb: (id: string) => void) => subscribe<string>("trav://menu", cb);
 
 /** Lets the menu bar enable items and say "Pause" or "Resume". */
 export function setMenuState(selection: { count: number; allPaused: boolean; sequential: boolean }) {
-  if (isDesktop()) invokeDesktop("set_menu_state", { selection }).catch(() => {});
+  invoke("set_menu_state", { selection }).catch(() => {});
 }
 
 export interface UpdateInfo {
@@ -213,33 +99,33 @@ export interface UpdateInfo {
   date: string | null;
 }
 
-/** Ask GitHub for a newer release; null when up to date (or not the app). */
-export async function checkUpdate(): Promise<UpdateInfo | null> {
-  if (!isDesktop()) return null;
-  return invokeDesktop<UpdateInfo | null>("check_update");
-}
+/** Ask GitHub for a newer release; null when up to date. */
+export const checkUpdate = () => invoke<UpdateInfo | null>("check_update");
 
 /** Download and install the update found by `checkUpdate`, then relaunch. */
 export async function installUpdate(onProgress: (downloaded: number, total: number | null) => void): Promise<void> {
-  const off = listenDesktop<{ downloaded: number; total: number | null }>("trav://update-progress", (p) => onProgress(p.downloaded, p.total));
+  const off = subscribe<{ downloaded: number; total: number | null }>("trav://update-progress", (p) =>
+    onProgress(p.downloaded, p.total),
+  );
   try {
-    await invokeDesktop("install_update");
+    await invoke("install_update");
   } finally {
     off();
   }
 }
 
-export const getAutostart = () => (isDesktop() ? invokeDesktop<boolean>("get_autostart") : Promise.resolve(false));
-export const setAutostart = (enabled: boolean) => invokeDesktop<boolean>("set_autostart", { enabled });
+export const getAutostart = () => invoke<boolean>("get_autostart");
+export const setAutostart = (enabled: boolean) => invoke<boolean>("set_autostart", { enabled });
 
 export function setKeepAwake(enabled: boolean) {
-  if (isDesktop()) invokeDesktop("set_keep_awake", { enabled }).catch(() => {});
+  invoke("set_keep_awake", { enabled }).catch(() => {});
+}
+
+export function setNotify(enabled: boolean) {
+  invoke("set_notify", { enabled }).catch(() => {});
 }
 
 export async function appVersion(): Promise<string> {
-  if (isDesktop()) {
-    const { getVersion } = await import("@tauri-apps/api/app");
-    return getVersion();
-  }
-  return process.env.NEXT_PUBLIC_TRAV_VERSION ?? "";
+  const { getVersion } = await import("@tauri-apps/api/app");
+  return getVersion();
 }
