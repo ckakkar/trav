@@ -1,5 +1,5 @@
 //! Trav for macOS: hosts the engine in-process and exposes it to the webview
-//! through a single `rpc` command (same surface as `trav --daemon`), plus the
+//! through a single `rpc` command (trav-core's `rpc::dispatch`), plus the
 //! native pieces: menu bar, Dock, menu bar extra, updates, Trash, login item.
 #![cfg(target_os = "macos")]
 

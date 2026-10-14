@@ -25,7 +25,10 @@ pub struct GlobalStats {
     pub session_downloaded: u64,
     pub session_uploaded: u64,
     pub download_limit: u64,
+    /// The upload limit in force: the user's, or the automatic one.
     pub upload_limit: u64,
+    /// `upload_limit` was set automatically to keep uploads from slowing downloads.
+    pub upload_auto: bool,
     pub connected_peers: usize,
     pub dht_nodes: usize,
     pub listen_port: u16,
@@ -91,7 +94,10 @@ impl EngineSnapshot {
 #[serde(rename_all = "camelCase")]
 pub struct FileInfo {
     pub index: usize,
+    /// As named in the torrent.
     pub path: String,
+    /// Where it is on disk (names are made safe and unique, so this can differ).
+    pub disk_path: Option<String>,
     pub size: u64,
     pub done: u64,
     pub progress: f64,
@@ -154,6 +160,9 @@ pub struct TorrentDetails {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PreviewFile {
+    /// Position among all the torrent's files (padding files included), as
+    /// `filePriorities` expects it.
+    pub index: usize,
     pub path: String,
     pub size: u64,
 }

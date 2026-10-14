@@ -132,10 +132,7 @@ async fn announce_http(
         .await
         .map_err(|e| Error::Tracker(short_reqwest(&e)))?;
     let status = resp.status();
-    let body = resp
-        .bytes()
-        .await
-        .map_err(|e| Error::Tracker(short_reqwest(&e)))?;
+    let body = read_capped(resp, MAX_HTTP_RESPONSE).await?;
     let v = bencode::decode(&body).map_err(|_| {
         if status.is_success() {
             Error::Tracker("malformed tracker response".into())
@@ -144,6 +141,27 @@ async fn announce_http(
         }
     })?;
     parse_http_response(&v)
+}
+
+/// A tracker reply is a few kilobytes; never buffer more than this.
+const MAX_HTTP_RESPONSE: usize = 2 * 1024 * 1024;
+
+async fn read_capped(mut resp: reqwest::Response, max: usize) -> Result<Vec<u8>> {
+    if resp.content_length().is_some_and(|n| n as usize > max) {
+        return Err(Error::Tracker("tracker response too large".into()));
+    }
+    let mut body = Vec::new();
+    while let Some(chunk) = resp
+        .chunk()
+        .await
+        .map_err(|e| Error::Tracker(short_reqwest(&e)))?
+    {
+        if body.len() + chunk.len() > max {
+            return Err(Error::Tracker("tracker response too large".into()));
+        }
+        body.extend_from_slice(&chunk);
+    }
+    Ok(body)
 }
 
 fn short_reqwest(e: &reqwest::Error) -> String {
@@ -461,6 +479,43 @@ mod tests {
         assert_eq!((r.seeders, r.leechers), (Some(7), Some(3)));
         assert_eq!(r.peers.len(), 2);
         assert_eq!(r.peers[0], "10.0.0.1:6881".parse().unwrap());
+    }
+
+    #[tokio::test]
+    async fn refuses_oversized_http_replies() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = l.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            let (mut s, _) = l.accept().await.unwrap();
+            let mut buf = [0u8; 2048];
+            let _ = s.read(&mut buf).await;
+            // No Content-Length: the size is only discovered while reading.
+            let _ = s
+                .write_all(b"HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n")
+                .await;
+            let chunk = vec![b'd'; 64 * 1024];
+            for _ in 0..64 {
+                if s.write_all(&chunk).await.is_err() {
+                    break;
+                }
+            }
+        });
+        let req = AnnounceRequest {
+            info_hash: [1; 20],
+            peer_id: [2; 20],
+            port: 1,
+            uploaded: 0,
+            downloaded: 0,
+            left: 0,
+            event: AnnounceEvent::None,
+            num_want: 0,
+            key: 0,
+            tracker_id: None,
+        };
+        let url = format!("http://127.0.0.1:{port}/announce");
+        let err = announce(&url, &req, &http_client()).await.unwrap_err();
+        assert!(err.to_string().contains("too large"), "{err}");
     }
 
     #[tokio::test]

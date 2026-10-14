@@ -47,8 +47,21 @@ impl RateLimiter {
                 Duration::ZERO
             }
         };
-        if !wait.is_zero() {
-            tokio::time::sleep(wait).await;
+        // Sleep in short slices so a raised or removed limit (including the
+        // automatic upload limit) takes effect at once instead of after the
+        // whole debt has been waited out.
+        let mut left = wait;
+        while !left.is_zero() {
+            let slice = left.min(Duration::from_millis(100));
+            tokio::time::sleep(slice).await;
+            left -= slice;
+            let now = self.rate();
+            if now == 0 {
+                return;
+            }
+            if now > rate {
+                left = left.mul_f64(rate as f64 / now as f64);
+            }
         }
     }
 }
@@ -108,5 +121,21 @@ mod tests {
             "{:?}",
             t.elapsed()
         );
+    }
+
+    #[tokio::test]
+    async fn lifting_the_limit_wakes_waiters() {
+        let l = std::sync::Arc::new(RateLimiter::new(10_000));
+        l.acquire(10_000).await;
+        let t = Instant::now();
+        let waiter = tokio::spawn({
+            let l = l.clone();
+            // ~5 s of debt at 10 KB/s.
+            async move { l.acquire(50_000).await }
+        });
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        l.set_rate(0);
+        waiter.await.unwrap();
+        assert!(t.elapsed() < Duration::from_secs(1), "{:?}", t.elapsed());
     }
 }

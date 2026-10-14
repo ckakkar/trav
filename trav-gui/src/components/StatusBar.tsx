@@ -4,10 +4,9 @@ import type { GlobalStats } from "@/lib/types";
 import type { Link } from "@/lib/engine";
 import { bytes, rate } from "@/lib/format";
 import { Tween } from "@/lib/tween";
-import { isDesktop } from "@/lib/rpc";
 
 export function StatusBar({ stats, link, onLimits }: { stats: GlobalStats | null; link: Link; onLimits: () => void }) {
-  const linkLabel = { connecting: "connecting", online: isDesktop() ? "engine" : "daemon", offline: "offline", auth: "locked" }[link];
+  const linkLabel = { connecting: "connecting", online: "engine", offline: "offline" }[link];
   return (
     <footer className="statusbar mono">
       <span className="sb-item" data-link={link}>
@@ -30,7 +29,12 @@ export function StatusBar({ stats, link, onLimits }: { stats: GlobalStats | null
           </button>
           <button className="sb-item sb-btn" onClick={onLimits} title="Bandwidth limits">
             <span className="up-text">↑</span> <Tween value={stats.uploadRate} format={rate} />
-            {stats.uploadLimit > 0 && <span className="faint"> / {rate(stats.uploadLimit)}</span>}
+            {stats.uploadLimit > 0 && (
+              <span className="faint" title={stats.uploadAuto ? "Automatic limit: keeps uploads from slowing downloads" : undefined}>
+                {" "}/ {stats.uploadAuto ? "auto " : ""}
+                {rate(stats.uploadLimit)}
+              </span>
+            )}
           </button>
         </>
       )}

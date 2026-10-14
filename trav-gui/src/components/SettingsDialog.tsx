@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Dices, FolderOpen } from "lucide-react";
 import type { GlobalStats, Settings } from "@/lib/types";
 import { bytes } from "@/lib/format";
-import { call, getAutostart, isDesktop, pickFolder, setAutostart } from "@/lib/rpc";
+import { call, getAutostart, pickFolder, setAutostart } from "@/lib/rpc";
 import { Modal } from "./Modal";
 import { Toggle } from "./AddDialog";
 import { THEMES, type Theme } from "./theme";
@@ -79,9 +79,8 @@ export function SettingsDialog({
   const [saving, setSaving] = useState(false);
   const [login, setLogin] = useState(false);
   const [checking, setChecking] = useState(false);
-  const sections = SECTIONS.filter((x) => x !== "App" || isDesktop());
   useEffect(() => {
-    if (open && isDesktop()) getAutostart().then(setLogin).catch(() => {});
+    if (open) getAutostart().then(setLogin).catch(() => {});
   }, [open]);
 
   // Load once per opening. Depending on `onError` re-fetched on every parent
@@ -129,7 +128,7 @@ export function SettingsDialog({
     <Modal open={open} onClose={onClose} label="Settings" eyebrow="Preferences" title="Settings" width={760}>
       <div className="settings">
         <nav className="set-nav">
-          {sections.map((x) => (
+          {SECTIONS.map((x) => (
             <button key={x} className="set-nav-item" aria-current={section === x} onClick={() => setSection(x)}>
               {x}
             </button>
@@ -153,17 +152,15 @@ export function SettingsDialog({
               <Row label="Default save folder" hint="new torrents land here unless you pick another">
                 <div className="field-row">
                   <input className="input mono" value={s.downloadDir} onChange={(e) => set("downloadDir", e.target.value)} spellCheck={false} />
-                  {isDesktop() && (
-                    <button
-                      className="btn"
-                      onClick={async () => {
-                        const p = await pickFolder(s.downloadDir);
-                        if (p) set("downloadDir", p);
-                      }}
-                    >
-                      <FolderOpen size={14} />
-                    </button>
-                  )}
+                  <button
+                    className="btn"
+                    onClick={async () => {
+                      const p = await pickFolder(s.downloadDir);
+                      if (p) set("downloadDir", p);
+                    }}
+                  >
+                    <FolderOpen size={14} />
+                  </button>
                 </div>
               </Row>
               <Row label="Active downloads" hint="the rest wait in the queue · 0 = no limit">
@@ -178,8 +175,11 @@ export function SettingsDialog({
               <Row label="Download limit" hint="0 = unlimited">
                 <Num value={kb(s.downloadLimit)} onChange={(v) => set("downloadLimit", v * 1024)} suffix="KB/s" />
               </Row>
-              <Row label="Upload limit" hint="0 = unlimited">
+              <Row label="Upload limit" hint="0 = no fixed limit">
                 <Num value={kb(s.uploadLimit)} onChange={(v) => set("uploadLimit", v * 1024)} suffix="KB/s" />
+              </Row>
+              <Row label="Keep uploads from slowing downloads" hint="without a fixed limit, ease uploads off when they start queueing on your connection">
+                <Toggle checked={s.autoUploadLimit} onChange={(v) => set("autoUploadLimit", v)} label="" />
               </Row>
               <Row label="Upload slots per torrent" hint="peers unchoked at once">
                 <Num value={s.uploadSlots} onChange={(v) => set("uploadSlots", v)} min={1} max={200} />

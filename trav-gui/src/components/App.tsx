@@ -31,14 +31,10 @@ import {
 import type { EngineEvent, TorrentSummary } from "@/lib/types";
 import { useEngine } from "@/lib/engine";
 import {
-  AuthError,
   appVersion,
   call,
   checkUpdate,
   copyText,
-  fileToBase64,
-  isDesktop,
-  isMac,
   onEngineEvent,
   onMenu as onMenuBar,
   onNativeDrop,
@@ -47,7 +43,7 @@ import {
   reveal,
   setKeepAwake,
   setMenuState,
-  setToken,
+  setNotify,
   takePendingOpens,
   type UpdateInfo,
 } from "@/lib/rpc";
@@ -116,14 +112,10 @@ export default function App() {
   const [removeReq, setRemoveReq] = useState<{ hashes: string[]; deleteFiles: boolean } | null>(null);
   const [menu, setMenu] = useState<{ x: number; y: number; hash: string } | null>(null);
   const [dropHover, setDropHover] = useState(false);
-  const [mac, setMac] = useState(false);
-  const [desktop, setDesktop] = useState(false);
-  const [tokenInput, setTokenInput] = useState("");
   const [version, setVersion] = useState("");
   const [update, setUpdate] = useState<UpdateInfo | null>(null);
   /** Versions the user said "Later" to: automatic checks don't ask again this session. */
   const deferred = useRef(new Set<string>());
-  const fileInput = useRef<HTMLInputElement>(null);
   const searchInput = useRef<HTMLInputElement>(null);
 
   const { snapshot, details, link, history, refresh } = useEngine(focus);
@@ -140,10 +132,6 @@ export default function App() {
   const stats = snapshot?.stats ?? null;
 
   // ── Persistence & theme ───────────────────────────────────────────────────
-  useEffect(() => {
-    setMac(isMac());
-    setDesktop(isDesktop());
-  }, []);
   useEffect(() => save("prefs", prefs), [prefs]);
   useEffect(() => save("filter", filter), [filter]);
   useEffect(() => save("sort", sort), [sort]);
@@ -155,7 +143,7 @@ export default function App() {
     if (document.documentElement.dataset.theme !== prefs.theme) applyTheme(prefs.theme);
   }, [prefs.theme, prefs.scanlines]);
   useEffect(() => {
-    if (isDesktop()) import("@tauri-apps/api/core").then(({ invoke }) => invoke("set_notify", { enabled: prefs.notify }).catch(() => {}));
+    setNotify(prefs.notify);
   }, [prefs.notify]);
   useEffect(() => setKeepAwake(prefs.keepAwake), [prefs.keepAwake]);
   useEffect(() => {
@@ -199,7 +187,6 @@ export default function App() {
 
   // ── Actions ───────────────────────────────────────────────────────────────
   const fail = useCallback((e: unknown, title = "Something went wrong") => {
-    if (e instanceof AuthError) return;
     toast(title, { body: String((e as Error)?.message ?? e), tone: "error" });
   }, [toast]);
 
@@ -216,9 +203,9 @@ export default function App() {
     [toast, version],
   );
   useEffect(() => {
-    if (!isDesktop() || !prefs.autoUpdate) return;
+    if (!prefs.autoUpdate) return;
     const first = setTimeout(() => runUpdateCheck(false), 15_000);
-    const every = setInterval(() => runUpdateCheck(false), 6 * 3600_000);
+    const every = setInterval(() => runUpdateCheck(false), 3600_000);
     return () => {
       clearTimeout(first);
       clearInterval(every);
@@ -264,14 +251,12 @@ export default function App() {
   }, []);
 
   const openTorrentPicker = useCallback(async () => {
-    if (isDesktop()) {
-      try {
-        const paths = await pickTorrentFiles();
-        enqueue(paths.map((path) => ({ kind: "path", path })));
-      } catch (e) {
-        fail(e);
-      }
-    } else fileInput.current?.click();
+    try {
+      const paths = await pickTorrentFiles();
+      enqueue(paths.map((path) => ({ kind: "path", path })));
+    } catch (e) {
+      fail(e);
+    }
   }, [enqueue, fail]);
 
   const openMagnet = useCallback(() => {
@@ -282,7 +267,7 @@ export default function App() {
   const revealHash = useCallback(
     (hash: string) => {
       const t = byHash.get(hash);
-      if (!t || !isDesktop()) return;
+      if (!t) return;
       const path = details?.summary.infoHash === hash && details.contentPath ? details.contentPath : t.savePath;
       reveal(path).catch((e) => fail(e, "Can't open folder"));
     },
@@ -335,7 +320,7 @@ export default function App() {
     setMenu({ x: e.clientX, y: e.clientY, hash });
   }, []);
 
-  const onOpen = useCallback((hash: string) => (isDesktop() ? revealHash(hash) : setCollapsed(false)), [revealHash]);
+  const onOpen = useCallback((hash: string) => revealHash(hash), [revealHash]);
 
   const onSort = useCallback((k: SortKey) => setSort((s) => (s.key === k ? { key: k, dir: (s.dir * -1) as 1 | -1 } : { key: k, dir: k === "name" || k === "queue" ? 1 : -1 })), []);
 
@@ -345,9 +330,6 @@ export default function App() {
       onEngineEvent((e: EngineEvent) => {
         if (e.type === "torrentCompleted") {
           toast("Download complete", { body: e.name, tone: "ok" });
-          if (!isDesktop() && prefs.notify && document.hidden && "Notification" in window && Notification.permission === "granted") {
-            new Notification("Download complete", { body: e.name });
-          }
         } else if (e.type === "torrentError") toast("Torrent error", { body: `${e.name}: ${e.message}`, tone: "error" });
         else if (e.type === "metadataReceived") toast("Metadata received", { body: e.name });
         else if (e.type === "torrentAdded") toast("Added", { body: e.name });
@@ -380,44 +362,6 @@ export default function App() {
     [enqueue, toast],
   );
 
-  useEffect(() => {
-    if (isDesktop()) return;
-    let depth = 0;
-    const isFiles = (e: DragEvent) => !!e.dataTransfer && [...e.dataTransfer.types].some((t) => t === "Files" || t === "text/uri-list" || t === "text/plain");
-    const enter = (e: DragEvent) => {
-      if (!isFiles(e)) return;
-      e.preventDefault();
-      depth++;
-      setDropHover(true);
-    };
-    const over = (e: DragEvent) => isFiles(e) && e.preventDefault();
-    const leave = () => {
-      depth = Math.max(0, depth - 1);
-      if (!depth) setDropHover(false);
-    };
-    const drop = async (e: DragEvent) => {
-      e.preventDefault();
-      depth = 0;
-      setDropHover(false);
-      const dt = e.dataTransfer;
-      if (!dt) return;
-      const files = [...dt.files].filter((f) => f.name.toLowerCase().endsWith(".torrent"));
-      const items: AddItem[] = await Promise.all(files.map(async (f) => ({ kind: "bytes" as const, name: f.name, b64: await fileToBase64(f) })));
-      const text = dt.getData("text/uri-list") || dt.getData("text/plain");
-      for (const line of text.split(/\s+/)) if (looksLikeMagnet(line)) items.push({ kind: "magnet", uri: line });
-      if (items.length) enqueue(items);
-    };
-    window.addEventListener("dragenter", enter);
-    window.addEventListener("dragover", over);
-    window.addEventListener("dragleave", leave);
-    window.addEventListener("drop", drop);
-    return () => {
-      window.removeEventListener("dragenter", enter);
-      window.removeEventListener("dragover", over);
-      window.removeEventListener("dragleave", leave);
-      window.removeEventListener("drop", drop);
-    };
-  }, [enqueue]);
 
   useEffect(() => {
     const onPaste = (e: ClipboardEvent) => {
@@ -440,7 +384,7 @@ export default function App() {
     const onKey = (e: KeyboardEvent) => {
       const mod = e.metaKey || e.ctrlKey;
       const typing = e.target instanceof Element && e.target.closest("input, textarea, select");
-      if (isDesktop() && mod && (MENU_KEYS.has(e.key.toLowerCase()) || e.key === "Backspace" || (e.shiftKey && e.key.toLowerCase() === "l"))) return;
+      if (mod && (MENU_KEYS.has(e.key.toLowerCase()) || e.key === "Backspace" || (e.shiftKey && e.key.toLowerCase() === "l"))) return;
       if (mod && e.key.toLowerCase() === "k") {
         e.preventDefault();
         setPaletteOpen((o) => !o);
@@ -612,7 +556,7 @@ export default function App() {
       { label: "Move to top of queue", icon: <ChevronsUp size={14} />, disabled: many, onSelect: () => call("setQueuePosition", { hash, position: 0 }).then(refresh).catch(fail) },
       { label: "Move to bottom", icon: <ChevronsDown size={14} />, disabled: many, onSelect: () => call("setQueuePosition", { hash, position: 1e6 }).then(refresh).catch(fail) },
       "sep",
-      ...(isDesktop() ? [{ label: "Show in folder", icon: <FolderOpen size={14} />, hint: "↵", disabled: many, onSelect: () => revealHash(hash) }] : []),
+      { label: "Show in Finder", icon: <FolderOpen size={14} />, hint: "↵", disabled: many, onSelect: () => revealHash(hash) },
       {
         label: "Copy magnet link",
         icon: <Copy size={14} />,
@@ -626,7 +570,7 @@ export default function App() {
       "sep",
       { label: many ? `Remove ${hashes.length}` : "Remove", icon: <X size={14} />, hint: "Del", onSelect: () => requestRemove(hashes, false) },
       {
-        label: isDesktop() ? "Remove and move data to Trash" : "Remove and delete data",
+        label: "Remove and move data to Trash",
         icon: <Trash2 size={14} />,
         hint: "⇧Del",
         danger: true,
@@ -642,7 +586,7 @@ export default function App() {
       { id: "resume-all", label: "Resume all", icon: <Play size={14} />, run: () => call("resumeAll").then(refresh).catch(fail) },
       { id: "pause-all", label: "Pause all", icon: <Pause size={14} />, run: () => call("pauseAll").then(refresh).catch(fail) },
       { id: "settings", label: "Settings", hint: "⌘,", icon: <Settings2 size={14} />, run: () => setSettingsOpen(true) },
-      ...(isDesktop() ? [{ id: "update", label: "Check for updates…", icon: <RefreshCw size={14} />, run: () => runUpdateCheck(true) }] : []),
+      { id: "update", label: "Check for updates…", icon: <RefreshCw size={14} />, run: () => runUpdateCheck(true) },
       { id: "theme", label: "Cycle theme", hint: "⌘⇧L", icon: <SunMoon size={14} />, run: () => cycleTheme() },
       ...THEMES.map((t) => ({ id: `theme-${t.id}`, label: `Theme: ${t.label}`, icon: <SunMoon size={14} />, run: () => setPrefs((p) => ({ ...p, theme: t.id })) })),
       ...FILTERS.map((f) => ({ id: `filter-${f.id}`, label: `Show ${f.label.toLowerCase()}`, icon: f.icon, run: () => setFilter(f.id) })),
@@ -692,7 +636,7 @@ export default function App() {
   );
 
   return (
-    <div className="app" data-mac={mac || undefined} data-desktop={desktop || undefined}>
+    <div className="app" data-mac data-desktop>
       <Sidebar
         filters={filterDefs}
         active={filter}
@@ -702,7 +646,7 @@ export default function App() {
         onSettings={() => setSettingsOpen(true)}
         onTheme={(e) => cycleTheme(e)}
         onPalette={() => setPaletteOpen(true)}
-        mac={mac && desktop}
+        mac
         version={version}
       />
 
@@ -797,18 +741,6 @@ export default function App() {
 
       <StatusBar stats={stats} link={link} onLimits={() => setSettingsOpen(true)} />
 
-      <input
-        ref={fileInput}
-        type="file"
-        accept=".torrent,application/x-bittorrent"
-        multiple
-        hidden
-        onChange={async (e) => {
-          const files = [...(e.target.files ?? [])];
-          e.target.value = "";
-          enqueue(await Promise.all(files.map(async (f) => ({ kind: "bytes" as const, name: f.name, b64: await fileToBase64(f) }))));
-        }}
-      />
 
       <AnimatePresence>
         {dropHover && (
@@ -903,11 +835,11 @@ export default function App() {
                 <span className="toggle-track">
                   <span className="toggle-thumb" />
                 </span>
-                <span className="toggle-label">{desktop ? "Also move downloaded files to the Trash" : "Also delete downloaded files"}</span>
+                <span className="toggle-label">Also move downloaded files to the Trash</span>
               </label>
             </div>
             <footer className="modal-foot">
-              <span className="mono faint">{removeReq.deleteFiles ? (desktop ? "files go to the Trash" : "files are deleted permanently") : "files stay on disk"}</span>
+              <span className="mono faint">{removeReq.deleteFiles ? "files go to the Trash" : "files stay on disk"}</span>
               <div className="foot-actions">
                 <button className="btn ghost" onClick={() => setRemoveReq(null)}>
                   Cancel
@@ -920,7 +852,7 @@ export default function App() {
                     setRemoveReq(null);
                   }}
                 >
-                  {removeReq.deleteFiles ? (desktop ? "Move to Trash" : "Delete") : "Remove"}
+                  {removeReq.deleteFiles ? "Move to Trash" : "Remove"}
                 </button>
               </div>
             </footer>
@@ -930,28 +862,6 @@ export default function App() {
 
       {menu && <ContextMenu x={menu.x} y={menu.y} items={menuItems(menu.hash)} onClose={() => setMenu(null)} />}
 
-      <AnimatePresence>
-        {link === "auth" && (
-          <motion.div className="gate" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-            <form
-              className="gate-card"
-              onSubmit={(e) => {
-                e.preventDefault();
-                setToken(tokenInput.trim());
-                refresh();
-              }}
-            >
-              <div className="eyebrow">trav daemon · locked</div>
-              <h2 className="display">Enter access token</h2>
-              <p className="mono faint">Started with --token. It is stored in this browser only.</p>
-              <input className="input mono" type="password" autoFocus value={tokenInput} onChange={(e) => setTokenInput(e.target.value)} />
-              <button className="btn primary" type="submit">
-                Unlock
-              </button>
-            </form>
-          </motion.div>
-        )}
-      </AnimatePresence>
     </div>
   );
 }

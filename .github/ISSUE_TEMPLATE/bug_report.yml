@@ -12,13 +12,13 @@ body:
   - type: input
     id: version
     attributes:
-      label: Version and platform
-      placeholder: "Trav 0.2.0, macOS 15.1 (desktop) / trav --daemon in Docker"
+      label: Version and macOS version
+      placeholder: "Trav 0.3.40 (Trav › About Trav), macOS 26.1"
     validations:
       required: true
   - type: textarea
     id: logs
     attributes:
       label: Logs
-      description: "Desktop: <state dir>/logs/trav-desktop.*.log · CLI: <state dir>/logs/trav.*.log · daemon: stderr"
+      description: "~/Library/Application Support/trav/logs/trav-desktop.*.log"
       render: text

@@ -10,6 +10,7 @@
 
 use std::collections::VecDeque;
 use std::net::SocketAddr;
+use std::os::fd::{AsRawFd, RawFd};
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
@@ -25,6 +26,7 @@ use tracing::debug;
 use super::{Cmd, PeerCmd, Phase, Torrent};
 use crate::bitfield::Bitfield;
 use crate::error::{Error, Result, proto};
+use crate::governor::RttSample;
 use crate::peer::extension::{
     ExtHandshake, METADATA_PIECE, MetadataMsg, PexMsg, UT_METADATA, UT_PEX,
 };
@@ -38,7 +40,9 @@ const IDLE_TIMEOUT: Duration = Duration::from_secs(180);
 const KEEPALIVE: Duration = Duration::from_secs(90);
 const WRITE_TIMEOUT: Duration = Duration::from_secs(60);
 const MAX_UPLOAD_QUEUE: usize = 500;
-const MIN_DEPTH: usize = 8;
+/// Requests in flight before a peer's rate is known: enough for a few hundred
+/// KB/s on a high-latency (or bloated) path, so new peers ramp up quickly.
+const MIN_DEPTH: usize = 16;
 const MAX_DEPTH: usize = 500;
 
 struct AbortOnDrop(tokio::task::AbortHandle);
@@ -67,6 +71,8 @@ pub(super) async fn run(
         t: t.clone(),
         key,
         addr,
+        fd: stream.as_raw_fd(),
+        base_rtt: u32::MAX,
         out: None,
         uploads: Arc::new(UploadQueue::default()),
         pending: Vec::new(),
@@ -92,6 +98,10 @@ struct Conn {
     t: Arc<Torrent>,
     key: PeerKey,
     addr: SocketAddr,
+    /// The socket, for reading the kernel's RTT estimate (open while `session` runs).
+    fd: RawFd,
+    /// Lowest smoothed RTT seen on this connection: the path without queueing.
+    base_rtt: u32,
     out: Option<mpsc::Sender<PeerMessage>>,
     uploads: Arc<UploadQueue>,
     pending: Vec<(BlockReq, Instant)>,
@@ -465,6 +475,7 @@ impl Conn {
             st.downloaded += len as u64;
             if let Some(p) = st.peers.get_mut(&self.key) {
                 p.down.add(len as u64);
+                p.last_exchange = Instant::now();
             }
             let outcome = match st.picker.as_mut() {
                 Some(pk) => pk.on_block(self.key, index, begin, &block),
@@ -692,8 +703,9 @@ impl Conn {
             return Ok(());
         }
         let depth = self.target_depth();
-        // Refill in batches to amortise picker scans.
-        if self.pending.len() > depth / 2 {
+        // Refill once a quarter has come back: keeps the pipe full while still
+        // batching picker scans.
+        if self.pending.len() * 4 > depth * 3 {
             return Ok(());
         }
         let mut reqs = Vec::new();
@@ -763,11 +775,30 @@ impl Conn {
         // A seed connected to a seed has nothing to do.
         let st = self.t.st.lock();
         let we_done = st.picker.as_ref().is_some_and(|p| p.is_complete());
-        let they_done = st
-            .peers
-            .get(&self.key)
-            .is_some_and(|p| !p.bitfield.is_empty() && p.bitfield.all());
+        let peer = st.peers.get(&self.key);
+        let they_done = peer.is_some_and(|p| !p.bitfield.is_empty() && p.bitfield.all());
+        let busy = peer.is_some_and(|p| p.up.rate() + p.down.rate() >= 4096);
+        drop(st);
+        self.sample_rtt(busy);
         Ok(we_done && they_done)
+    }
+
+    /// Feed the upload governor: how far this connection's RTT sits above
+    /// the lowest seen on it (queueing delay), while it carries traffic.
+    fn sample_rtt(&mut self, busy: bool) {
+        let Some(rtt) = crate::rtt::srtt_ms(self.fd) else {
+            return;
+        };
+        self.base_rtt = self.base_rtt.min(rtt);
+        if busy {
+            let mut samples = self.t.ctx.rtt_samples.lock();
+            if samples.len() < 4096 {
+                samples.push(RttSample {
+                    srtt_ms: rtt,
+                    base_ms: self.base_rtt,
+                });
+            }
+        }
     }
 }
 
@@ -821,6 +852,7 @@ async fn uploader(
         st.dirty = true;
         if let Some(p) = st.peers.get_mut(&key) {
             p.up.add(n);
+            p.last_exchange = Instant::now();
         }
     }
 }

@@ -3,10 +3,11 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU16, AtomicU64, AtomicUsize};
 
-use parking_lot::RwLock;
+use parking_lot::{Mutex, RwLock};
 use tokio::sync::{Semaphore, broadcast};
 
 use crate::dht::Dht;
+use crate::governor::RttSample;
 use crate::limiter::RateLimiter;
 use crate::message::Event;
 use crate::persist::Store;
@@ -32,6 +33,10 @@ pub(crate) struct Ctx {
     pub session_down: AtomicU64,
     pub session_up: AtomicU64,
     pub upnp_status: RwLock<Option<String>>,
+    /// Round-trip samples from busy connections since the governor last ran.
+    pub rtt_samples: Mutex<Vec<RttSample>>,
+    /// The automatic upload limit in force (bytes/s; 0 = none).
+    pub auto_upload_cap: AtomicU64,
 }
 
 impl Ctx {

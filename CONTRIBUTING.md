@@ -2,44 +2,42 @@
 
 ## Setup
 
-- Rust 1.90+ (`rustup`), Node 24 LTS.
-- The app is macOS-only and needs the Xcode Command Line Tools. The engine,
-  terminal UI and CLI build anywhere.
+- macOS with the Xcode Command Line Tools, Rust 1.90+ (`rustup`), Node 24 LTS.
 
 ```bash
 make            # list every task
 make setup      # npm ci
-make check      # everything CI runs, minus e2e
-make e2e        # Playwright against real daemons (builds first)
-make desktop    # run the Mac app with hot reload
+make run        # the app with hot reload (quit the installed Trav first: they share the library)
+make check      # everything CI runs, except bundling the app
+make install    # build Trav.app and install it in /Applications
+make bench TORRENT=…   # the engine's download speed on a real swarm (trav-core/examples/fetch.rs)
 make icons      # re-render the app icon from scripts/app-icon.swift
 ```
 
 ## Expectations
 
-- `cargo fmt`, `cargo clippy --all-targets -- -D warnings`, `npm run typecheck`
+- `cargo fmt`, `cargo clippy --all-targets -- -D warnings` and `npm run typecheck`
   must be clean. CI enforces all of them.
 - Engine changes need tests. Prefer the loopback swarm harness in
-  `trav-core/tests/swarm.rs` over mocks for anything protocol-level.
+  `trav-core/tests/swarm.rs` over mocks for anything protocol-level; measure
+  speed changes with `make bench` against a real swarm, before and after.
 - Parsers of untrusted input must never panic; extend
   `trav-core/tests/robustness.rs` when adding one.
-- UI changes: add or update a Playwright flow in `trav-gui/e2e/` when behaviour
-  changes; keep pure logic in `src/lib/` with vitest coverage.
-- Keep versions in sync (`scripts/check-versions.sh`); record user-facing
-  changes in `CHANGELOG.md` under *Unreleased*.
+- UI changes: keep pure logic in `trav-gui/src/lib/` with vitest coverage, and
+  try the change in the app.
+- Record user-facing changes in `CHANGELOG.md` under *Unreleased*.
 
-## Releasing
+## Releases
 
-1. Bump the version in `Cargo.toml` (workspace), `trav-gui/package.json` and
-   `trav-gui/src-tauri/tauri.conf.json` (`make check` verifies they match),
-   and move *Unreleased* in the changelog to the new version.
-2. Tag `vX.Y.Z` and push. The release workflow builds Trav for macOS (a
-   universal `.dmg`, the signed update archive and `latest.json`), CLI
-   archives (+ `SHA256SUMS`) and a multi-arch image on `ghcr.io/ckakkar/trav`,
-   then publishes the release.
-
-Installed apps check `releases/latest/download/latest.json`, so publishing is
-what ships the update; they install it only if its signature verifies.
+There is nothing to do by hand: every push to `main` that passes CI is
+released by `.github/workflows/release.yml` as version
+`<major.minor>.<commits on main>`. The major.minor comes from the version in
+`Cargo.toml` (workspace), `trav-gui/package.json` and
+`trav-gui/src-tauri/tauri.conf.json` (`make check` verifies they agree); bump
+them there for a bigger step. Each release carries a universal `Trav.dmg`, the
+signed update archive and `latest.json`, and installed apps pick it up within
+the hour. Run the workflow by hand (Actions › Release › Run workflow) to
+rebuild the current commit if a release failed.
 
 ### Update signing key
 
@@ -48,8 +46,7 @@ Updates are signed with a minisign key. The public half is in
 `TAURI_SIGNING_PRIVATE_KEY` repository secret, with a backup in the
 maintainer's `~/.tauri/trav-updater.key`. Keep that backup: without it no
 future update can be signed, and installed apps would need a manual
-reinstall. Local builds (`make install-app`, `make desktop-build`) skip the
-update archive and don't need the key.
+reinstall. Local builds skip the update archive and don't need the key.
 
 ### Apple code signing (optional)
 

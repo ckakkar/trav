@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AuthError, call } from "./rpc";
+import { call } from "./rpc";
 import type { EngineSnapshot, TorrentDetails } from "./types";
 
 export interface Sample {
@@ -35,7 +35,7 @@ function pushRing(ring: Sample[], s: Sample) {
   if (ring.length > SpeedHistory.MAX) ring.splice(0, ring.length - SpeedHistory.MAX);
 }
 
-export type Link = "connecting" | "online" | "offline" | "auth";
+export type Link = "connecting" | "online" | "offline";
 
 export function useEngine(focus: string | null) {
   const [snapshot, setSnapshot] = useState<EngineSnapshot | null>(null);
@@ -71,8 +71,7 @@ export function useEngine(focus: string | null) {
       } catch (e) {
         if (!alive) return;
         failures++;
-        if (e instanceof AuthError) setLink("auth");
-        else if (failures > 2) setLink("offline");
+        if (failures > 2) setLink("offline");
         setLastError(String(e instanceof Error ? e.message : e));
       } finally {
         if (alive) {
