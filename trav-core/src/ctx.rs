@@ -27,6 +27,8 @@ pub(crate) struct Ctx {
     /// The UDP socket on the listen port (µTP, shared with the DHT).
     pub utp: RwLock<Option<UtpSocket>>,
     pub http: reqwest::Client,
+    /// For web seeds (see `tracker::web_seed_client`).
+    pub web: reqwest::Client,
     pub events: broadcast::Sender<Event>,
     pub half_open: Arc<Semaphore>,
     pub connections: AtomicUsize,

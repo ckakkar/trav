@@ -195,6 +195,26 @@ pub struct Metainfo {
     pub comment: Option<String>,
     pub created_by: Option<String>,
     pub creation_date: Option<i64>,
+    /// BEP 19 web seeds (`url-list`): HTTP mirrors of the content.
+    pub web_seeds: Vec<String>,
+}
+
+/// `url-list` is a string or a list of them; keep the HTTP(S) ones.
+fn web_seeds(v: Option<&Value>) -> Vec<String> {
+    let urls = match v {
+        Some(Value::List(l)) => l.iter().filter_map(Value::as_string_lossy).collect(),
+        Some(v) => v.as_string_lossy().into_iter().collect(),
+        None => Vec::new(),
+    };
+    let mut out: Vec<String> = Vec::new();
+    for u in urls {
+        let u = u.trim().to_string();
+        if (u.starts_with("http://") || u.starts_with("https://")) && !out.contains(&u) {
+            out.push(u);
+        }
+    }
+    out.truncate(16);
+    out
 }
 
 impl Metainfo {
@@ -240,11 +260,12 @@ impl Metainfo {
             comment: root.get("comment").and_then(Value::as_string_lossy),
             created_by: root.get("created by").and_then(Value::as_string_lossy),
             creation_date: root.get("creation date").and_then(Value::as_int),
+            web_seeds: web_seeds(root.get("url-list")),
         })
     }
 
     /// Assemble a metainfo from an info dict fetched over ut_metadata.
-    pub fn from_info(info: Info, trackers: Vec<Vec<String>>) -> Self {
+    pub fn from_info(info: Info, trackers: Vec<Vec<String>>, web_seeds: Vec<String>) -> Self {
         Self {
             info_hash: info.info_hash(),
             info: Arc::new(info),
@@ -252,6 +273,7 @@ impl Metainfo {
             comment: None,
             created_by: None,
             creation_date: None,
+            web_seeds,
         }
     }
 
@@ -283,6 +305,14 @@ impl Metainfo {
         }
         if let Some(c) = self.creation_date {
             d = d.int("creation date", c);
+        }
+        if !self.web_seeds.is_empty() {
+            let urls = self
+                .web_seeds
+                .iter()
+                .map(|u| Value::Bytes(u.as_bytes().to_vec()))
+                .collect();
+            d = d.value("url-list", Value::List(urls));
         }
         // Encode with a placeholder then splice the raw info dict in sorted position.
         let Value::Dict(mut map) = d.build() else {

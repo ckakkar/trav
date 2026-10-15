@@ -135,6 +135,7 @@ impl Engine {
             dht: RwLock::new(None),
             utp: RwLock::new(None),
             http: crate::tracker::http_client(),
+            web: crate::tracker::web_seed_client(),
             events,
             half_open: Arc::new(Semaphore::new(HALF_OPEN_LIMIT)),
             connections: AtomicUsize::new(0),

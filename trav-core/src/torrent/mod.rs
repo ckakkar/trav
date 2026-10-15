@@ -9,6 +9,7 @@
 mod holepunch;
 mod metadata;
 mod peer;
+mod webseed;
 
 use std::collections::{HashMap, HashSet};
 use std::net::{IpAddr, SocketAddr};
@@ -256,6 +257,10 @@ pub(crate) struct State {
     meta: Option<Arc<Metainfo>>,
     /// Trackers from a magnet link, used until metadata (which may add more) arrives.
     extra_trackers: Vec<Vec<String>>,
+    /// Web seeds from a magnet link (`ws=`), until metadata arrives.
+    extra_web_seeds: Vec<String>,
+    /// HTTP sources for this torrent (BEP 19).
+    web_seeds: Vec<webseed::WebSeed>,
     save_path: PathBuf,
     storage: Option<Arc<Storage>>,
     picker: Option<Picker>,
@@ -377,15 +382,19 @@ impl Torrent {
             .unwrap_or_else(|| hex::encode(info_hash));
         let mut extra = init.trackers;
         let mut peers = Vec::new();
+        let mut extra_web_seeds = Vec::new();
         if let Some(m) = &init.magnet {
             extra.extend(m.trackers.iter().map(|t| vec![t.clone()]));
             peers = m.peers.clone();
+            extra_web_seeds = m.web_seeds.clone();
         }
         let now = Instant::now();
         let st = State {
             name,
             meta: None,
             extra_trackers: crate::metainfo::normalize_tiers(extra),
+            extra_web_seeds,
+            web_seeds: Vec::new(),
             save_path: init.save_path,
             storage: None,
             picker: None,
@@ -742,6 +751,7 @@ impl Torrent {
     /// Disconnect everyone, tell trackers we stopped, release file handles.
     fn enter_inactive(self: &Arc<Self>, st: &mut State) {
         disconnect_all(st);
+        Self::stop_web_seeds(st);
         st.check_cancel.store(true, Ordering::Relaxed);
         if let Some(s) = &st.storage {
             let s = s.clone();
@@ -848,7 +858,8 @@ impl Torrent {
         match Info::from_bytes(&raw) {
             Ok(info) => {
                 let trackers = st.extra_trackers.clone();
-                let meta = Arc::new(Metainfo::from_info(info, trackers));
+                let web = st.extra_web_seeds.clone();
+                let meta = Arc::new(Metainfo::from_info(info, trackers, web));
                 if let Err(e) = self
                     .ctx
                     .store
@@ -884,6 +895,8 @@ impl Torrent {
             p.bitfield.resize(n);
         }
         st.metadata = None;
+        st.web_seeds =
+            webseed::WebSeed::list(&meta.web_seeds, &st.extra_web_seeds, &mut st.next_key);
         st.meta = Some(meta);
         st.dirty = true;
         if from_swarm {
@@ -1240,7 +1253,16 @@ impl Torrent {
             st.hash_fails += 1;
             st.wasted += picker.piece_size(piece) as u64;
             let sole = contributors.len() == 1;
+            // A mirror holding a different version of a file is the likelier
+            // culprit than a peer: don't ban peers over pieces shared with one.
+            let web = contributors
+                .iter()
+                .any(|k| st.web_seeds.iter().any(|w| w.key == *k));
             for k in contributors {
+                Self::web_seed_bad_piece(st, k, sole);
+                if web {
+                    continue;
+                }
                 if let Some(p) = st.peers.get_mut(&k) {
                     p.hash_fails += 1;
                     if sole || p.hash_fails >= 3 {
@@ -1270,6 +1292,7 @@ impl Torrent {
 
     fn on_complete(self: &Arc<Self>, st: &mut State) {
         info!("{}: download complete", st.name);
+        Self::stop_web_seeds(st);
         st.completed_at = Some(now_unix());
         st.dirty = true;
         if let Some(s) = st.storage.clone() {
@@ -1591,9 +1614,13 @@ impl Torrent {
             p.down.tick(1.0);
             p.up.tick(1.0);
         }
+        for w in st.web_seeds.iter_mut() {
+            w.down.tick(1.0);
+        }
         if !st.phase.is_active() {
             return;
         }
+        self.run_web_seeds(&mut st);
         let now = Instant::now();
         st.punching
             .retain(|_, t| now.duration_since(*t) < Duration::from_secs(60));
@@ -1708,6 +1735,26 @@ impl Torrent {
             None => Vec::new(),
         };
         let now = Instant::now();
+        let web_seeds = st
+            .web_seeds
+            .iter()
+            .filter(|w| w.usable() || w.down.total() > 0)
+            .map(|w| PeerInfo {
+                addr: w.host(),
+                client: "Web seed (HTTP)".into(),
+                flags: if w.active() {
+                    "W".into()
+                } else {
+                    String::new()
+                },
+                progress: 1.0,
+                download_rate: w.down.rate(),
+                upload_rate: 0,
+                downloaded: w.down.total(),
+                uploaded: 0,
+                source: "web seed".into(),
+            })
+            .collect::<Vec<_>>();
         let peers = st
             .peers
             .values()
@@ -1760,6 +1807,7 @@ impl Torrent {
                     source: p.source.label().into(),
                 }
             })
+            .chain(web_seeds)
             .collect();
         let trackers = st
             .trackers
@@ -1791,6 +1839,11 @@ impl Torrent {
                 .map(|m| m.all_trackers().cloned().collect())
                 .unwrap_or_else(|| st.extra_trackers.iter().flatten().cloned().collect()),
             peers: vec![],
+            web_seeds: st
+                .meta
+                .as_ref()
+                .map(|m| m.web_seeds.clone())
+                .unwrap_or_else(|| st.extra_web_seeds.clone()),
         }
         .to_uri();
         TorrentDetails {
@@ -1838,6 +1891,7 @@ impl Torrent {
                     display_name: Some(st.name.clone()),
                     trackers: st.extra_trackers.iter().flatten().cloned().collect(),
                     peers: vec![],
+                    web_seeds: st.extra_web_seeds.clone(),
                 }
                 .to_uri()
             }),
@@ -1921,6 +1975,56 @@ fn summarize(ih: &InfoHash, st: &State) -> TorrentSummary {
             .as_ref()
             .map(Picker::distributed_copies)
             .unwrap_or(0.0),
+    }
+}
+
+/// Hand a received block to the picker: count it, cancel racing requests
+/// for it elsewhere, and return the assembled piece if that was its last
+/// block (for [`Torrent::spawn_verify`]).
+pub(crate) fn take_block(
+    st: &mut State,
+    key: PeerKey,
+    index: u32,
+    begin: u32,
+    block: &[u8],
+) -> Option<(u32, Vec<u8>, Vec<PeerKey>)> {
+    let len = block.len() as u64;
+    st.down.add(len);
+    st.downloaded += len;
+    let outcome = match st.picker.as_mut() {
+        Some(pk) => pk.on_block(key, index, begin, block),
+        None => crate::picker::OnBlock::Rejected,
+    };
+    let cancel_peers = |st: &State, ks: &[PeerKey]| {
+        let r = BlockReq {
+            piece: index,
+            begin,
+            len: len as u32,
+        };
+        for k in ks {
+            if let Some(p) = st.peers.get(k) {
+                let _ = p.tx.send(PeerCmd::Cancel(r));
+            }
+        }
+    };
+    match outcome {
+        crate::picker::OnBlock::Accepted { cancel } => {
+            cancel_peers(st, &cancel);
+            None
+        }
+        crate::picker::OnBlock::Complete {
+            piece,
+            data,
+            contributors,
+            cancel,
+        } => {
+            cancel_peers(st, &cancel);
+            Some((piece, data, contributors))
+        }
+        crate::picker::OnBlock::Rejected | crate::picker::OnBlock::Duplicate => {
+            st.wasted += len;
+            None
+        }
     }
 }
 

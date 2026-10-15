@@ -282,6 +282,52 @@ impl Picker {
         }
     }
 
+    /// For HTTP sources, which fetch byte ranges rather than blocks: a run of
+    /// whole pieces nobody has started, up to `max_bytes` (at least one piece).
+    /// It starts at the most wanted piece the swarm has fewest copies of (what
+    /// no peer has goes to the web first) and carries on through the pieces
+    /// after it. With no fresh piece left, it helps finish open pieces (and
+    /// races the end-game) like a peer with everything would.
+    pub fn pick_run(&mut self, peer: PeerKey, max_bytes: u64, out: &mut Vec<BlockReq>) {
+        let fresh = |me: &Self, i: usize| me.wanted(i) && !me.partial.contains_key(&(i as u32));
+        let room = |me: &Self| me.partial.len() + me.verifying.len() < me.max_partial;
+        if room(self) {
+            let start = (0..self.num_pieces())
+                .filter(|&i| fresh(self, i))
+                .min_by_key(|&i| {
+                    let avail = if self.sequential {
+                        0
+                    } else {
+                        self.availability[i]
+                    };
+                    (std::cmp::Reverse(self.priority[i]), avail, i)
+                });
+            if let Some(start) = start {
+                let prio = self.priority[start];
+                let mut bytes = 0u64;
+                let mut p = start;
+                while p < self.num_pieces()
+                    && fresh(self, p)
+                    && self.priority[p] == prio
+                    && room(self)
+                {
+                    let size = self.piece_size(p as u32);
+                    if bytes > 0 && bytes + size as u64 > max_bytes {
+                        break;
+                    }
+                    self.partial.insert(p as u32, Partial::new(size));
+                    self.take_free_blocks(p as u32, peer, usize::MAX, out);
+                    bytes += size as u64;
+                    p += 1;
+                }
+                return;
+            }
+        }
+        let all = Bitfield::full(self.num_pieces());
+        let blocks = (max_bytes / BLOCK_SIZE as u64).max(1) as usize;
+        self.pick(peer, &all, blocks, out);
+    }
+
     fn take_free_blocks(&mut self, p: u32, peer: PeerKey, target: usize, out: &mut Vec<BlockReq>) {
         let size = self.piece_size(p);
         let Some(part) = self.partial.get_mut(&p) else {
@@ -514,6 +560,37 @@ mod tests {
         let mut more = vec![];
         p.pick(2, &all, 100_000, &mut more);
         assert!(more.iter().all(|r| r.piece == out[0].piece));
+    }
+
+    #[test]
+    fn web_runs_start_where_the_swarm_is_thin() {
+        // 8 pieces of 4 blocks; peers have pieces 0-3 only.
+        let inf = info(8, BLOCK_SIZE * 4, (BLOCK_SIZE * 32) as u64);
+        let mut p = Picker::new(&inf, Bitfield::new(8));
+        let mut half = Bitfield::new(8);
+        (0..4).for_each(|i| {
+            half.set(i);
+        });
+        p.add_bitfield(&half);
+        let mut out = vec![];
+        // Room for 2.5 pieces: a run of two whole pieces from the first nobody has.
+        p.pick_run(9, (BLOCK_SIZE * 10) as u64, &mut out);
+        let pieces: Vec<u32> = out.iter().map(|r| r.piece).collect();
+        assert_eq!(pieces, [4, 4, 4, 4, 5, 5, 5, 5]);
+        assert!(out.windows(2).all(|w| {
+            (w[0].piece, w[0].begin + w[0].len) == (w[1].piece, w[1].begin)
+                || (w[1].piece == w[0].piece + 1 && w[1].begin == 0)
+        }));
+        // The next run carries on after it; a run is at least one piece.
+        let mut next = vec![];
+        p.pick_run(9, 1, &mut next);
+        assert!(next.iter().all(|r| r.piece == 6) && next.len() == 4);
+        // With every piece taken, it races open blocks like any peer.
+        let mut rest = vec![];
+        p.pick_run(10, u64::MAX, &mut rest);
+        let mut more = vec![];
+        p.pick_run(11, u64::MAX, &mut more);
+        assert!(!more.is_empty());
     }
 
     #[test]

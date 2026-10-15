@@ -32,7 +32,7 @@ use crate::peer::extension::{
 use crate::peer::handshake::Handshake;
 use crate::peer::protocol::{MAX_BLOCK_LEN, PeerCodec, PeerMessage};
 use crate::peer::stream::{PeerStream, RttProbe};
-use crate::picker::{BLOCK_SIZE, BlockReq, OnBlock, PeerKey};
+use crate::picker::{BLOCK_SIZE, BlockReq, PeerKey};
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 const SNUB_AFTER: Duration = Duration::from_secs(60);
@@ -472,48 +472,11 @@ impl Conn {
 
         let complete = {
             let mut st = self.t.st.lock();
-            let st = &mut *st;
-            st.down.add(len as u64);
-            st.downloaded += len as u64;
             if let Some(p) = st.peers.get_mut(&self.key) {
                 p.down.add(len as u64);
                 p.last_exchange = Instant::now();
             }
-            let outcome = match st.picker.as_mut() {
-                Some(pk) => pk.on_block(self.key, index, begin, &block),
-                None => OnBlock::Rejected,
-            };
-            let cancel_peers = |ks: &[PeerKey]| {
-                let r = BlockReq {
-                    piece: index,
-                    begin,
-                    len: len as u32,
-                };
-                for k in ks {
-                    if let Some(p) = st.peers.get(k) {
-                        let _ = p.tx.send(PeerCmd::Cancel(r));
-                    }
-                }
-            };
-            match outcome {
-                OnBlock::Accepted { cancel } => {
-                    cancel_peers(&cancel);
-                    None
-                }
-                OnBlock::Complete {
-                    piece,
-                    data,
-                    contributors,
-                    cancel,
-                } => {
-                    cancel_peers(&cancel);
-                    Some((piece, data, contributors))
-                }
-                OnBlock::Rejected | OnBlock::Duplicate => {
-                    st.wasted += len as u64;
-                    None
-                }
-            }
+            super::take_block(&mut st, self.key, index, begin, &block)
         };
         if let Some((piece, data, contributors)) = complete {
             self.t.spawn_verify(piece, data, contributors);

@@ -64,6 +64,18 @@ pub struct AnnounceResponse {
     pub tracker_id: Option<String>,
 }
 
+/// For web seeds: big downloads, so no overall deadline, only a stall timeout,
+/// and no compression (byte ranges must be of the file itself).
+pub fn web_seed_client() -> reqwest::Client {
+    reqwest::Client::builder()
+        .connect_timeout(Duration::from_secs(15))
+        .read_timeout(Duration::from_secs(30))
+        .user_agent(concat!("Trav/", env!("CARGO_PKG_VERSION")))
+        .no_gzip()
+        .build()
+        .unwrap_or_default()
+}
+
 pub fn http_client() -> reqwest::Client {
     reqwest::Client::builder()
         .timeout(Duration::from_secs(20))
