@@ -4,7 +4,8 @@
 //!   cargo run --release -p trav-core --example fetch -- <file.torrent|magnet> [seconds] [out-dir]
 //!
 //! Set TRAV_ENCRYPTION (prefer, require or off), TRAV_PUBLIC_TRACKERS=0 or
-//! TRAV_UTP=0 (TCP only) to compare, and TRAV_PORT to pick the listen port.
+//! TRAV_UTP=0 (TCP only) to compare, TRAV_PORT to pick the listen port, and
+//! TRAV_SEED=1 to keep seeding after the download until the time is up.
 //!
 //! Prints a line every 5 s and the average at the end. Uses a throwaway state
 //! directory under the output folder, so it never touches the app's library.
@@ -99,10 +100,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
             println!(
-                "{:>4}s  {:>7.1} MiB  {:>6.2} MiB/s  peers {:>3} (seeds {:>3}, encrypted {:>3}, µTP {:>3} at {:>5.2} MiB/s, hole-punched {:>2})  {:?}",
+                "{:>4}s  {:>7.1} MiB  {:>6.2} MiB/s  up {:>6.2} MiB/s  peers {:>3} (seeds {:>3}, encrypted {:>3}, µTP {:>3} at {:>5.2} MiB/s, hole-punched {:>2})  {:?}",
                 elapsed.as_secs(),
                 t.downloaded as f64 / 1048576.0,
                 t.download_rate as f64 / 1048576.0,
+                t.upload_rate as f64 / 1048576.0,
                 t.peers + t.seeds,
                 t.seeds,
                 encrypted,
@@ -112,7 +114,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 t.status,
             );
         }
-        if elapsed >= Duration::from_secs(secs) || t.progress >= 1.0 {
+        // TRAV_SEED=1 keeps going (seeding) until the time is up.
+        let seeding = std::env::var("TRAV_SEED").as_deref() == Ok("1");
+        if elapsed >= Duration::from_secs(secs) || (t.progress >= 1.0 && !seeding) {
             println!(
                 "done: {:.1} MiB in {:.0} s = {:.2} MiB/s average; first data after {:?}",
                 t.downloaded as f64 / 1048576.0,

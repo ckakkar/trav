@@ -31,6 +31,7 @@ impl Handshake {
         let mut reserved = [0u8; 8];
         reserved[5] |= 0x10; // BEP 10 extension protocol
         reserved[7] |= 0x01; // BEP 5 DHT
+        reserved[7] |= 0x04; // BEP 6 Fast extension
         Self {
             reserved,
             info_hash,
@@ -44,6 +45,10 @@ impl Handshake {
 
     pub fn supports_dht(&self) -> bool {
         self.reserved[7] & 0x01 != 0
+    }
+
+    pub fn supports_fast(&self) -> bool {
+        self.reserved[7] & 0x04 != 0
     }
 
     pub fn encode(&self) -> [u8; HANDSHAKE_LEN] {
@@ -161,14 +166,22 @@ async fn dial(addr: SocketAddr, route: Route, utp: Option<&UtpSocket>) -> Result
     }
 }
 
+const WRONG_SWARM: &str = "info-hash mismatch";
+const SELF: &str = "connected to self";
+
 fn check(ours: &Handshake, theirs: Handshake) -> Result<Handshake> {
     if theirs.info_hash != ours.info_hash {
-        return Err(proto("info-hash mismatch"));
+        return Err(proto(WRONG_SWARM));
     }
     if theirs.peer_id == ours.peer_id {
-        return Err(proto("connected to self"));
+        return Err(proto(SELF));
     }
     Ok(theirs)
+}
+
+/// The peer answered, and the answer was no: another transport won't help.
+fn definitive(e: &Error) -> bool {
+    matches!(e, Error::Protocol(m) if m == WRONG_SWARM || m == SELF)
 }
 
 async fn plain(io: Transport, ours: &Handshake) -> Result<(PeerStream, Handshake)> {
@@ -197,11 +210,31 @@ pub async fn connect(
     route: Route,
     utp: Option<&UtpSocket>,
 ) -> Result<(PeerStream, Handshake)> {
+    let io = dial(addr, route, utp).await?;
+    let via_tcp = !io.is_utp();
+    let res = handshake_over(io, addr, ours, enc, utp).await;
+    match (res, utp) {
+        // TCP took the connection, then it died: some clients accept TCP only
+        // to hang up (libtorrent with incoming TCP off). µTP may still work.
+        (Err(e), Some(u)) if via_tcp && route == Route::Auto && !definitive(&e) => {
+            let io = dial_utp(u, addr, Dial::Normal).await?;
+            handshake_over(io, addr, ours, enc, utp).await
+        }
+        (res, _) => res,
+    }
+}
+
+async fn handshake_over(
+    io: Transport,
+    addr: SocketAddr,
+    ours: &Handshake,
+    enc: Encryption,
+    utp: Option<&UtpSocket>,
+) -> Result<(PeerStream, Handshake)> {
     match enc {
-        Encryption::Off => plain(dial(addr, route, utp).await?, ours).await,
-        Encryption::Require => encrypted(dial(addr, route, utp).await?, ours).await,
+        Encryption::Off => plain(io, ours).await,
+        Encryption::Require => encrypted(io, ours).await,
         Encryption::Prefer => {
-            let io = dial(addr, route, utp).await?;
             // Redial the way that worked.
             let again = if io.is_utp() {
                 Route::Utp(Dial::Normal)

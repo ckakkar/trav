@@ -382,6 +382,34 @@ impl Picker {
         best.map(|b| b.3)
     }
 
+    /// Blocks from `pieces` only: what a peer that's choking us lets us have
+    /// anyway (BEP 6 allowed fast).
+    pub fn pick_from(
+        &mut self,
+        peer: PeerKey,
+        peer_has: &Bitfield,
+        pieces: &[u32],
+        max: usize,
+        out: &mut Vec<BlockReq>,
+    ) {
+        let target = out.len() + max;
+        for &p in pieces {
+            if out.len() >= target {
+                return;
+            }
+            if !self.is_wanted(p) || !peer_has.get(p as usize) {
+                continue;
+            }
+            if !self.partial.contains_key(&p) {
+                if self.partial.len() + self.verifying.len() >= self.max_partial {
+                    continue;
+                }
+                self.partial.insert(p, Partial::new(self.piece_size(p)));
+            }
+            self.take_free_blocks(p, peer, target, out);
+        }
+    }
+
     fn pick_endgame(
         &mut self,
         peer: PeerKey,

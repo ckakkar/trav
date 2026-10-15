@@ -130,6 +130,8 @@ pub(crate) struct PeerState {
     ext_pex: Option<u8>,
     /// Their id for ut_holepunch, if they speak it.
     ext_holepunch: Option<u8>,
+    /// Sent "have all" before we knew the piece count (magnet): fill in on metadata.
+    have_all: bool,
     /// Connected over µTP rather than TCP.
     utp: bool,
     /// Reached through NAT hole punching.
@@ -892,7 +894,11 @@ impl Torrent {
         }
         let n = meta.info.num_pieces();
         for p in st.peers.values_mut() {
-            p.bitfield.resize(n);
+            if p.have_all {
+                p.bitfield = Bitfield::full(n);
+            } else {
+                p.bitfield.resize(n);
+            }
         }
         st.metadata = None;
         st.web_seeds =
@@ -1044,6 +1050,7 @@ impl Torrent {
                 utp: stream.is_utp(),
                 holepunched,
                 ext_holepunch: None,
+                have_all: false,
                 relayed: (Instant::now(), 0),
                 source,
                 connected_at: Instant::now(),
