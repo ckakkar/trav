@@ -6,6 +6,16 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+- Quitting Trav (⌘Q, the Dock, or relaunching after an update) no longer leaves every transfer paused the next time it opens.
+- A tracker whose announce was out while the tracker list changed (the daily public-list refresh, which also runs at launch) could stay "announcing" for the rest of the session and never announce again, while another tracker showed its results. Replies are now matched by URL.
+- A magnet could stall for good if the first peer reported the wrong metadata size or sent a bad piece. Metadata is now assembled separately for each size peers report, and a dictionary that fails its hash check starts over at once, with the peers that sent it sitting out briefly.
+- A magnet whose info dictionary can't be read now stops with an error instead of sitting at "fetching metadata".
+- Adding a torrent that is already in the list now also adds the new link's or file's trackers, not only its peers.
+- Stopping or removing a transfer flushes or deletes its files off the engine's async threads, and NAT-PMP no longer blocks one while looking up the router.
+
+## [0.3.43] - 2026-10-15
+
 Every way other clients reach more peers and download faster: µTP and NAT hole punching, web seeds, the Fast extension, local peer discovery and NAT-PMP.
 
 ### Added

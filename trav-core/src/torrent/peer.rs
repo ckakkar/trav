@@ -118,6 +118,7 @@ pub(super) async fn run(
         peer_choking: true,
         last_piece: Instant::now(),
         ext_metadata: None,
+        metadata_size: None,
         metadata_req: None,
         metadata_rejects: 0,
         reqq: 250,
@@ -151,6 +152,9 @@ struct Conn {
     peer_choking: bool,
     last_piece: Instant,
     ext_metadata: Option<u8>,
+    /// How big the peer says the info dictionary is: we only take metadata
+    /// pieces from it for an assembly of that size.
+    metadata_size: Option<usize>,
     metadata_req: Option<(u32, Instant)>,
     metadata_rejects: u8,
     reqq: usize,
@@ -662,17 +666,17 @@ impl Conn {
             0 => {
                 let hs = ExtHandshake::decode(&payload)?;
                 self.ext_metadata = hs.m.get("ut_metadata").copied();
+                // A peer that doesn't say how big it is doesn't have it (BEP 9).
+                self.metadata_size = hs.metadata_size.filter(|_| self.ext_metadata.is_some());
                 if let Some(q) = hs.reqq {
                     self.reqq = q as usize;
                 }
                 {
                     let mut st = self.t.st.lock();
-                    let need_meta = st.meta.is_none();
-                    if need_meta
-                        && st.metadata.is_none()
-                        && let (Some(size), Some(_)) = (hs.metadata_size, self.ext_metadata)
+                    if st.meta.is_none()
+                        && let Some(size) = self.metadata_size
                     {
-                        st.metadata = Some(super::MetadataAssembly::new(size));
+                        st.metadata.offer(size);
                     }
                     if let Some(p) = st.peers.get_mut(&self.key) {
                         p.ext_pex = hs.m.get("ut_pex").copied();
@@ -713,15 +717,23 @@ impl Conn {
                         .await?;
                     }
                 }
-                MetadataMsg::Data { piece, data, .. } => {
+                MetadataMsg::Data {
+                    piece,
+                    total_size,
+                    data,
+                } => {
                     self.metadata_req = None;
-                    let done = self
-                        .t
-                        .st
-                        .lock()
-                        .metadata
-                        .as_mut()
-                        .and_then(|m| m.on_data(piece, data));
+                    // Into the assembly of the size it advertised, if it still says so.
+                    let done = match self.metadata_size {
+                        Some(size) if total_size == 0 || total_size == size => self
+                            .t
+                            .st
+                            .lock()
+                            .metadata
+                            .get(size)
+                            .and_then(|m| m.on_data(piece, data, self.key)),
+                        _ => None,
+                    };
                     match done {
                         Some(raw) => self.t.send(Cmd::MetadataDone(raw)),
                         None => self.request_metadata().await?,
@@ -730,8 +742,10 @@ impl Conn {
                 MetadataMsg::Reject { piece } => {
                     self.metadata_req = None;
                     self.metadata_rejects += 1;
-                    if let Some(m) = self.t.st.lock().metadata.as_mut() {
-                        m.reject(piece);
+                    if let Some(size) = self.metadata_size
+                        && let Some(m) = self.t.st.lock().metadata.get(size)
+                    {
+                        m.reject(piece, self.key);
                     }
                 }
             },
@@ -776,7 +790,7 @@ impl Conn {
     }
 
     async fn request_metadata(&mut self) -> Result<()> {
-        let Some(their) = self.ext_metadata else {
+        let (Some(their), Some(size)) = (self.ext_metadata, self.metadata_size) else {
             return Ok(());
         };
         if self.metadata_req.is_some() || self.metadata_rejects >= 3 {
@@ -787,7 +801,7 @@ impl Conn {
             if st.meta.is_some() {
                 return Ok(());
             }
-            st.metadata.as_mut().and_then(|m| m.next_request(self.key))
+            st.metadata.get(size).and_then(|m| m.next_request(self.key))
         };
         if let Some(piece) = piece {
             self.metadata_req = Some((piece, Instant::now()));

@@ -63,7 +63,12 @@ async fn ask(sock: &UdpSocket, req: &[u8], op: u8) -> Result<Vec<u8>, String> {
 /// Map TCP and UDP `port` for `lifetime` seconds. Returns the external IP and
 /// the external port the router chose (usually `port`).
 pub async fn map(port: u16, lifetime: u32) -> Result<(Ipv4Addr, u16), String> {
-    let gw = default_gateway().ok_or("no default gateway")?;
+    // Runs `/sbin/route`: keep that off the async workers.
+    let gw = tokio::task::spawn_blocking(default_gateway)
+        .await
+        .ok()
+        .flatten()
+        .ok_or("no default gateway")?;
     map_at(SocketAddr::from((gw, PORT)), port, lifetime).await
 }
 

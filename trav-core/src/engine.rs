@@ -107,7 +107,7 @@ impl Engine {
         Self::start_with(state_dir, None).await
     }
 
-    /// Start with explicit settings overriding whatever was persisted (tests, CLI flags).
+    /// Start with explicit settings overriding whatever was persisted (tests, the bench example).
     pub async fn start_with(
         state_dir: impl Into<PathBuf>,
         overrides: Option<Settings>,
@@ -690,9 +690,18 @@ impl EngineHandle {
             .expect("one is set");
 
         if let Some(existing) = s.torrents.read().get(&ih).cloned() {
-            // Merge new trackers/peers into the existing torrent rather than erroring.
+            // Still an error (the UI says it's already there), but the new
+            // link's or file's trackers and peers join the torrent we have.
+            let mut trackers = meta
+                .as_ref()
+                .map(|m| m.trackers.clone())
+                .unwrap_or_default();
             if let Some(m) = &magnet {
+                trackers.extend(m.trackers.iter().map(|t| vec![t.clone()]));
                 existing.send(Cmd::AddPeers(m.peers.clone(), PeerSource::Manual));
+            }
+            if !trackers.is_empty() {
+                existing.send(Cmd::AddTrackers(trackers));
             }
             return Err(Error::Engine("torrent is already in the list".into()));
         }
@@ -902,8 +911,11 @@ impl EngineHandle {
 
     /// Save every torrent's progress (and known DHT nodes) right now, without
     /// stopping anything. For when the process is about to end and there's no
-    /// time for `shutdown`.
+    /// time for `shutdown`. Does nothing after `shutdown`, which already saved.
     pub fn save_now(&self) {
+        if !self.s.running.load(Ordering::Relaxed) {
+            return;
+        }
         info!("saving state before exit");
         self.s.save_all(true);
     }
