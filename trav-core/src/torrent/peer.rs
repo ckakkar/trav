@@ -263,7 +263,7 @@ impl Conn {
             let ext = hs.supports_extensions().then(|| {
                 ExtHandshake::ours(
                     st.meta.as_ref().map(|m| m.info.raw.len()),
-                    self.t.ctx.listen_port.load(Ordering::Relaxed),
+                    self.t.ctx.public_port(),
                     self.addr.ip(),
                     s.enable_pex && !private,
                     holepunch,

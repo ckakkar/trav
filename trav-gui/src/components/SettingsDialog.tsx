@@ -141,7 +141,7 @@ export function SettingsDialog({
                 <div>port {stats.listenPort}</div>
                 <div>{stats.connectable ? "reachable ●" : "not yet reachable ○"}</div>
                 <div>dht {stats.dhtNodes} nodes</div>
-                {stats.upnp && <div className="ellipsis" title={stats.upnp}>upnp {stats.upnp}</div>}
+                {stats.upnp && <div className="ellipsis" title={stats.upnp}>router {stats.upnp}</div>}
               </>
             )}
           </div>
@@ -204,7 +204,7 @@ export function SettingsDialog({
                   </button>
                 </div>
               </Row>
-              <Row label="UPnP port forwarding" hint="ask the router to open the listen port">
+              <Row label="Port forwarding" hint="ask the router to open the listen port (UPnP or NAT-PMP)">
                 <Toggle checked={s.enableUpnp} onChange={(v) => set("enableUpnp", v)} label="" />
               </Row>
               <Row label="µTP & hole punching" hint="reach peers over UDP too, including ones behind routers that block incoming connections">
@@ -215,6 +215,9 @@ export function SettingsDialog({
               </Row>
               <Row label="Peer exchange" hint="learn peers from peers">
                 <Toggle checked={s.enablePex} onChange={(v) => set("enablePex", v)} label="" />
+              </Row>
+              <Row label="Local peer discovery" hint="find peers on your own network and swap at LAN speed">
+                <Toggle checked={s.enableLsd} onChange={(v) => set("enableLsd", v)} label="" />
               </Row>
               <Row label="Public trackers" hint="also ask well-known open trackers for peers (never for private torrents)">
                 <Toggle checked={s.publicTrackers} onChange={(v) => set("publicTrackers", v)} label="" />

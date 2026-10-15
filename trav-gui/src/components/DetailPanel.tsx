@@ -304,6 +304,7 @@ const FLAG_HELP: Record<string, string> = {
   W: "web seed (HTTP mirror) downloading",
   I: "incoming connection",
   X: "found via peer exchange",
+  L: "found on the local network",
   H: "found via DHT",
 };
 

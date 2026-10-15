@@ -65,6 +65,7 @@ pub(crate) enum PeerSource {
     Tracker,
     Dht,
     Pex,
+    Lsd,
     Incoming,
     Manual,
 }
@@ -75,6 +76,7 @@ impl PeerSource {
             Self::Tracker => "tracker",
             Self::Dht => "dht",
             Self::Pex => "pex",
+            Self::Lsd => "lsd",
             Self::Incoming => "incoming",
             Self::Manual => "manual",
         }
@@ -773,7 +775,7 @@ impl Torrent {
             let req = AnnounceRequest {
                 info_hash: self.info_hash,
                 peer_id: self.ctx.peer_id,
-                port: self.ctx.listen_port.load(Ordering::Relaxed),
+                port: self.ctx.public_port(),
                 uploaded: st.uploaded,
                 downloaded: st.downloaded,
                 left,
@@ -962,6 +964,12 @@ impl Torrent {
 
     // ── Peers ────────────────────────────────────────────────────────────────
 
+    /// Worth announcing on the local network: running, and not private.
+    pub(crate) fn lsd_ok(&self) -> bool {
+        let st = self.st.lock();
+        st.phase.is_active() && !st.meta.as_ref().is_some_and(|m| m.info.private)
+    }
+
     pub(crate) fn accepts_incoming(&self) -> bool {
         let st = self.st.lock();
         st.phase.is_active() && st.peers.len() < self.ctx.settings.read().max_peers_per_torrent
@@ -1136,7 +1144,7 @@ impl Torrent {
             })
             .map(|(a, c)| {
                 let rank = match c.source {
-                    PeerSource::Manual => 0,
+                    PeerSource::Manual | PeerSource::Lsd => 0,
                     PeerSource::Tracker => 1,
                     PeerSource::Pex => 2,
                     PeerSource::Dht => 3,
@@ -1347,7 +1355,7 @@ impl Torrent {
                 .map(|m| m.info.total_length)
                 .unwrap_or(1 << 30),
         };
-        let port = self.ctx.listen_port.load(Ordering::Relaxed);
+        let port = self.ctx.public_port();
         let want_peers = st.peers.len() < self.ctx.settings.read().max_peers_per_torrent;
         for (idx, t) in st.trackers.iter_mut().enumerate() {
             if !due(t) {
@@ -1469,7 +1477,7 @@ impl Torrent {
         }
         let Some(dht) = self.ctx.dht() else { return };
         st.dht_running = true;
-        let port = self.ctx.listen_port.load(Ordering::Relaxed);
+        let port = self.ctx.public_port();
         let ih = self.info_hash;
         let me = self.clone();
         tokio::spawn(async move {
@@ -1795,6 +1803,7 @@ impl Torrent {
                 match p.source {
                     PeerSource::Incoming => flags.push('I'),
                     PeerSource::Pex => flags.push('X'),
+                    PeerSource::Lsd => flags.push('L'),
                     PeerSource::Dht => flags.push('H'),
                     _ => {}
                 }

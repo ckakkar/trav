@@ -20,6 +20,8 @@ pub const HALF_OPEN_LIMIT: usize = 100;
 pub(crate) struct Ctx {
     pub peer_id: [u8; 20],
     pub listen_port: AtomicU16,
+    /// The outside port a NAT-PMP router gave us, when not `listen_port` (0).
+    pub public_port: AtomicU16,
     pub settings: RwLock<Settings>,
     pub down: RateLimiter,
     pub up: RateLimiter,
@@ -49,6 +51,14 @@ pub(crate) struct Ctx {
 impl Ctx {
     pub fn emit(&self, e: Event) {
         let _ = self.events.send(e);
+    }
+
+    /// The port to tell trackers, the DHT and peers to reach us on.
+    pub fn public_port(&self) -> u16 {
+        match self.public_port.load(std::sync::atomic::Ordering::Relaxed) {
+            0 => self.listen_port.load(std::sync::atomic::Ordering::Relaxed),
+            p => p,
+        }
     }
 
     pub fn dht(&self) -> Option<Dht> {

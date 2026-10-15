@@ -143,6 +143,8 @@ export interface Settings {
   uploadSlots: number;
   enableDht: boolean;
   enablePex: boolean;
+  /** Find peers on the local network (BEP 14). */
+  enableLsd: boolean;
   enableUpnp: boolean;
   /** µTP connections and NAT hole punching alongside TCP. */
   enableUtp: boolean;

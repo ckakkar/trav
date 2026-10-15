@@ -129,6 +129,7 @@ impl Engine {
         let ctx = Arc::new(Ctx {
             peer_id: generate_peer_id(),
             listen_port: AtomicU16::new(0),
+            public_port: AtomicU16::new(0),
             down: RateLimiter::new(settings.download_limit),
             up: RateLimiter::new(settings.upload_limit),
             settings: RwLock::new(settings),
@@ -165,6 +166,7 @@ impl Engine {
         s.bind_listener().await;
         s.start_dht().await;
         s.spawn_tracker_list_refresh();
+        s.spawn_lsd();
         crate::upnp::spawn(Arc::downgrade(&s.ctx));
         s.load_persisted().await;
         s.apply_queue();
@@ -359,6 +361,81 @@ impl Session {
                 }
                 drop(s);
                 tokio::time::sleep(Duration::from_secs(3600)).await;
+            }
+        });
+    }
+
+    /// Local peer discovery: announce our torrents on the LAN every few
+    /// minutes (new ones within seconds) and add the peers others announce.
+    fn spawn_lsd(self: &Arc<Self>) {
+        let weak = Arc::downgrade(self);
+        tokio::spawn(async move {
+            let sock = match crate::lsd::bind() {
+                Ok(s) => s,
+                Err(e) => {
+                    debug!("local peer discovery unavailable: {e}");
+                    return;
+                }
+            };
+            let cookie = hex::encode(rand::random::<[u8; 6]>());
+            let group = SocketAddr::from((crate::lsd::GROUP, crate::lsd::PORT));
+            let mut last: HashMap<InfoHash, std::time::Instant> = HashMap::new();
+            let mut tick = tokio::time::interval(Duration::from_secs(5));
+            let mut buf = [0u8; 2048];
+            loop {
+                tokio::select! {
+                    r = sock.recv_from(&mut buf) => {
+                        let Ok((n, from)) = r else { continue };
+                        let Some(s) = weak.upgrade() else { break };
+                        if !s.ctx.settings.read().enable_lsd {
+                            continue;
+                        }
+                        let Some(a) = crate::lsd::parse(&buf[..n]) else { continue };
+                        if a.cookie.as_deref() == Some(cookie.as_str()) {
+                            continue;
+                        }
+                        let peer = SocketAddr::new(from.ip().to_canonical(), a.port);
+                        for ih in a.hashes {
+                            let t = s.torrents.read().get(&ih).cloned();
+                            if let Some(t) = t.filter(|t| t.lsd_ok()) {
+                                debug!("local peer {peer} for {}", hex::encode(ih));
+                                t.send(Cmd::AddPeers(vec![peer], PeerSource::Lsd));
+                                // Answer soon so they find us too.
+                                if last.get(&ih).is_some_and(|t| t.elapsed() > Duration::from_secs(60)) {
+                                    last.remove(&ih);
+                                }
+                            }
+                        }
+                    }
+                    _ = tick.tick() => {
+                        let Some(s) = weak.upgrade() else { break };
+                        if !s.running.load(Ordering::Relaxed) {
+                            break;
+                        }
+                        if !s.ctx.settings.read().enable_lsd {
+                            continue;
+                        }
+                        let port = s.ctx.listen_port.load(Ordering::Relaxed);
+                        let due: Vec<InfoHash> = s
+                            .torrents
+                            .read()
+                            .values()
+                            .filter(|t| t.lsd_ok())
+                            .map(|t| t.info_hash)
+                            .filter(|ih| last.get(ih).is_none_or(|t| t.elapsed() >= Duration::from_secs(300)))
+                            .collect();
+                        drop(s);
+                        for chunk in due.chunks(8) {
+                            let msg = crate::lsd::message(port, chunk, &cookie);
+                            if sock.send_to(msg.as_bytes(), group).await.is_ok() {
+                                let now = std::time::Instant::now();
+                                for ih in chunk {
+                                    last.insert(*ih, now);
+                                }
+                            }
+                        }
+                    }
+                }
             }
         });
     }

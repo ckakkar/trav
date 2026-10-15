@@ -23,6 +23,8 @@ fn settings(download_dir: &Path) -> Settings {
         listen_port: 0,
         enable_dht: false,
         enable_upnp: false,
+        // Tests share content (and info-hashes): keep them from finding each other.
+        enable_lsd: false,
         public_trackers: false,
         // TRAV_UTP=0 runs the suite over TCP alone.
         enable_utp: std::env::var("TRAV_UTP").map_or(true, |v| v != "0"),
@@ -602,4 +604,51 @@ async fn bad_web_seed_is_dropped_and_peers_finish() {
     wait_for(&leech, &hash, TorrentStatus::Seeding, 30).await;
     same_tree(&content, &dl.join("album"));
     drop(seed);
+}
+
+/// Two engines that know nothing of each other find each other by local
+/// peer discovery. Ignored by default: CI machines may not do multicast.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore]
+async fn local_peer_discovery_finds_the_seed() {
+    init_tracing();
+    let tmp = tempfile::tempdir().unwrap();
+    let src = tmp.path().join("src");
+    std::fs::create_dir_all(&src).unwrap();
+    // Content unique to this run, so no other client's announcements match.
+    let file = src.join("lsd.bin");
+    std::fs::write(&file, payload(500_000, rand_seed())).unwrap();
+    let torrent = create_torrent(&file, 32 * 1024, &[], false).unwrap();
+    let lsd = |dir: &Path| Settings {
+        enable_lsd: true,
+        ..settings(dir)
+    };
+    let seed = Engine::start_with(tmp.path().join("s"), Some(lsd(&src)))
+        .await
+        .unwrap();
+    let hash = seed
+        .add(AddTorrent::new(TorrentSource::Bytes(torrent.clone())))
+        .await
+        .unwrap();
+    wait_for(&seed, &hash, TorrentStatus::Seeding, 20).await;
+    let dl = tmp.path().join("dl");
+    let leech = Engine::start_with(tmp.path().join("l"), Some(lsd(&dl)))
+        .await
+        .unwrap();
+    leech
+        .add(AddTorrent::new(TorrentSource::Bytes(torrent)))
+        .await
+        .unwrap();
+    wait_for(&leech, &hash, TorrentStatus::Seeding, 30).await;
+    assert_eq!(
+        std::fs::read(&file).unwrap(),
+        std::fs::read(dl.join("lsd.bin")).unwrap()
+    );
+}
+
+fn rand_seed() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos() as u64
 }

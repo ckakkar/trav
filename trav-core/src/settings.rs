@@ -19,6 +19,8 @@ pub struct Settings {
     pub upload_slots: usize,
     pub enable_dht: bool,
     pub enable_pex: bool,
+    /// Find peers on the local network (BEP 14).
+    pub enable_lsd: bool,
     pub enable_upnp: bool,
     /// µTP connections (BEP 29) and NAT hole punching (BEP 55) alongside TCP.
     pub enable_utp: bool,
@@ -50,6 +52,7 @@ impl Default for Settings {
             upload_slots: 8,
             enable_dht: true,
             enable_pex: true,
+            enable_lsd: true,
             enable_upnp: true,
             enable_utp: true,
             seed_ratio_limit: 0.0,
