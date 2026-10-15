@@ -20,14 +20,16 @@ Open the `.dmg` and drag Trav into Applications. The first launch needs **Open A
 ## The engine (`trav-core`)
 
 - **Downloading:** rarest-first or sequential picking, per-peer bitfields, adaptive request pipelining, an end-game that lets faster peers rescue blocks stuck on slow ones, and per-file priorities (skip, normal or high).
+- **Web seeds (BEP 19):** HTTP mirrors listed in a torrent (`url-list`) or a magnet (`ws=`) download alongside peers, in runs of whole pieces fetched with range requests, starting where the swarm is thinnest. Their data is hash-checked like any peer's, and a mirror that serves bad data is dropped.
+- **Connections:** TCP and µTP (BEP 29, with LEDBAT congestion control, selective acks and fast retransmit) on one port. TCP goes first because it downloads faster; µTP reaches peers TCP can't. **NAT hole punching (BEP 55)** connects to peers behind home routers and carrier-grade NAT, which nothing could reach before, by having a peer connected to both introduce them so both sides dial at once; Trav introduces peers to each other the same way. The **Fast extension (BEP 6)** lets peers that are choking us hand over their allowed-fast pieces, and turns refused requests around at once.
 - **Peers:** up to 150 per torrent. Idle peers are swapped for untried ones when a torrent is at its limit, and peer discovery speeds up while a download is starving.
 - **Uploads:** an automatic upload limit keeps seeding from flooding your uplink. It works like LEDBAT, measuring each connection's queueing delay from the kernel's TCP round-trip times and easing off when uploads cause it. A choker with optimistic unchoke and an inbound dual-stack listener round this out.
-- **Discovery:** HTTP and UDP trackers (all tiers) plus a daily-refreshed list of public trackers for non-private torrents, Mainline DHT (routing-table refresh, protection against fake-node clusters, replies checked against the node asked), PEX, magnet `x.pe` hints and UPnP port mapping. Magnet metadata is raced across peers, so a magnet starts in seconds.
+- **Discovery:** HTTP and UDP trackers (all tiers) plus a daily-refreshed list of public trackers for non-private torrents, Mainline DHT (sharing µTP's UDP port; routing-table refresh, protection against fake-node clusters, replies checked against the node asked), PEX with peer flags, local peer discovery on your network (BEP 14), magnet `x.pe` hints, and port mapping by UPnP or NAT-PMP. Magnet metadata is raced across peers, so a magnet starts in seconds.
 - **Encryption:** MSE/PE (Diffie-Hellman, then RC4) both ways; encrypted first with a plain fallback, or required.
 - **Persistence:** resume data, settings and DHT nodes survive restarts, and missing or truncated files trigger a recheck.
 - **Safety:** paths from torrents are sanitised, made unique and kept inside the save folder, never followed through symlinks. Parsers are fuzz-tested, peer frames and tracker replies are size-capped, piece buffers are bounded, and peers that send bad data are banned.
 
-Not implemented yet: µTP, web seeds and BitTorrent v2.
+Not implemented yet: BitTorrent v2 and the IPv6 DHT (BEP 32).
 
 ## Build from source
 
@@ -43,7 +45,8 @@ make            # every task
 
 ```
 trav-core/          the engine: bencode, metainfo, magnet, picker, storage, peer wire,
-                    extensions (metadata/PEX), DHT, trackers, UPnP, upload governor, rpc
+                    encryption, extensions (metadata/PEX/holepunch), µTP, DHT, trackers,
+                    web seeds, local discovery, UPnP/NAT-PMP, upload governor, rpc
 trav-gui/           the Nova UI (Next.js static export)
 trav-gui/src-tauri/ the macOS app: hosts the engine, menu bar, Dock, updates, Trash, login item
 scripts/            release manifest, version check, app icon renderer

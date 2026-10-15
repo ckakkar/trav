@@ -103,7 +103,7 @@ Open them with **⌘,**. Engine settings are saved with **Save**; Interface and 
 | Setting | Default | What it does |
 |---|---|---|
 | Default save folder | `~/Downloads` | where new torrents go unless you pick another |
-| Listen port | 51413 | TCP for peers, UDP for DHT; if taken, the next free port is used |
+| Listen port | 51413 | TCP and UDP (µTP and the DHT share it); if taken, the next free port is used |
 | Download / upload limit | 0 = no limit | bytes per second, for everything combined |
 | Keep uploads from slowing downloads | on | with no upload limit set, eases uploads off when they start queueing on your connection (see [Speed](#speed)) |
 | Active downloads | 5 | more than this wait in the queue; 0 = no limit |
@@ -111,9 +111,11 @@ Open them with **⌘,**. Engine settings are saved with **Save**; Interface and 
 | Upload slots per torrent | 8 | peers you upload to at once |
 | DHT | on | trackerless peer discovery; needed for most magnet links |
 | Peer exchange | on | learn about peers from peers |
+| Local peer discovery | on | find peers on your own network, who then swap data at LAN speed |
 | Public trackers | on | also ask well-known open trackers for peers; never for private torrents |
 | Encryption | Prefer | *Prefer* encrypts when the peer can and falls back to plain BitTorrent; *Require* only accepts encrypted connections; *Off* never encrypts |
-| UPnP port forwarding | on | ask your router to open the listen port |
+| Port forwarding | on | ask your router to open the listen port, by UPnP or NAT-PMP |
+| µTP & hole punching | on | also connect over UDP, and reach peers behind routers and shared addresses through a peer connected to you both (see [Speed](#speed)) |
 | Stop seeding at ratio | 0 = seed forever | e.g. `2` stops once you've uploaded twice the size; resuming a stopped torrent overrides it |
 | Theme, notifications, confirm before removing | | Interface |
 | Check for updates automatically, open at login, keep the Mac awake while transferring, show speed in the menu bar | on, off, on, on | App |
@@ -126,7 +128,10 @@ On a healthy torrent Trav downloads as fast as your connection allows. When a do
 
 - **Few peers have it.** The Trackers tab shows how many seeds and peers each tracker knows about. Trav announces to a list of well-known public trackers as well as the torrent's own (refreshed daily; never for private torrents), which matters most for magnet links that name few trackers or none. It keeps looking: while fewer than five peers are sending, it asks the DHT and trackers for more every two minutes, and when it's at its connection limit it swaps idle peers for new ones every 30 seconds.
 - **Peers refuse plain BitTorrent, or your provider slows it down.** Trav encrypts its connections when the other side can (the **E** flag in the Peers tab), which reaches peers that insist on encryption and hides the traffic from throttling. If a provider still slows Trav down, set Encryption to *Require*.
-- **Your connection can't accept incoming peers.** The status bar shows **● open** once another peer has connected *to* you. If it never appears, you can only reach peers that are reachable themselves. Turn on **UPnP** in Settings, or forward the listen port (TCP and UDP, default 51413) on your router. Many mobile and fibre providers share one public address between customers (CGNAT); then no router setting helps, but IPv6 does if your provider and router support it.
+- **Your connection can't accept incoming peers.** The status bar shows **● open** once another peer has connected *to* you. If it never appears, you can only reach peers that are reachable themselves. Turn on **Port forwarding** in Settings, or forward the listen port (TCP and UDP, default 51413) on your router. Many mobile and fibre providers share one public address between customers (CGNAT); then no router setting helps. Trav still reaches peers in the same situation by **hole punching**: a peer connected to both of you introduces you, and both sides dial each other at the same moment over µTP, which gets through most home routers and carrier NATs (the **h** flag in the Peers tab).
+- **TCP or µTP.** Trav dials TCP first and starts µTP a second later only if TCP hasn't connected: µTP deliberately gives way to other traffic and backs off hard when packets are lost, so on the same swarm TCP-first downloaded about 2.5× faster than µTP-first. µTP is for peers TCP can't reach (the **P** flag).
+- **The torrent has web seeds.** Some torrents (Linux ISOs, the Internet Archive) list HTTP mirrors. Trav downloads from them alongside peers, even when no peer is online; they show in the Peers tab with **W** while sending.
+- **Someone near you has it.** Another computer on your network running a BitTorrent client is found by local peer discovery (**L**) and dialled first.
 - **Uploads are filling your connection.** Uploading at full speed queues up in front of your connection's uplink, and then everything else, downloads included, waits behind it. With no upload limit set, Trav measures how much its connections' round-trip time grows and eases uploads off when they cause queueing; the status bar then shows the upload limit as **auto**. If downloads still crawl while seeding, set a fixed upload limit around 80% of your upload speed.
 - **A limit is set.** Check the download/upload limits in Settings (the status bar shows them).
 
@@ -153,7 +158,7 @@ Only one copy of Trav can have the library open. Quit the other one (**Trav › 
 - Give it a minute: DHT discovery can take 30–60 s on a cold start.
 - Check **DHT** is on in Settings. Torrents without working trackers depend on it.
 - The torrent may simply be dead (no one seeding). The Trackers tab shows what each tracker reports.
-- Firewalls or VPNs that block outgoing UDP stop both DHT and UDP trackers.
+- Firewalls or VPNs that block outgoing UDP stop the DHT, UDP trackers and µTP.
 
 ### Stuck on "fetching metadata"
 
@@ -173,8 +178,10 @@ Logs are in `~/Library/Application Support/trav/logs`. For much more detail, qui
 
 ### Peer flags
 
-The Peers tab uses µTorrent-style flags: **D** downloading from them · **d** you want data but they're choking you · **U** uploading to them · **u** they want data but you're choking them · **K** they'd send but you're not interested · **?** you'd send but they're not interested · **O** optimistic unchoke · **S** snubbed (stopped sending) · **E** encrypted connection · **I** they connected to you · **X** found via peer exchange · **H** found via DHT.
+The Peers tab uses µTorrent-style flags: **D** downloading from them · **d** you want data but they're choking you · **U** uploading to them · **u** they want data but you're choking them · **K** they'd send but you're not interested · **?** you'd send but they're not interested · **O** optimistic unchoke · **S** snubbed (stopped sending) · **E** encrypted connection · **P** µTP (UDP) connection · **h** reached by hole punching · **I** they connected to you · **X** found via peer exchange · **H** found via DHT · **L** found on your local network · **W** a web seed (HTTP mirror) that's sending.
 
 ## Limitations
 
-Not supported yet: µTP (peers that only speak µTP can't be reached, and peers behind the same kind of shared address as you can't be reached either), web seeds (BEP 19) and BitTorrent v2.
+Not supported yet: BitTorrent v2 and the IPv6 DHT (BEP 32).
+
+Hole punching needs a peer connected to both sides that supports it (libtorrent-based clients such as qBittorrent and Deluge do), and doesn't get through "symmetric" NATs that use a new outside port for every destination.
