@@ -40,7 +40,7 @@ use crate::snapshot::{
 use crate::storage::Storage;
 use crate::tracker::{self, AnnounceEvent, AnnounceRequest, AnnounceResponse};
 
-use metadata::MetadataAssembly;
+use metadata::Metadata;
 
 const MAX_CANDIDATES: usize = 3000;
 const CHOKE_INTERVAL: Duration = Duration::from_secs(10);
@@ -279,7 +279,8 @@ pub(crate) struct State {
     peers: HashMap<PeerKey, PeerState>,
     candidates: HashMap<SocketAddr, Candidate>,
     connecting: usize,
-    metadata: Option<MetadataAssembly>,
+    /// The info dictionary being fetched from peers (magnets).
+    metadata: Metadata,
     trackers: Vec<TrackerState>,
     down: RateMeter,
     up: RateMeter,
@@ -315,6 +316,8 @@ pub(crate) enum Cmd {
     Reannounce,
     /// The public tracker list or its setting changed.
     TrackersChanged,
+    /// More trackers for this torrent (it was added again with others).
+    AddTrackers(Vec<Vec<String>>),
     SetFilePriorities(Vec<u8>),
     SetSequential(bool),
     AddPeers(Vec<SocketAddr>, PeerSource),
@@ -334,8 +337,10 @@ pub(crate) enum Cmd {
         addr: SocketAddr,
         punched: bool,
     },
+    /// A tracker's reply, by URL: the list can be rebuilt (reordered) while
+    /// an announce is out.
     Announced {
-        idx: usize,
+        url: String,
         res: Result<AnnounceResponse, String>,
     },
     DhtDone(Vec<SocketAddr>),
@@ -412,7 +417,7 @@ impl Torrent {
             peers: HashMap::new(),
             candidates: HashMap::new(),
             connecting: 0,
-            metadata: None,
+            metadata: Metadata::default(),
             trackers: Vec::new(),
             down: RateMeter::default(),
             up: RateMeter::default(),
@@ -471,7 +476,7 @@ impl Torrent {
                 cmd = rx.recv() => match cmd {
                     None => break,
                     Some(Cmd::Shutdown { delete_files, done }) => {
-                        self.shutdown(delete_files);
+                        self.shutdown(delete_files).await;
                         let _ = done.send(());
                         break;
                     }
@@ -520,6 +525,13 @@ impl Torrent {
                 }
             }
             Cmd::TrackersChanged => self.rebuild_trackers(&mut st),
+            Cmd::AddTrackers(tiers) => {
+                let mut all = std::mem::take(&mut st.extra_trackers);
+                all.extend(tiers);
+                st.extra_trackers = crate::metainfo::normalize_tiers(all);
+                st.dirty = true;
+                self.rebuild_trackers(&mut st);
+            }
             Cmd::Reannounce => {
                 let now = Instant::now();
                 for t in st.trackers.iter_mut() {
@@ -602,7 +614,7 @@ impl Torrent {
                 }
             }
             Cmd::HolepunchConnect(addr) => self.on_holepunch_connect(&mut st, addr),
-            Cmd::Announced { idx, res } => self.on_announced(&mut st, idx, res),
+            Cmd::Announced { url, res } => self.on_announced(&mut st, &url, res),
             Cmd::DhtDone(peers) => {
                 st.dht_running = false;
                 let n = peers.len();
@@ -828,22 +840,30 @@ impl Torrent {
         });
     }
 
-    fn shutdown(self: &Arc<Self>, delete_files: bool) {
-        let mut st = self.st.lock();
-        st.user_paused = true;
-        if st.phase.is_active() {
-            self.enter_inactive(&mut st);
-        } else {
-            disconnect_all(&mut st);
-            st.check_cancel.store(true, Ordering::Relaxed);
-        }
-        st.phase = Phase::Paused;
-        if let Some(s) = st.storage.clone() {
-            if delete_files {
-                s.delete_files();
+    /// Stop for good. `user_paused` is left alone: it is the user's choice,
+    /// and resume data saved after this must still say whether to run.
+    async fn shutdown(self: &Arc<Self>, delete_files: bool) {
+        let storage = {
+            let mut st = self.st.lock();
+            if st.phase.is_active() {
+                self.enter_inactive(&mut st);
             } else {
-                s.flush();
+                disconnect_all(&mut st);
+                st.check_cancel.store(true, Ordering::Relaxed);
             }
+            st.phase = Phase::Paused;
+            st.storage.clone()
+        };
+        // Disk work off the reactor, and without holding the state lock.
+        if let Some(s) = storage {
+            let _ = tokio::task::spawn_blocking(move || {
+                if delete_files {
+                    s.delete_files();
+                } else {
+                    s.flush();
+                }
+            })
+            .await;
         }
     }
 
@@ -856,7 +876,7 @@ impl Torrent {
         let hash: InfoHash = Sha1::digest(&raw).into();
         if hash != self.info_hash {
             warn!("{}: metadata hash mismatch, retrying", st.name);
-            st.metadata = None;
+            st.metadata.failed(raw.len());
             return;
         }
         match Info::from_bytes(&raw) {
@@ -879,8 +899,17 @@ impl Torrent {
                 self.update_phase(st);
             }
             Err(e) => {
-                warn!("{}: bad metadata from swarm: {e}", st.name);
-                st.metadata = None;
+                // It is the torrent's own info dictionary (the hash matched),
+                // so fetching it again would only fail the same way.
+                let msg = format!("unsupported torrent: {e}");
+                warn!("{}: {msg}", st.name);
+                self.ctx.emit(Event::TorrentError {
+                    info_hash: hex::encode(self.info_hash),
+                    name: st.name.clone(),
+                    message: msg.clone(),
+                });
+                self.enter_inactive(st);
+                st.phase = Phase::Error(msg);
             }
         }
     }
@@ -902,7 +931,7 @@ impl Torrent {
                 p.bitfield.resize(n);
             }
         }
-        st.metadata = None;
+        st.metadata = Metadata::default();
         st.web_seeds =
             webseed::WebSeed::list(&meta.web_seeds, &st.extra_web_seeds, &mut st.next_key);
         st.meta = Some(meta);
@@ -1088,9 +1117,7 @@ impl Torrent {
             pk.release_peer(key);
             pk.remove_bitfield(&p.bitfield);
         }
-        if let Some(m) = st.metadata.as_mut() {
-            m.release_peer(key);
-        }
+        st.metadata.release_peer(key);
         let is_seed = p.bitfield.all() && !p.bitfield.is_empty();
         let short = p.connected_at.elapsed() < Duration::from_secs(30);
         if let Some(addr) = p.dialable() {
@@ -1357,7 +1384,7 @@ impl Torrent {
         };
         let port = self.ctx.public_port();
         let want_peers = st.peers.len() < self.ctx.settings.read().max_peers_per_torrent;
-        for (idx, t) in st.trackers.iter_mut().enumerate() {
+        for t in st.trackers.iter_mut() {
             if !due(t) {
                 continue;
             }
@@ -1393,7 +1420,7 @@ impl Torrent {
                         crate::error::Error::Tracker(m) => m,
                         other => other.to_string(),
                     });
-                me.send(Cmd::Announced { idx, res });
+                me.send(Cmd::Announced { url, res });
             });
         }
     }
@@ -1401,12 +1428,12 @@ impl Torrent {
     fn on_announced(
         self: &Arc<Self>,
         st: &mut State,
-        idx: usize,
+        url: &str,
         res: Result<AnnounceResponse, String>,
     ) {
         let starving = starving(st);
         let active = st.phase.is_active();
-        let Some(t) = st.trackers.get_mut(idx) else {
+        let Some(t) = st.trackers.iter_mut().find(|t| t.url == url) else {
             return;
         };
         let now = Instant::now();
@@ -1936,11 +1963,7 @@ fn summarize(ih: &InfoHash, st: &State) -> TorrentSummary {
     let done_bytes = size - left;
     let progress = match status {
         TorrentStatus::Checking => st.check_progress.load(Ordering::Relaxed) as f64 / 10_000.0,
-        TorrentStatus::Metadata => st
-            .metadata
-            .as_ref()
-            .map(MetadataAssembly::progress)
-            .unwrap_or(0.0),
+        TorrentStatus::Metadata => st.metadata.progress(),
         _ if size > 0 => {
             let partial = st.picker.as_ref().map(Picker::partial_bytes).unwrap_or(0);
             ((done_bytes + partial.min(left)) as f64 / size as f64).min(1.0)

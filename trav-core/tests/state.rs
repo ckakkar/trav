@@ -248,3 +248,41 @@ async fn public_trackers_only_for_public_torrents() {
     assert_eq!(urls(&hashes[0]), ["http://own.example/announce"]);
     engine.shutdown().await;
 }
+
+#[tokio::test]
+async fn quitting_keeps_running_torrents_running() {
+    use trav_core::{AddTorrent, TorrentSource, TorrentStatus};
+    let tmp = tempfile::tempdir().unwrap();
+    let state = tmp.path().join("state");
+    let magnet = |b: u8| {
+        TorrentSource::Magnet(format!(
+            "magnet:?xt=urn:btih:{}",
+            format!("{b:02x}").repeat(20)
+        ))
+    };
+
+    let e = Engine::start_with(&state, Some(settings(tmp.path())))
+        .await
+        .unwrap();
+    let running = e.add(AddTorrent::new(magnet(0xaa))).await.unwrap();
+    let mut paused = AddTorrent::new(magnet(0xbb));
+    paused.paused = true;
+    let paused = e.add(paused).await.unwrap();
+    // What the app does on Quit: shut down, then save once more as it exits.
+    e.shutdown().await;
+    e.save_now();
+
+    let e = Engine::start_with(&state, Some(settings(tmp.path())))
+        .await
+        .unwrap();
+    let status = |hash: &str| {
+        e.snapshot()
+            .torrents
+            .iter()
+            .find(|t| t.info_hash == hash)
+            .map(|t| t.status)
+    };
+    assert_eq!(status(&running), Some(TorrentStatus::Metadata));
+    assert_eq!(status(&paused), Some(TorrentStatus::Paused));
+    e.shutdown().await;
+}

@@ -245,7 +245,7 @@ fn forward_events(app: AppHandle, engine: EngineHandle) {
 }
 
 fn state_dir() -> PathBuf {
-    // Shared with the `trav` CLI so both front-ends see the same library.
+    // TRAV_STATE_DIR points it at another library (a scratch one for testing).
     std::env::var_os("TRAV_STATE_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|| {
