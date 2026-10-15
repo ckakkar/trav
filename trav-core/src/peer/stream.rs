@@ -1,5 +1,5 @@
-//! A peer connection's byte stream: plain TCP, or RC4-encrypted after an
-//! MSE/PE handshake (see `mse`).
+//! A peer connection's byte stream: TCP or µTP underneath, in the clear or
+//! RC4-encrypted after an MSE/PE handshake (see `mse`).
 
 use std::io;
 use std::os::fd::{AsRawFd, RawFd};
@@ -8,6 +8,85 @@ use std::task::{Context, Poll, ready};
 
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::net::TcpStream;
+
+use crate::utp::{UtpProbe, UtpStream};
+
+/// The connection under the BitTorrent stream.
+#[derive(Debug)]
+pub enum Transport {
+    Tcp(TcpStream),
+    Utp(UtpStream),
+}
+
+impl Transport {
+    pub fn is_utp(&self) -> bool {
+        matches!(self, Self::Utp(_))
+    }
+
+    pub fn probe(&self) -> RttProbe {
+        match self {
+            Self::Tcp(t) => RttProbe::Tcp(t.as_raw_fd()),
+            Self::Utp(u) => RttProbe::Utp(u.probe()),
+        }
+    }
+}
+
+impl AsyncRead for Transport {
+    fn poll_read(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
+        match self.get_mut() {
+            Self::Tcp(t) => Pin::new(t).poll_read(cx, buf),
+            Self::Utp(u) => Pin::new(u).poll_read(cx, buf),
+        }
+    }
+}
+
+impl AsyncWrite for Transport {
+    fn poll_write(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        data: &[u8],
+    ) -> Poll<io::Result<usize>> {
+        match self.get_mut() {
+            Self::Tcp(t) => Pin::new(t).poll_write(cx, data),
+            Self::Utp(u) => Pin::new(u).poll_write(cx, data),
+        }
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        match self.get_mut() {
+            Self::Tcp(t) => Pin::new(t).poll_flush(cx),
+            Self::Utp(u) => Pin::new(u).poll_flush(cx),
+        }
+    }
+
+    fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        match self.get_mut() {
+            Self::Tcp(t) => Pin::new(t).poll_shutdown(cx),
+            Self::Utp(u) => Pin::new(u).poll_shutdown(cx),
+        }
+    }
+}
+
+/// Reads a connection's smoothed round-trip time while the stream itself is
+/// busy inside a codec.
+pub enum RttProbe {
+    /// The kernel's estimate for this TCP socket (valid while it is open).
+    Tcp(RawFd),
+    Utp(UtpProbe),
+}
+
+impl RttProbe {
+    pub fn srtt_ms(&self) -> Option<u32> {
+        match self {
+            Self::Tcp(fd) => crate::rtt::srtt_ms(*fd),
+            Self::Utp(p) => p.srtt().map(|d| d.as_millis().max(1) as u32),
+        }
+    }
+}
 
 /// RC4 with the first 1024 keystream bytes dropped, as MSE specifies.
 pub(crate) struct Rc4 {
@@ -44,7 +123,7 @@ impl Rc4 {
 }
 
 pub struct PeerStream {
-    tcp: TcpStream,
+    io: Transport,
     /// Bytes the handshake already read off the socket, ready for the reader.
     prefix: Vec<u8>,
     prefix_pos: usize,
@@ -56,14 +135,14 @@ pub struct PeerStream {
 }
 
 impl PeerStream {
-    pub fn plain(tcp: TcpStream) -> Self {
-        Self::new(tcp, Vec::new(), None)
+    pub fn plain(io: Transport) -> Self {
+        Self::new(io, Vec::new(), None)
     }
 
-    pub(crate) fn new(tcp: TcpStream, prefix: Vec<u8>, ciphers: Option<(Rc4, Rc4)>) -> Self {
+    pub(crate) fn new(io: Transport, prefix: Vec<u8>, ciphers: Option<(Rc4, Rc4)>) -> Self {
         let (rx, tx) = ciphers.map_or((None, None), |(rx, tx)| (Some(rx), Some(tx)));
         Self {
-            tcp,
+            io,
             prefix,
             prefix_pos: 0,
             rx,
@@ -73,34 +152,32 @@ impl PeerStream {
         }
     }
 
-    /// Plain TCP with bytes already read from it (e.g. while sniffing the protocol).
-    pub(crate) fn with_prefix(tcp: TcpStream, prefix: Vec<u8>) -> Self {
-        Self::new(tcp, prefix, None)
+    /// In the clear, with bytes already read from it (e.g. while sniffing the protocol).
+    pub(crate) fn with_prefix(io: Transport, prefix: Vec<u8>) -> Self {
+        Self::new(io, prefix, None)
     }
 
     pub fn encrypted(&self) -> bool {
         self.tx.is_some()
     }
 
-    pub fn set_nodelay(&self, on: bool) -> io::Result<()> {
-        self.tcp.set_nodelay(on)
+    pub fn is_utp(&self) -> bool {
+        self.io.is_utp()
+    }
+
+    pub fn rtt_probe(&self) -> RttProbe {
+        self.io.probe()
     }
 
     fn drain(&mut self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         while self.wpos < self.wbuf.len() {
-            let n = ready!(Pin::new(&mut self.tcp).poll_write(cx, &self.wbuf[self.wpos..]))?;
+            let n = ready!(Pin::new(&mut self.io).poll_write(cx, &self.wbuf[self.wpos..]))?;
             if n == 0 {
                 return Poll::Ready(Err(io::ErrorKind::WriteZero.into()));
             }
             self.wpos += n;
         }
         Poll::Ready(Ok(()))
-    }
-}
-
-impl AsRawFd for PeerStream {
-    fn as_raw_fd(&self) -> RawFd {
-        self.tcp.as_raw_fd()
     }
 }
 
@@ -122,7 +199,7 @@ impl AsyncRead for PeerStream {
             return Poll::Ready(Ok(()));
         }
         let before = buf.filled().len();
-        ready!(Pin::new(&mut me.tcp).poll_read(cx, buf))?;
+        ready!(Pin::new(&mut me.io).poll_read(cx, buf))?;
         if let Some(rx) = me.rx.as_mut() {
             rx.apply(&mut buf.filled_mut()[before..]);
         }
@@ -138,7 +215,7 @@ impl AsyncWrite for PeerStream {
     ) -> Poll<io::Result<usize>> {
         let me = self.get_mut();
         if me.tx.is_none() {
-            return Pin::new(&mut me.tcp).poll_write(cx, data);
+            return Pin::new(&mut me.io).poll_write(cx, data);
         }
         // The keystream has advanced over earlier bytes: send those first.
         ready!(me.drain(cx))?;
@@ -159,13 +236,13 @@ impl AsyncWrite for PeerStream {
     fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         let me = self.get_mut();
         ready!(me.drain(cx))?;
-        Pin::new(&mut me.tcp).poll_flush(cx)
+        Pin::new(&mut me.io).poll_flush(cx)
     }
 
     fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         let me = self.get_mut();
         ready!(me.drain(cx))?;
-        Pin::new(&mut me.tcp).poll_shutdown(cx)
+        Pin::new(&mut me.io).poll_shutdown(cx)
     }
 }
 

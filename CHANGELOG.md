@@ -6,6 +6,23 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+Every way other clients reach more peers and download faster: µTP and NAT hole punching, web seeds, the Fast extension, local peer discovery and NAT-PMP.
+
+### Added
+- µTP (BEP 29): BitTorrent over UDP with LEDBAT congestion control, selective acks, fast retransmit and slow start, on the same port as TCP (the DHT shares its socket). Checked against libtorrent, the engine inside qBittorrent and Deluge, both ways over TCP and µTP. Settings › Network › µTP & hole punching; the Peers tab marks µTP peers **P**.
+- NAT hole punching (BEP 55): peers behind home routers and carrier-grade NAT, which couldn't be reached at all before, are connected through a peer connected to both; both sides dial at once over µTP. Trav introduces peers to each other the same way. Marked **h**.
+- Web seeds (BEP 19): HTTP mirrors from a torrent's `url-list` or a magnet's `ws=` download alongside peers, four range requests at a time, in runs of whole pieces where the swarm is thinnest. Their data is hash-checked; a mirror that serves bad data, is gone or ignores ranges is dropped. They appear in the Peers tab (**W** while sending). An Internet Archive torrent with no peers online downloaded at about 1.7 MiB/s.
+- Fast extension (BEP 6): Have All/Have None, Reject and Allowed Fast both ways, so peers that choke us still hand over a few pieces and refused requests go back to the pool at once.
+- Local peer discovery (BEP 14): other clients on your network are found by multicast and dialled first (Settings › Network; marked **L**).
+- NAT-PMP port mapping when the router doesn't do UPnP (Settings › Network › Port forwarding).
+
+### Changed
+- Connections go TCP first, with µTP joining a second later only if TCP hasn't connected, or at once when TCP is refused or accepted and dropped. On the same Ubuntu swarm this averaged 4.4 to 4.6 MiB/s (the full line), against 2.9 TCP-only and 1.8 µTP-first.
+- PEX messages carry peer flags (encryption, seed, µTP, hole punching).
+- Two connections to the same peer (as hole punching makes) are resolved the way libtorrent does, so both ends keep the same one.
+
+## [0.3.37] - 2026-10-14
+
 Faster starts and finishes, encryption, a menu bar icon that shows what's happening, and motion throughout.
 
 ### Added

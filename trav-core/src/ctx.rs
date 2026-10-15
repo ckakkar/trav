@@ -12,18 +12,25 @@ use crate::limiter::RateLimiter;
 use crate::message::Event;
 use crate::persist::Store;
 use crate::settings::Settings;
+use crate::utp::UtpSocket;
 
-/// Outbound TCP handshakes allowed in flight at once across the session.
+/// Outbound connection attempts allowed in flight at once across the session.
 pub const HALF_OPEN_LIMIT: usize = 100;
 
 pub(crate) struct Ctx {
     pub peer_id: [u8; 20],
     pub listen_port: AtomicU16,
+    /// The outside port a NAT-PMP router gave us, when not `listen_port` (0).
+    pub public_port: AtomicU16,
     pub settings: RwLock<Settings>,
     pub down: RateLimiter,
     pub up: RateLimiter,
     pub dht: RwLock<Option<Dht>>,
+    /// The UDP socket on the listen port (µTP, shared with the DHT).
+    pub utp: RwLock<Option<UtpSocket>>,
     pub http: reqwest::Client,
+    /// For web seeds (see `tracker::web_seed_client`).
+    pub web: reqwest::Client,
     pub events: broadcast::Sender<Event>,
     pub half_open: Arc<Semaphore>,
     pub connections: AtomicUsize,
@@ -46,8 +53,24 @@ impl Ctx {
         let _ = self.events.send(e);
     }
 
+    /// The port to tell trackers, the DHT and peers to reach us on.
+    pub fn public_port(&self) -> u16 {
+        match self.public_port.load(std::sync::atomic::Ordering::Relaxed) {
+            0 => self.listen_port.load(std::sync::atomic::Ordering::Relaxed),
+            p => p,
+        }
+    }
+
     pub fn dht(&self) -> Option<Dht> {
         self.dht.read().clone()
+    }
+
+    /// The µTP socket to dial with, if µTP is on.
+    pub fn utp(&self) -> Option<UtpSocket> {
+        if !self.settings.read().enable_utp {
+            return None;
+        }
+        self.utp.read().clone()
     }
 }
 

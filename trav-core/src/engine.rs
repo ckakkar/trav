@@ -25,10 +25,12 @@ use crate::magnet::Magnet;
 use crate::message::Event;
 use crate::metainfo::{InfoHash, Metainfo};
 use crate::peer::handshake::{self, Handshake};
+use crate::peer::stream::Transport;
 use crate::persist::Store;
 use crate::settings::Settings;
 use crate::snapshot::{EngineSnapshot, GlobalStats, PreviewFile, TorrentDetails, TorrentPreview};
 use crate::torrent::{Cmd, PeerSource, Torrent, TorrentInit, now_unix};
+use crate::utp::UtpSocket;
 
 const SNAPSHOT_INTERVAL: Duration = Duration::from_millis(500);
 const SAVE_INTERVAL: Duration = Duration::from_secs(20);
@@ -84,6 +86,7 @@ struct Session {
     torrents: RwLock<HashMap<InfoHash, Arc<Torrent>>>,
     snapshot_tx: watch::Sender<Arc<EngineSnapshot>>,
     listener: parking_lot::Mutex<Option<JoinHandle<()>>>,
+    utp_listener: parking_lot::Mutex<Option<JoinHandle<()>>>,
     running: AtomicBool,
     seq: AtomicU64,
     governor: parking_lot::Mutex<UploadGovernor>,
@@ -126,11 +129,14 @@ impl Engine {
         let ctx = Arc::new(Ctx {
             peer_id: generate_peer_id(),
             listen_port: AtomicU16::new(0),
+            public_port: AtomicU16::new(0),
             down: RateLimiter::new(settings.download_limit),
             up: RateLimiter::new(settings.upload_limit),
             settings: RwLock::new(settings),
             dht: RwLock::new(None),
+            utp: RwLock::new(None),
             http: crate::tracker::http_client(),
+            web: crate::tracker::web_seed_client(),
             events,
             half_open: Arc::new(Semaphore::new(HALF_OPEN_LIMIT)),
             connections: AtomicUsize::new(0),
@@ -151,6 +157,7 @@ impl Engine {
             torrents: RwLock::new(HashMap::new()),
             snapshot_tx,
             listener: parking_lot::Mutex::new(None),
+            utp_listener: parking_lot::Mutex::new(None),
             running: AtomicBool::new(true),
             seq: AtomicU64::new(0),
             governor: parking_lot::Mutex::new(UploadGovernor::default()),
@@ -159,6 +166,7 @@ impl Engine {
         s.bind_listener().await;
         s.start_dht().await;
         s.spawn_tracker_list_refresh();
+        s.spawn_lsd();
         crate::upnp::spawn(Arc::downgrade(&s.ctx));
         s.load_persisted().await;
         s.apply_queue();
@@ -222,32 +230,55 @@ impl Engine {
 }
 
 impl Session {
+    /// Bind the listen port: TCP for peers, and UDP on the same number for
+    /// µTP and the DHT. Falls back to nearby ports, then any, if it's taken.
     async fn bind_listener(self: &Arc<Self>) {
         if let Some(h) = self.listener.lock().take() {
             h.abort();
         }
+        if let Some(h) = self.utp_listener.lock().take() {
+            h.abort();
+        }
+        let old = self.ctx.utp.write().take();
+        if let Some(old) = old {
+            old.close();
+        }
         let want = self.ctx.settings.read().listen_port;
         let mut bound = None;
+        let mut tcp_only = None;
         for port in std::iter::once(want)
             .chain((1..=10).map(|i| want.wrapping_add(i)))
-            .chain(std::iter::once(0))
+            .chain(std::iter::repeat_n(0, 5))
         {
-            if let Some(l) = bind_dual_stack(port) {
-                bound = Some(l);
-                break;
-            }
-            if let Ok(l) = TcpListener::bind(("0.0.0.0", port)).await {
-                bound = Some(l);
-                break;
+            let tcp = match bind_dual_stack(port) {
+                Some(l) => l,
+                None => match TcpListener::bind(("0.0.0.0", port)).await {
+                    Ok(l) => l,
+                    Err(_) => continue,
+                },
+            };
+            let got = tcp.local_addr().map(|a| a.port()).unwrap_or(0);
+            match UtpSocket::bind(got).await {
+                Ok(udp) => {
+                    bound = Some((tcp, Some(udp)));
+                    break;
+                }
+                Err(e) => {
+                    debug!("UDP port {got} unavailable: {e}");
+                    tcp_only.get_or_insert(tcp);
+                }
             }
         }
-        let Some(listener) = bound else {
+        let Some((listener, udp)) = bound.or(tcp_only.map(|t| (t, None))) else {
             warn!("could not bind any listen port; incoming connections disabled");
             return;
         };
         let port = listener.local_addr().map(|a| a.port()).unwrap_or(0);
         self.ctx.listen_port.store(port, Ordering::Relaxed);
-        info!("listening for peers on TCP {port}");
+        info!(
+            "listening for peers on TCP {port}{}",
+            if udp.is_some() { " and µTP" } else { "" }
+        );
 
         let weak = Arc::downgrade(self);
         let handle = tokio::spawn(async move {
@@ -257,13 +288,26 @@ impl Session {
                     continue;
                 };
                 let Some(s) = weak.upgrade() else { break };
-                tokio::spawn(async move { s.accept(stream, addr).await });
+                tokio::spawn(async move { s.accept(Transport::Tcp(stream), addr).await });
             }
         });
         *self.listener.lock() = Some(handle);
+
+        if let Some(udp) = udp {
+            udp.set_accepting(self.ctx.settings.read().enable_utp);
+            *self.ctx.utp.write() = Some(udp.clone());
+            let weak = Arc::downgrade(self);
+            let handle = tokio::spawn(async move {
+                while let Some((stream, addr)) = udp.accept().await {
+                    let Some(s) = weak.upgrade() else { break };
+                    tokio::spawn(async move { s.accept(Transport::Utp(stream), addr).await });
+                }
+            });
+            *self.utp_listener.lock() = Some(handle);
+        }
     }
 
-    async fn accept(self: Arc<Self>, stream: tokio::net::TcpStream, addr: SocketAddr) {
+    async fn accept(self: Arc<Self>, stream: Transport, addr: SocketAddr) {
         // Dual-stack sockets report IPv4 peers as ::ffff:a.b.c.d.
         let addr = SocketAddr::new(addr.ip().to_canonical(), addr.port());
         let (global, enc) = {
@@ -291,7 +335,7 @@ impl Session {
         }
         let ours = Handshake::ours(theirs.info_hash, self.ctx.peer_id);
         if handshake::write_handshake(&mut stream, &ours).await.is_ok() {
-            t.attach(stream, theirs, addr, PeerSource::Incoming);
+            t.attach(stream, theirs, addr, PeerSource::Incoming, false);
         }
     }
 
@@ -321,6 +365,81 @@ impl Session {
         });
     }
 
+    /// Local peer discovery: announce our torrents on the LAN every few
+    /// minutes (new ones within seconds) and add the peers others announce.
+    fn spawn_lsd(self: &Arc<Self>) {
+        let weak = Arc::downgrade(self);
+        tokio::spawn(async move {
+            let sock = match crate::lsd::bind() {
+                Ok(s) => s,
+                Err(e) => {
+                    debug!("local peer discovery unavailable: {e}");
+                    return;
+                }
+            };
+            let cookie = hex::encode(rand::random::<[u8; 6]>());
+            let group = SocketAddr::from((crate::lsd::GROUP, crate::lsd::PORT));
+            let mut last: HashMap<InfoHash, std::time::Instant> = HashMap::new();
+            let mut tick = tokio::time::interval(Duration::from_secs(5));
+            let mut buf = [0u8; 2048];
+            loop {
+                tokio::select! {
+                    r = sock.recv_from(&mut buf) => {
+                        let Ok((n, from)) = r else { continue };
+                        let Some(s) = weak.upgrade() else { break };
+                        if !s.ctx.settings.read().enable_lsd {
+                            continue;
+                        }
+                        let Some(a) = crate::lsd::parse(&buf[..n]) else { continue };
+                        if a.cookie.as_deref() == Some(cookie.as_str()) {
+                            continue;
+                        }
+                        let peer = SocketAddr::new(from.ip().to_canonical(), a.port);
+                        for ih in a.hashes {
+                            let t = s.torrents.read().get(&ih).cloned();
+                            if let Some(t) = t.filter(|t| t.lsd_ok()) {
+                                debug!("local peer {peer} for {}", hex::encode(ih));
+                                t.send(Cmd::AddPeers(vec![peer], PeerSource::Lsd));
+                                // Answer soon so they find us too.
+                                if last.get(&ih).is_some_and(|t| t.elapsed() > Duration::from_secs(60)) {
+                                    last.remove(&ih);
+                                }
+                            }
+                        }
+                    }
+                    _ = tick.tick() => {
+                        let Some(s) = weak.upgrade() else { break };
+                        if !s.running.load(Ordering::Relaxed) {
+                            break;
+                        }
+                        if !s.ctx.settings.read().enable_lsd {
+                            continue;
+                        }
+                        let port = s.ctx.listen_port.load(Ordering::Relaxed);
+                        let due: Vec<InfoHash> = s
+                            .torrents
+                            .read()
+                            .values()
+                            .filter(|t| t.lsd_ok())
+                            .map(|t| t.info_hash)
+                            .filter(|ih| last.get(ih).is_none_or(|t| t.elapsed() >= Duration::from_secs(300)))
+                            .collect();
+                        drop(s);
+                        for chunk in due.chunks(8) {
+                            let msg = crate::lsd::message(port, chunk, &cookie);
+                            if sock.send_to(msg.as_bytes(), group).await.is_ok() {
+                                let now = std::time::Instant::now();
+                                for ih in chunk {
+                                    last.insert(*ih, now);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
+
     fn trackers_changed(&self) {
         for t in self.torrents.read().values() {
             t.send(Cmd::TrackersChanged);
@@ -333,11 +452,22 @@ impl Session {
         if let Some(old) = old {
             old.stop();
         }
+        if let Some(utp) = self.ctx.utp.read().as_ref() {
+            utp.set_other(None);
+        }
         if !self.ctx.settings.read().enable_dht {
             return;
         }
         let port = self.ctx.listen_port.load(Ordering::Relaxed);
         let known: Vec<SocketAddr> = self.ctx.store.load("dht.json").unwrap_or_default();
+        let utp = self.ctx.utp.read().clone();
+        if let Some(utp) = utp {
+            // Share the µTP socket, as other clients do: one UDP port to open.
+            let (tx, rx) = tokio::sync::mpsc::channel(1024);
+            utp.set_other(Some(tx));
+            *self.ctx.dht.write() = Some(Dht::start_on(utp.sender(), rx, known));
+            return;
+        }
         match Dht::start(port, known).await {
             Ok(d) => *self.ctx.dht.write() = Some(d),
             Err(e) => warn!("DHT failed to start: {e}"),
@@ -734,6 +864,9 @@ impl EngineHandle {
         if old.listen_port != new.listen_port || old.enable_dht != new.enable_dht {
             self.s.start_dht().await;
         }
+        if let Some(u) = self.s.ctx.utp.read().as_ref() {
+            u.set_accepting(new.enable_utp);
+        }
         if old.public_trackers != new.public_trackers {
             self.s.trackers_changed();
         }
@@ -797,12 +930,19 @@ impl EngineHandle {
         if let Some(h) = self.s.listener.lock().take() {
             h.abort();
         }
+        if let Some(h) = self.s.utp_listener.lock().take() {
+            h.abort();
+        }
         let dht = self.s.ctx.dht.write().take();
         if let Some(d) = dht {
             d.stop();
         }
-        // Give the fire-and-forget "stopped" announces a moment to leave.
+        // Give the fire-and-forget "stopped" announces (and µTP goodbyes) a moment to leave.
         tokio::time::sleep(Duration::from_millis(300)).await;
+        let utp = self.s.ctx.utp.write().take();
+        if let Some(u) = utp {
+            u.close();
+        }
         self.s.ctx.store.unlock();
     }
 }

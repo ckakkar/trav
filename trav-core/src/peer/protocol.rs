@@ -36,6 +36,20 @@ pub enum PeerMessage {
     Port {
         listen_port: u16,
     },
+    // BEP 6 (Fast extension).
+    Suggest {
+        piece_index: u32,
+    },
+    HaveAll,
+    HaveNone,
+    Reject {
+        index: u32,
+        begin: u32,
+        length: u32,
+    },
+    AllowedFast {
+        piece_index: u32,
+    },
     Extended {
         extended_id: u8,
         payload: Bytes,
@@ -97,22 +111,43 @@ impl Decoder for PeerCodec {
                 }
             }
             5 => PeerMessage::Bitfield { payload: body },
-            6 | 8 => {
+            6 | 8 | 16 => {
                 need(12)?;
                 let (index, begin, length) = (body.get_u32(), body.get_u32(), body.get_u32());
-                if id == 6 {
-                    PeerMessage::Request {
+                match id {
+                    6 => PeerMessage::Request {
                         index,
                         begin,
                         length,
-                    }
-                } else {
-                    PeerMessage::Cancel {
+                    },
+                    8 => PeerMessage::Cancel {
                         index,
                         begin,
                         length,
-                    }
+                    },
+                    _ => PeerMessage::Reject {
+                        index,
+                        begin,
+                        length,
+                    },
                 }
+            }
+            13 | 17 => {
+                need(4)?;
+                let piece_index = body.get_u32();
+                if id == 13 {
+                    PeerMessage::Suggest { piece_index }
+                } else {
+                    PeerMessage::AllowedFast { piece_index }
+                }
+            }
+            14 => {
+                need(0)?;
+                PeerMessage::HaveAll
+            }
+            15 => {
+                need(0)?;
+                PeerMessage::HaveNone
             }
             7 => {
                 if n < 8 {
@@ -167,6 +202,17 @@ impl Encoder<PeerMessage> for PeerCodec {
                 dst.put_u8(4);
                 dst.put_u32(piece_index);
             }
+            PeerMessage::Suggest { piece_index } | PeerMessage::AllowedFast { piece_index } => {
+                dst.put_u32(5);
+                dst.put_u8(if matches!(item, PeerMessage::Suggest { .. }) {
+                    13
+                } else {
+                    17
+                });
+                dst.put_u32(piece_index);
+            }
+            PeerMessage::HaveAll => simple(dst, 14),
+            PeerMessage::HaveNone => simple(dst, 15),
             PeerMessage::Bitfield { payload } => {
                 dst.reserve(5 + payload.len());
                 dst.put_u32(1 + payload.len() as u32);
@@ -182,11 +228,16 @@ impl Encoder<PeerMessage> for PeerCodec {
                 index,
                 begin,
                 length,
+            }
+            | PeerMessage::Reject {
+                index,
+                begin,
+                length,
             } => {
-                let id = if matches!(item, PeerMessage::Request { .. }) {
-                    6
-                } else {
-                    8
+                let id = match item {
+                    PeerMessage::Request { .. } => 6,
+                    PeerMessage::Cancel { .. } => 8,
+                    _ => 16,
                 };
                 dst.put_u32(13);
                 dst.put_u8(id);
@@ -258,6 +309,15 @@ mod tests {
             PeerMessage::Extended {
                 extended_id: 0,
                 payload: Bytes::from_static(b"de"),
+            },
+            PeerMessage::HaveAll,
+            PeerMessage::HaveNone,
+            PeerMessage::Suggest { piece_index: 3 },
+            PeerMessage::AllowedFast { piece_index: 9 },
+            PeerMessage::Reject {
+                index: 2,
+                begin: 16384,
+                length: 16384,
             },
         ];
         let mut buf = BytesMut::new();

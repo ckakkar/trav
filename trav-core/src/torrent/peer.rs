@@ -10,7 +10,6 @@
 
 use std::collections::VecDeque;
 use std::net::SocketAddr;
-use std::os::fd::{AsRawFd, RawFd};
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
@@ -27,12 +26,13 @@ use crate::bitfield::Bitfield;
 use crate::error::{Error, Result, proto};
 use crate::governor::RttSample;
 use crate::peer::extension::{
-    ExtHandshake, METADATA_PIECE, MetadataMsg, PexMsg, UT_METADATA, UT_PEX,
+    ExtHandshake, HolepunchMsg, METADATA_PIECE, MetadataMsg, PexMsg, UT_HOLEPUNCH, UT_METADATA,
+    UT_PEX,
 };
 use crate::peer::handshake::Handshake;
 use crate::peer::protocol::{MAX_BLOCK_LEN, PeerCodec, PeerMessage};
-use crate::peer::stream::PeerStream;
-use crate::picker::{BLOCK_SIZE, BlockReq, OnBlock, PeerKey};
+use crate::peer::stream::{PeerStream, RttProbe};
+use crate::picker::{BLOCK_SIZE, BlockReq, PeerKey};
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 const SNUB_AFTER: Duration = Duration::from_secs(60);
@@ -57,6 +57,39 @@ impl Drop for AbortOnDrop {
 struct UploadQueue {
     q: Mutex<VecDeque<BlockReq>>,
     notify: Notify,
+    /// Both sides speak the Fast extension: refusals are said out loud.
+    fast: bool,
+    /// Pieces we told the peer it may have while choked (BEP 6 allowed fast).
+    allowed: Mutex<Vec<u32>>,
+}
+
+/// Allowed-fast pieces given to each peer (libtorrent's default).
+const ALLOWED_FAST: usize = 5;
+
+/// BEP 6's canonical allowed-fast set for a peer: derived from its address
+/// (the /24 for IPv4) and the info-hash, so every client agrees on it.
+fn allowed_fast_set(ip: std::net::IpAddr, info_hash: &[u8; 20], pieces: u32, k: usize) -> Vec<u32> {
+    use sha1::{Digest, Sha1};
+    let std::net::IpAddr::V4(v4) = ip.to_canonical() else {
+        return Vec::new();
+    };
+    let k = k.min(pieces as usize);
+    let mut x: Vec<u8> = (u32::from(v4) & 0xffff_ff00).to_be_bytes().to_vec();
+    x.extend_from_slice(info_hash);
+    let mut set = Vec::with_capacity(k);
+    while set.len() < k {
+        x = Sha1::digest(&x).to_vec();
+        for chunk in x.chunks(4) {
+            if set.len() >= k {
+                break;
+            }
+            let i = u32::from_be_bytes(chunk.try_into().expect("4 bytes")) % pieces;
+            if !set.contains(&i) {
+                set.push(i);
+            }
+        }
+    }
+    set
 }
 
 pub(super) async fn run(
@@ -71,10 +104,15 @@ pub(super) async fn run(
         t: t.clone(),
         key,
         addr,
-        fd: stream.as_raw_fd(),
+        rtt: stream.rtt_probe(),
         base_rtt: u32::MAX,
         out: None,
-        uploads: Arc::new(UploadQueue::default()),
+        fast: hs.supports_fast(),
+        allowed_fast: Vec::new(),
+        uploads: Arc::new(UploadQueue {
+            fast: hs.supports_fast(),
+            ..UploadQueue::default()
+        }),
         pending: Vec::new(),
         am_interested: false,
         peer_choking: true,
@@ -98,11 +136,15 @@ struct Conn {
     t: Arc<Torrent>,
     key: PeerKey,
     addr: SocketAddr,
-    /// The socket, for reading the kernel's RTT estimate (open while `session` runs).
-    fd: RawFd,
+    /// Reads the connection's RTT estimate (the kernel's for TCP, ours for µTP).
+    rtt: RttProbe,
     /// Lowest smoothed RTT seen on this connection: the path without queueing.
     base_rtt: u32,
     out: Option<mpsc::Sender<PeerMessage>>,
+    /// Both sides speak the Fast extension (BEP 6).
+    fast: bool,
+    /// Pieces this peer lets us download while it chokes us.
+    allowed_fast: Vec<u32>,
     uploads: Arc<UploadQueue>,
     pending: Vec<(BlockReq, Instant)>,
     am_interested: bool,
@@ -217,19 +259,41 @@ impl Conn {
             let st = self.t.st.lock();
             let s = self.t.ctx.settings.read();
             let private = st.meta.as_ref().is_some_and(|m| m.info.private);
+            let holepunch = s.enable_utp && !private && self.t.ctx.utp.read().is_some();
             let ext = hs.supports_extensions().then(|| {
                 ExtHandshake::ours(
                     st.meta.as_ref().map(|m| m.info.raw.len()),
-                    self.t.ctx.listen_port.load(Ordering::Relaxed),
+                    self.t.ctx.public_port(),
                     self.addr.ip(),
                     s.enable_pex && !private,
+                    holepunch,
                 )
             });
-            let bf = st
-                .picker
-                .as_ref()
-                .filter(|p| p.have().count_ones() > 0)
-                .map(|p| Bytes::copy_from_slice(p.have().as_bytes()));
+            let have = st.picker.as_ref().map_or(0, |p| p.have().count_ones());
+            let bf = match st.picker.as_ref() {
+                Some(p) if self.fast && p.is_complete() => Some(PeerMessage::HaveAll),
+                Some(p) if have > 0 => Some(PeerMessage::Bitfield {
+                    payload: Bytes::copy_from_slice(p.have().as_bytes()),
+                }),
+                _ if self.fast => Some(PeerMessage::HaveNone),
+                _ => None,
+            };
+            // Pieces it may take from us even while choked (only ones we have).
+            if self.fast
+                && let Some(p) = st.picker.as_ref()
+                && have > 0
+            {
+                let set = allowed_fast_set(
+                    self.addr.ip(),
+                    &self.t.info_hash,
+                    p.num_pieces() as u32,
+                    ALLOWED_FAST,
+                );
+                *self.uploads.allowed.lock() = set
+                    .into_iter()
+                    .filter(|&i| p.have().get(i as usize))
+                    .collect();
+            }
             let dht = (hs.supports_dht() && s.enable_dht && !private)
                 .then(|| self.t.ctx.dht().map(|d| d.port()))
                 .flatten();
@@ -242,8 +306,12 @@ impl Conn {
             })
             .await?;
         }
-        if let Some(payload) = bitfield {
-            self.send(PeerMessage::Bitfield { payload }).await?;
+        if let Some(m) = bitfield {
+            self.send(m).await?;
+        }
+        let allowed = self.uploads.allowed.lock().clone();
+        for piece_index in allowed {
+            self.send(PeerMessage::AllowedFast { piece_index }).await?;
         }
         if let Some(port) = dht_port {
             self.send(PeerMessage::Port { listen_port: port }).await?;
@@ -262,8 +330,21 @@ impl Conn {
                 }
             }
             PeerCmd::Choke => {
-                self.uploads.q.lock().clear();
                 self.send(PeerMessage::Choke).await?;
+                // Requests for allowed-fast pieces stand; the rest are refused.
+                let dropped: Vec<BlockReq> = {
+                    let allowed = self.uploads.allowed.lock().clone();
+                    let mut q = self.uploads.q.lock();
+                    let (keep, drop): (VecDeque<_>, VecDeque<_>) =
+                        q.drain(..).partition(|r| allowed.contains(&r.piece));
+                    *q = keep;
+                    drop.into()
+                };
+                if self.fast {
+                    for r in dropped {
+                        self.reject(r).await?;
+                    }
+                }
             }
             PeerCmd::Unchoke => self.send(PeerMessage::Unchoke).await?,
             PeerCmd::Cancel(r) => {
@@ -300,9 +381,78 @@ impl Conn {
             PeerMessage::KeepAlive | PeerMessage::Unknown { .. } => {}
             PeerMessage::Choke => {
                 self.peer_choking = true;
-                self.release_all();
+                if self.fast && !self.allowed_fast.is_empty() {
+                    // Allowed-fast requests survive a choke (BEP 6); the rest
+                    // go back to the pool rather than waiting for rejects.
+                    let (keep, gone): (Vec<_>, Vec<_>) = self
+                        .pending
+                        .drain(..)
+                        .partition(|(r, _)| self.allowed_fast.contains(&r.piece));
+                    self.pending = keep;
+                    if let Some(pk) = self.t.st.lock().picker.as_mut() {
+                        for (r, _) in &gone {
+                            pk.release(self.key, r);
+                        }
+                    }
+                } else {
+                    self.release_all();
+                }
                 self.with_peer(|p| p.peer_choking = true);
             }
+            PeerMessage::HaveAll | PeerMessage::HaveNone => {
+                if !self.fast {
+                    return Err(proto("have-all/none without the fast extension"));
+                }
+                if self.got_bitfield {
+                    return Err(proto("duplicate bitfield"));
+                }
+                self.got_bitfield = true;
+                if matches!(msg, PeerMessage::HaveAll) {
+                    let mut st = self.t.st.lock();
+                    let n = st.meta.as_ref().map(|m| m.info.num_pieces());
+                    let st = &mut *st;
+                    if let Some(p) = st.peers.get_mut(&self.key) {
+                        p.have_all = true;
+                        if let Some(n) = n {
+                            let bf = Bitfield::full(n);
+                            if let Some(pk) = st.picker.as_mut() {
+                                pk.remove_bitfield(&p.bitfield);
+                                pk.add_bitfield(&bf);
+                            }
+                            p.bitfield = bf;
+                        }
+                    }
+                }
+                self.update_interest().await?;
+            }
+            PeerMessage::AllowedFast { piece_index } => {
+                let n = self.t.st.lock().meta.as_ref().map(|m| m.info.num_pieces());
+                if self.fast
+                    && n.is_none_or(|n| (piece_index as usize) < n)
+                    && self.allowed_fast.len() < 64
+                    && !self.allowed_fast.contains(&piece_index)
+                {
+                    self.allowed_fast.push(piece_index);
+                }
+            }
+            PeerMessage::Reject {
+                index,
+                begin,
+                length,
+            } => {
+                let r = BlockReq {
+                    piece: index,
+                    begin,
+                    len: length,
+                };
+                if let Some(i) = self.pending.iter().position(|(p, _)| *p == r) {
+                    self.pending.swap_remove(i);
+                    if let Some(pk) = self.t.st.lock().picker.as_mut() {
+                        pk.release(self.key, &r);
+                    }
+                }
+            }
+            PeerMessage::Suggest { .. } => {}
             PeerMessage::Unchoke => {
                 self.peer_choking = false;
                 self.last_piece = Instant::now();
@@ -379,7 +529,7 @@ impl Conn {
                 index,
                 begin,
                 length,
-            } => self.on_request(index, begin, length),
+            } => self.on_request(index, begin, length).await?,
             PeerMessage::Cancel {
                 index,
                 begin,
@@ -390,7 +540,16 @@ impl Conn {
                     begin,
                     len: length,
                 };
-                self.uploads.q.lock().retain(|q| *q != r);
+                let was_queued = {
+                    let mut q = self.uploads.q.lock();
+                    let before = q.len();
+                    q.retain(|q| *q != r);
+                    q.len() != before
+                };
+                // With the Fast extension every request gets a piece or a reject.
+                if was_queued && self.fast {
+                    self.reject(r).await?;
+                }
             }
             PeerMessage::Piece {
                 index,
@@ -417,10 +576,20 @@ impl Conn {
         }
     }
 
-    fn on_request(&mut self, index: u32, begin: u32, length: u32) {
+    async fn reject(&self, r: BlockReq) -> Result<()> {
+        self.send(PeerMessage::Reject {
+            index: r.piece,
+            begin: r.begin,
+            length: r.len,
+        })
+        .await
+    }
+
+    async fn on_request(&mut self, index: u32, begin: u32, length: u32) -> Result<()> {
+        let allowed = self.uploads.allowed.lock().contains(&index);
         let ok = {
             let st = self.t.st.lock();
-            let choking = st.peers.get(&self.key).is_none_or(|p| p.am_choking);
+            let choking = st.peers.get(&self.key).is_none_or(|p| p.am_choking) && !allowed;
             match st.picker.as_ref() {
                 Some(pk) if !choking && st.phase == Phase::Active => {
                     length > 0
@@ -434,18 +603,24 @@ impl Conn {
                 _ => false,
             }
         };
+        let r = BlockReq {
+            piece: index,
+            begin,
+            len: length,
+        };
         if ok {
             let mut q = self.uploads.q.lock();
             if q.len() < MAX_UPLOAD_QUEUE {
-                q.push_back(BlockReq {
-                    piece: index,
-                    begin,
-                    len: length,
-                });
+                q.push_back(r);
                 drop(q);
                 self.uploads.notify.notify_one();
+                return Ok(());
             }
         }
+        if self.fast {
+            self.reject(r).await?;
+        }
+        Ok(())
     }
 
     async fn on_piece(&mut self, index: u32, begin: u32, block: Bytes) -> Result<()> {
@@ -470,48 +645,11 @@ impl Conn {
 
         let complete = {
             let mut st = self.t.st.lock();
-            let st = &mut *st;
-            st.down.add(len as u64);
-            st.downloaded += len as u64;
             if let Some(p) = st.peers.get_mut(&self.key) {
                 p.down.add(len as u64);
                 p.last_exchange = Instant::now();
             }
-            let outcome = match st.picker.as_mut() {
-                Some(pk) => pk.on_block(self.key, index, begin, &block),
-                None => OnBlock::Rejected,
-            };
-            let cancel_peers = |ks: &[PeerKey]| {
-                let r = BlockReq {
-                    piece: index,
-                    begin,
-                    len: len as u32,
-                };
-                for k in ks {
-                    if let Some(p) = st.peers.get(k) {
-                        let _ = p.tx.send(PeerCmd::Cancel(r));
-                    }
-                }
-            };
-            match outcome {
-                OnBlock::Accepted { cancel } => {
-                    cancel_peers(&cancel);
-                    None
-                }
-                OnBlock::Complete {
-                    piece,
-                    data,
-                    contributors,
-                    cancel,
-                } => {
-                    cancel_peers(&cancel);
-                    Some((piece, data, contributors))
-                }
-                OnBlock::Rejected | OnBlock::Duplicate => {
-                    st.wasted += len as u64;
-                    None
-                }
-            }
+            super::take_block(&mut st, self.key, index, begin, &block)
         };
         if let Some((piece, data, contributors)) = complete {
             self.t.spawn_verify(piece, data, contributors);
@@ -538,6 +676,7 @@ impl Conn {
                     }
                     if let Some(p) = st.peers.get_mut(&self.key) {
                         p.ext_pex = hs.m.get("ut_pex").copied();
+                        p.ext_holepunch = hs.m.get("ut_holepunch").copied();
                         p.listen_port = hs.listen_port;
                         if let Some(v) = hs.client.filter(|v| !v.trim().is_empty()) {
                             p.client = v.chars().take(40).collect();
@@ -607,9 +746,27 @@ impl Conn {
                         .meta
                         .as_ref()
                         .is_some_and(|m| m.info.private);
-                    if !private && !pex.added.is_empty() {
-                        self.t
-                            .send(Cmd::AddPeers(pex.added, super::PeerSource::Pex));
+                    if !private && !(pex.added.is_empty() && pex.dropped.is_empty()) {
+                        self.t.send(Cmd::Pex {
+                            from: self.key,
+                            added: pex.added,
+                            dropped: pex.dropped,
+                        });
+                    }
+                }
+            }
+            UT_HOLEPUNCH => {
+                if self.t.ctx.utp().is_none() {
+                    return Ok(());
+                }
+                match HolepunchMsg::decode(&payload)? {
+                    HolepunchMsg::Rendezvous(target) => self.t.relay_holepunch(self.key, target),
+                    HolepunchMsg::Connect(addr) => self.t.send(Cmd::HolepunchConnect(addr)),
+                    HolepunchMsg::Error(addr, code) => {
+                        debug!(
+                            "peer {}: can't introduce us to {addr} (error {code})",
+                            self.addr
+                        )
                     }
                 }
             }
@@ -699,8 +856,11 @@ impl Conn {
     }
 
     async fn fill_requests(&mut self) -> Result<()> {
-        if self.peer_choking || !self.am_interested {
+        if !self.am_interested {
             return Ok(());
+        }
+        if self.peer_choking {
+            return self.fill_allowed_fast().await;
         }
         let depth = self.target_depth();
         // Refill once a quarter has come back: keeps the pipe full while still
@@ -730,6 +890,40 @@ impl Conn {
         let now = Instant::now();
         for r in reqs {
             self.pending.push((r, now));
+            self.send(PeerMessage::Request {
+                index: r.piece,
+                begin: r.begin,
+                length: r.len,
+            })
+            .await?;
+        }
+        Ok(())
+    }
+
+    /// While choked: ask for blocks of the pieces it allows us anyway.
+    async fn fill_allowed_fast(&mut self) -> Result<()> {
+        if !self.fast || self.allowed_fast.is_empty() || self.pending.len() >= MIN_DEPTH / 2 {
+            return Ok(());
+        }
+        let mut reqs = Vec::new();
+        {
+            let mut st = self.t.st.lock();
+            let st = &mut *st;
+            if st.phase != Phase::Active {
+                return Ok(());
+            }
+            if let (Some(pk), Some(p)) = (st.picker.as_mut(), st.peers.get(&self.key)) {
+                pk.pick_from(
+                    self.key,
+                    &p.bitfield,
+                    &self.allowed_fast,
+                    MIN_DEPTH - self.pending.len(),
+                    &mut reqs,
+                );
+            }
+        }
+        for r in reqs {
+            self.pending.push((r, Instant::now()));
             self.send(PeerMessage::Request {
                 index: r.piece,
                 begin: r.begin,
@@ -786,7 +980,7 @@ impl Conn {
     /// Feed the upload governor: how far this connection's RTT sits above
     /// the lowest seen on it (queueing delay), while it carries traffic.
     fn sample_rtt(&mut self, busy: bool) {
-        let Some(rtt) = crate::rtt::srtt_ms(self.fd) else {
+        let Some(rtt) = self.rtt.srtt_ms() else {
             return;
         };
         self.base_rtt = self.base_rtt.min(rtt);
@@ -814,16 +1008,29 @@ async fn uploader(
             uploads.notify.notified().await;
             continue;
         };
-        let (storage, offset) = {
+        let target = {
             let st = t.st.lock();
-            let choking = st.peers.get(&key).is_none_or(|p| p.am_choking);
+            let choking = st.peers.get(&key).is_none_or(|p| p.am_choking)
+                && !uploads.allowed.lock().contains(&r.piece);
             match (&st.storage, &st.meta) {
-                (Some(s), Some(m)) if !choking => (
+                (Some(s), Some(m)) if !choking => Some((
                     s.clone(),
                     m.info.piece_length as u64 * r.piece as u64 + r.begin as u64,
-                ),
-                _ => continue,
+                )),
+                _ => None,
             }
+        };
+        let Some((storage, offset)) = target else {
+            if uploads.fast {
+                let _ = out
+                    .send(PeerMessage::Reject {
+                        index: r.piece,
+                        begin: r.begin,
+                        length: r.len,
+                    })
+                    .await;
+            }
+            continue;
         };
         let data = match storage.read_async(offset, r.len as usize).await {
             Ok(d) => d,
@@ -854,5 +1061,18 @@ async fn uploader(
             p.up.add(n);
             p.last_exchange = Instant::now();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn allowed_fast_matches_bep6() {
+        // The worked example from BEP 6: 80.4.4.200, info-hash of 0xaa, 1313 pieces.
+        let set = super::allowed_fast_set("80.4.4.200".parse().unwrap(), &[0xaa; 20], 1313, 7);
+        assert_eq!(set, [1059, 431, 808, 1217, 287, 376, 1188]);
+        let nine = super::allowed_fast_set("80.4.4.200".parse().unwrap(), &[0xaa; 20], 1313, 9);
+        assert_eq!(nine, [1059, 431, 808, 1217, 287, 376, 1188, 353, 508]);
+        assert!(super::allowed_fast_set("::1".parse().unwrap(), &[0; 20], 10, 5).is_empty());
     }
 }

@@ -12,6 +12,8 @@ pub struct Magnet {
     pub trackers: Vec<String>,
     /// BEP 9 `x.pe` direct peer hints.
     pub peers: Vec<SocketAddr>,
+    /// BEP 19 `ws` web seeds (HTTP mirrors of the content).
+    pub web_seeds: Vec<String>,
 }
 
 /// Back-compat alias for the pre-0.2 name.
@@ -29,6 +31,7 @@ impl Magnet {
         let mut display_name = None;
         let mut trackers = Vec::new();
         let mut peers = Vec::new();
+        let mut web_seeds = Vec::new();
 
         for (key, value) in url.query_pairs() {
             match key.as_ref() {
@@ -45,6 +48,9 @@ impl Magnet {
                         peers.push(a);
                     }
                 }
+                "ws" if value.starts_with("http://") || value.starts_with("https://") => {
+                    web_seeds.push(value.into_owned())
+                }
                 _ => {}
             }
         }
@@ -55,6 +61,7 @@ impl Magnet {
             display_name,
             trackers,
             peers,
+            web_seeds,
         })
     }
 
@@ -71,6 +78,10 @@ impl Magnet {
         for p in &self.peers {
             s.push_str("&x.pe=");
             s.push_str(&p.to_string());
+        }
+        for w in &self.web_seeds {
+            s.push_str("&ws=");
+            s.push_str(&urlencoding::encode(w));
         }
         s
     }

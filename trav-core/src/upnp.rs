@@ -1,4 +1,5 @@
-//! UPnP IGD port forwarding so peers behind home routers are reachable.
+//! Port forwarding so peers can reach us through a home router: UPnP IGD,
+//! or NAT-PMP where the router speaks that instead.
 
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Weak;
@@ -25,6 +26,7 @@ pub(crate) fn spawn(ctx: Weak<Ctx>) {
             let port = c.listen_port.load(Ordering::Relaxed);
             drop(c);
             let wait = if !enabled || port == 0 {
+                set_public_port(&ctx, 0);
                 Duration::from_secs(10)
             } else {
                 match map(port).await {
@@ -33,15 +35,29 @@ pub(crate) fn spawn(ctx: Weak<Ctx>) {
                             info!("UPnP: forwarded port {port} (external IP {ext})");
                         }
                         mapped = Some(port);
-                        set_status(&ctx, format!("forwarded · {ext}:{port}"));
+                        set_public_port(&ctx, 0);
+                        set_status(&ctx, format!("UPnP · {ext}:{port}"));
                         REFRESH
                     }
-                    Err(e) => {
-                        debug!("UPnP: {e}");
-                        mapped = None;
-                        set_status(&ctx, e);
-                        RETRY
-                    }
+                    Err(upnp) => match crate::natpmp::map(port, LEASE).await {
+                        Ok((ext, ext_port)) => {
+                            if mapped != Some(port) {
+                                info!("NAT-PMP: forwarded port {port} as {ext}:{ext_port}");
+                            }
+                            mapped = Some(port);
+                            // The router may pick another outside port: announce that one.
+                            set_public_port(&ctx, if ext_port == port { 0 } else { ext_port });
+                            set_status(&ctx, format!("NAT-PMP · {ext}:{ext_port}"));
+                            REFRESH
+                        }
+                        Err(pmp) => {
+                            debug!("UPnP: {upnp}; NAT-PMP: {pmp}");
+                            mapped = None;
+                            set_public_port(&ctx, 0);
+                            set_status(&ctx, upnp);
+                            RETRY
+                        }
+                    },
                 }
             };
             // Wake early if the port or toggle changes.
@@ -57,6 +73,12 @@ pub(crate) fn spawn(ctx: Weak<Ctx>) {
             }
         }
     });
+}
+
+fn set_public_port(ctx: &Weak<Ctx>, p: u16) {
+    if let Some(c) = ctx.upgrade() {
+        c.public_port.store(p, Ordering::Relaxed);
+    }
 }
 
 fn set_status(ctx: &Weak<Ctx>, s: String) {

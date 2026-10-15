@@ -23,7 +23,11 @@ fn settings(download_dir: &Path) -> Settings {
         listen_port: 0,
         enable_dht: false,
         enable_upnp: false,
+        // Tests share content (and info-hashes): keep them from finding each other.
+        enable_lsd: false,
         public_trackers: false,
+        // TRAV_UTP=0 runs the suite over TCP alone.
+        enable_utp: std::env::var("TRAV_UTP").map_or(true, |v| v != "0"),
         ..Settings::default()
     }
 }
@@ -483,4 +487,168 @@ async fn throughput() {
     wait_for(&leech, &hash, TorrentStatus::Seeding, 120).await;
     let secs = t.elapsed().as_secs_f64();
     println!("256 MiB in {secs:.2}s = {:.1} MiB/s", 256.0 / secs);
+}
+
+/// A tiny HTTP/1.1 file server over `dir` that honours `Range`. With
+/// `corrupt`, every byte it serves is flipped.
+async fn http_server(dir: PathBuf, corrupt: bool) -> u16 {
+    let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = l.local_addr().unwrap().port();
+    tokio::spawn(async move {
+        while let Ok((mut s, _)) = l.accept().await {
+            let dir = dir.clone();
+            tokio::spawn(async move {
+                let mut req = Vec::new();
+                let mut buf = [0u8; 4096];
+                while !req.windows(4).any(|w| w == b"\r\n\r\n") {
+                    match s.read(&mut buf).await {
+                        Ok(0) | Err(_) => return,
+                        Ok(n) => req.extend_from_slice(&buf[..n]),
+                    }
+                }
+                let text = String::from_utf8_lossy(&req).to_string();
+                let path = text.split_whitespace().nth(1).unwrap_or("/");
+                let path = urlencoding::decode(path).unwrap().into_owned();
+                let Ok(data) = std::fs::read(dir.join(path.trim_start_matches('/'))) else {
+                    let _ = s
+                        .write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+                        .await;
+                    return;
+                };
+                let range = text.lines().find_map(|l| {
+                    let l = l.to_ascii_lowercase();
+                    let (a, b) = l.strip_prefix("range: bytes=")?.split_once('-')?;
+                    Some((
+                        a.trim().parse::<usize>().ok()?,
+                        b.trim().parse::<usize>().ok()?,
+                    ))
+                });
+                let (head, mut body) = match range {
+                    Some((a, b)) => (
+                        format!(
+                            "HTTP/1.1 206 Partial Content\r\nContent-Range: bytes {a}-{b}/{}\r\n",
+                            data.len()
+                        ),
+                        data[a..=b].to_vec(),
+                    ),
+                    None => ("HTTP/1.1 200 OK\r\n".to_string(), data),
+                };
+                if corrupt {
+                    body.iter_mut().for_each(|b| *b ^= 0xff);
+                }
+                let head = format!(
+                    "{head}Content-Length: {}\r\nConnection: close\r\n\r\n",
+                    body.len()
+                );
+                let _ = s.write_all(head.as_bytes()).await;
+                let _ = s.write_all(&body).await;
+            });
+        }
+    });
+    port
+}
+
+/// A `.torrent` for `content` listing `web_seeds` as its `url-list`.
+fn torrent_with_web_seeds(content: &Path, web_seeds: Vec<String>) -> Vec<u8> {
+    let raw = create_torrent(content, 32 * 1024, &[], false).unwrap();
+    let mut meta = trav_core::metainfo::Metainfo::from_bytes(&raw).unwrap();
+    meta.web_seeds = web_seeds;
+    meta.to_torrent_bytes()
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn web_seed_alone_downloads_everything() {
+    init_tracing();
+    let tmp = tempfile::tempdir().unwrap();
+    let www = tmp.path().join("www");
+    let content = make_content(&www);
+    let port = http_server(www, false).await;
+    let torrent = torrent_with_web_seeds(&content, vec![format!("http://127.0.0.1:{port}/")]);
+    let dl = tmp.path().join("dl");
+    let leech = Engine::start_with(tmp.path().join("leech-state"), Some(settings(&dl)))
+        .await
+        .unwrap();
+    let hash = leech
+        .add(AddTorrent::new(TorrentSource::Bytes(torrent)))
+        .await
+        .unwrap();
+    wait_for(&leech, &hash, TorrentStatus::Seeding, 30).await;
+    same_tree(&content, &dl.join("album"));
+    let d = leech.details(&hash).unwrap();
+    assert_eq!(d.hash_fails, 0);
+    assert!(
+        d.peers
+            .iter()
+            .any(|p| p.source == "web seed" && p.downloaded > 1_000_000)
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn bad_web_seed_is_dropped_and_peers_finish() {
+    init_tracing();
+    let tmp = tempfile::tempdir().unwrap();
+    let (seed, hash, _, content) = seeder(tmp.path(), &[]).await;
+    let port = http_server(tmp.path().join("seed-data"), true).await;
+    let torrent = torrent_with_web_seeds(&content, vec![format!("http://127.0.0.1:{port}/")]);
+    let dl = tmp.path().join("dl");
+    let leech = Engine::start_with(tmp.path().join("leech-state"), Some(settings(&dl)))
+        .await
+        .unwrap();
+    leech
+        .add(AddTorrent::new(TorrentSource::Bytes(torrent)))
+        .await
+        .unwrap();
+    leech
+        .add_peers(&hash, vec![local(seed.listen_port())])
+        .unwrap();
+    wait_for(&leech, &hash, TorrentStatus::Seeding, 30).await;
+    same_tree(&content, &dl.join("album"));
+    drop(seed);
+}
+
+/// Two engines that know nothing of each other find each other by local
+/// peer discovery. Ignored by default: CI machines may not do multicast.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore]
+async fn local_peer_discovery_finds_the_seed() {
+    init_tracing();
+    let tmp = tempfile::tempdir().unwrap();
+    let src = tmp.path().join("src");
+    std::fs::create_dir_all(&src).unwrap();
+    // Content unique to this run, so no other client's announcements match.
+    let file = src.join("lsd.bin");
+    std::fs::write(&file, payload(500_000, rand_seed())).unwrap();
+    let torrent = create_torrent(&file, 32 * 1024, &[], false).unwrap();
+    let lsd = |dir: &Path| Settings {
+        enable_lsd: true,
+        ..settings(dir)
+    };
+    let seed = Engine::start_with(tmp.path().join("s"), Some(lsd(&src)))
+        .await
+        .unwrap();
+    let hash = seed
+        .add(AddTorrent::new(TorrentSource::Bytes(torrent.clone())))
+        .await
+        .unwrap();
+    wait_for(&seed, &hash, TorrentStatus::Seeding, 20).await;
+    let dl = tmp.path().join("dl");
+    let leech = Engine::start_with(tmp.path().join("l"), Some(lsd(&dl)))
+        .await
+        .unwrap();
+    leech
+        .add(AddTorrent::new(TorrentSource::Bytes(torrent)))
+        .await
+        .unwrap();
+    wait_for(&leech, &hash, TorrentStatus::Seeding, 30).await;
+    assert_eq!(
+        std::fs::read(&file).unwrap(),
+        std::fs::read(dl.join("lsd.bin")).unwrap()
+    );
+}
+
+fn rand_seed() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos() as u64
 }

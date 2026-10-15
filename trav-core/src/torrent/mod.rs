@@ -6,8 +6,10 @@
 //! the compiler enforces this inside spawned tasks). The torrent's own task
 //! serialises lifecycle commands and runs a 1 Hz maintenance tick.
 
+mod holepunch;
 mod metadata;
 mod peer;
+mod webseed;
 
 use std::collections::{HashMap, HashSet};
 use std::net::{IpAddr, SocketAddr};
@@ -28,7 +30,8 @@ use crate::limiter::RateMeter;
 use crate::magnet::Magnet;
 use crate::message::Event;
 use crate::metainfo::{Info, InfoHash, Metainfo};
-use crate::peer::handshake::{self, Handshake};
+use crate::peer::extension::{PEX_ENCRYPTION, PEX_HOLEPUNCH, PEX_SEED, PEX_UTP};
+use crate::peer::handshake::{self, Handshake, Route};
 use crate::peer::stream::PeerStream;
 use crate::picker::{BlockReq, PeerKey, Picker};
 use crate::snapshot::{
@@ -62,6 +65,7 @@ pub(crate) enum PeerSource {
     Tracker,
     Dht,
     Pex,
+    Lsd,
     Incoming,
     Manual,
 }
@@ -72,6 +76,7 @@ impl PeerSource {
             Self::Tracker => "tracker",
             Self::Dht => "dht",
             Self::Pex => "pex",
+            Self::Lsd => "lsd",
             Self::Incoming => "incoming",
             Self::Manual => "manual",
         }
@@ -125,6 +130,16 @@ pub(crate) struct PeerState {
     snubbed: bool,
     optimistic: bool,
     ext_pex: Option<u8>,
+    /// Their id for ut_holepunch, if they speak it.
+    ext_holepunch: Option<u8>,
+    /// Sent "have all" before we knew the piece count (magnet): fill in on metadata.
+    have_all: bool,
+    /// Connected over µTP rather than TCP.
+    utp: bool,
+    /// Reached through NAT hole punching.
+    holepunched: bool,
+    /// Introductions we made for this peer lately (see `holepunch`).
+    relayed: (Instant, u32),
     listen_port: Option<u16>,
     pex_sent: HashSet<SocketAddr>,
     hash_fails: u8,
@@ -145,6 +160,24 @@ impl PeerState {
             Some(self.addr)
         }
     }
+
+    /// How we describe this peer in PEX.
+    fn pex_flags(&self) -> u8 {
+        let mut f = 0;
+        if self.encrypted {
+            f |= PEX_ENCRYPTION;
+        }
+        if !self.bitfield.is_empty() && self.bitfield.all() {
+            f |= PEX_SEED;
+        }
+        if self.utp {
+            f |= PEX_UTP;
+        }
+        if self.ext_holepunch.is_some() {
+            f |= PEX_HOLEPUNCH;
+        }
+        f
+    }
 }
 
 struct Candidate {
@@ -154,6 +187,29 @@ struct Candidate {
     connected: bool,
     connecting: bool,
     seed: bool,
+    /// PEX flags last reported for it.
+    flags: u8,
+    /// Connected peers that told us about it (PEX): who could introduce us.
+    relays: Vec<PeerKey>,
+    punches: u8,
+    last_punch: Option<Instant>,
+}
+
+impl Candidate {
+    fn new(source: PeerSource) -> Self {
+        Self {
+            source,
+            fails: 0,
+            next_attempt: Instant::now(),
+            connected: false,
+            connecting: false,
+            seed: false,
+            flags: 0,
+            relays: Vec::new(),
+            punches: 0,
+            last_punch: None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -205,6 +261,10 @@ pub(crate) struct State {
     meta: Option<Arc<Metainfo>>,
     /// Trackers from a magnet link, used until metadata (which may add more) arrives.
     extra_trackers: Vec<Vec<String>>,
+    /// Web seeds from a magnet link (`ws=`), until metadata arrives.
+    extra_web_seeds: Vec<String>,
+    /// HTTP sources for this torrent (BEP 19).
+    web_seeds: Vec<webseed::WebSeed>,
     save_path: PathBuf,
     storage: Option<Arc<Storage>>,
     picker: Option<Picker>,
@@ -241,6 +301,8 @@ pub(crate) struct State {
     last_optimistic: Instant,
     last_pex: Instant,
     last_rotate: Instant,
+    /// Hole-punch dials in flight or just made, by address (see `holepunch`).
+    punching: HashMap<IpAddr, Instant>,
     queue_pos: usize,
     dirty: bool,
 }
@@ -256,11 +318,22 @@ pub(crate) enum Cmd {
     SetFilePriorities(Vec<u8>),
     SetSequential(bool),
     AddPeers(Vec<SocketAddr>, PeerSource),
+    /// Peers from a PEX message, with flags, and who sent it.
+    Pex {
+        from: PeerKey,
+        added: Vec<(SocketAddr, u8)>,
+        dropped: Vec<SocketAddr>,
+    },
+    /// A relay says: connect to this address now (BEP 55).
+    HolepunchConnect(SocketAddr),
     Shutdown {
         delete_files: bool,
         done: oneshot::Sender<()>,
     },
-    ConnectFailed(SocketAddr),
+    ConnectFailed {
+        addr: SocketAddr,
+        punched: bool,
+    },
     Announced {
         idx: usize,
         res: Result<AnnounceResponse, String>,
@@ -313,15 +386,19 @@ impl Torrent {
             .unwrap_or_else(|| hex::encode(info_hash));
         let mut extra = init.trackers;
         let mut peers = Vec::new();
+        let mut extra_web_seeds = Vec::new();
         if let Some(m) = &init.magnet {
             extra.extend(m.trackers.iter().map(|t| vec![t.clone()]));
             peers = m.peers.clone();
+            extra_web_seeds = m.web_seeds.clone();
         }
         let now = Instant::now();
         let st = State {
             name,
             meta: None,
             extra_trackers: crate::metainfo::normalize_tiers(extra),
+            extra_web_seeds,
+            web_seeds: Vec::new(),
             save_path: init.save_path,
             storage: None,
             picker: None,
@@ -357,6 +434,7 @@ impl Torrent {
             last_optimistic: now - OPTIMISTIC_INTERVAL,
             last_pex: now,
             last_rotate: now,
+            punching: HashMap::new(),
             queue_pos: init.queue_pos,
             dirty: true,
         };
@@ -483,14 +561,47 @@ impl Torrent {
                     self.connect_more(&mut st);
                 }
             }
-            Cmd::ConnectFailed(addr) => {
+            Cmd::ConnectFailed { addr, punched } => {
                 st.connecting = st.connecting.saturating_sub(1);
                 if let Some(c) = st.candidates.get_mut(&addr) {
                     c.connecting = false;
                     c.fails += 1;
                     c.next_attempt = Instant::now() + backoff(c.fails);
                 }
+                // Unreachable directly: maybe through its NAT, introduced by a peer it's connected to.
+                if !punched {
+                    self.try_holepunch(&mut st, addr);
+                }
             }
+            Cmd::Pex {
+                from,
+                added,
+                dropped,
+            } => {
+                let canon = |a: SocketAddr| SocketAddr::new(a.ip().to_canonical(), a.port());
+                for (a, flags) in added {
+                    let a = canon(a);
+                    add_candidate(&mut st, a, PeerSource::Pex);
+                    if let Some(c) = st.candidates.get_mut(&a) {
+                        c.flags = flags;
+                        if !c.relays.contains(&from) {
+                            c.relays.push(from);
+                            if c.relays.len() > 3 {
+                                c.relays.remove(0);
+                            }
+                        }
+                    }
+                }
+                for a in dropped {
+                    if let Some(c) = st.candidates.get_mut(&canon(a)) {
+                        c.relays.retain(|k| *k != from);
+                    }
+                }
+                if st.phase.is_active() {
+                    self.connect_more(&mut st);
+                }
+            }
+            Cmd::HolepunchConnect(addr) => self.on_holepunch_connect(&mut st, addr),
             Cmd::Announced { idx, res } => self.on_announced(&mut st, idx, res),
             Cmd::DhtDone(peers) => {
                 st.dht_running = false;
@@ -644,6 +755,7 @@ impl Torrent {
     /// Disconnect everyone, tell trackers we stopped, release file handles.
     fn enter_inactive(self: &Arc<Self>, st: &mut State) {
         disconnect_all(st);
+        Self::stop_web_seeds(st);
         st.check_cancel.store(true, Ordering::Relaxed);
         if let Some(s) = &st.storage {
             let s = s.clone();
@@ -663,7 +775,7 @@ impl Torrent {
             let req = AnnounceRequest {
                 info_hash: self.info_hash,
                 peer_id: self.ctx.peer_id,
-                port: self.ctx.listen_port.load(Ordering::Relaxed),
+                port: self.ctx.public_port(),
                 uploaded: st.uploaded,
                 downloaded: st.downloaded,
                 left,
@@ -750,7 +862,8 @@ impl Torrent {
         match Info::from_bytes(&raw) {
             Ok(info) => {
                 let trackers = st.extra_trackers.clone();
-                let meta = Arc::new(Metainfo::from_info(info, trackers));
+                let web = st.extra_web_seeds.clone();
+                let meta = Arc::new(Metainfo::from_info(info, trackers, web));
                 if let Err(e) = self
                     .ctx
                     .store
@@ -783,9 +896,15 @@ impl Torrent {
         }
         let n = meta.info.num_pieces();
         for p in st.peers.values_mut() {
-            p.bitfield.resize(n);
+            if p.have_all {
+                p.bitfield = Bitfield::full(n);
+            } else {
+                p.bitfield.resize(n);
+            }
         }
         st.metadata = None;
+        st.web_seeds =
+            webseed::WebSeed::list(&meta.web_seeds, &st.extra_web_seeds, &mut st.next_key);
         st.meta = Some(meta);
         st.dirty = true;
         if from_swarm {
@@ -845,6 +964,12 @@ impl Torrent {
 
     // ── Peers ────────────────────────────────────────────────────────────────
 
+    /// Worth announcing on the local network: running, and not private.
+    pub(crate) fn lsd_ok(&self) -> bool {
+        let st = self.st.lock();
+        st.phase.is_active() && !st.meta.as_ref().is_some_and(|m| m.info.private)
+    }
+
     pub(crate) fn accepts_incoming(&self) -> bool {
         let st = self.st.lock();
         st.phase.is_active() && st.peers.len() < self.ctx.settings.read().max_peers_per_torrent
@@ -857,6 +982,7 @@ impl Torrent {
         hs: Handshake,
         addr: SocketAddr,
         source: PeerSource,
+        punched: bool,
     ) {
         let incoming = source == PeerSource::Incoming;
         let max = self.ctx.settings.read().max_peers_per_torrent;
@@ -864,13 +990,24 @@ impl Torrent {
         if !incoming {
             st.connecting = st.connecting.saturating_sub(1);
         }
+        // The same peer twice (both ends dialled at once, as hole punching
+        // does): keep the connection the other side keeps too.
+        let mut replace = None;
+        let mut duplicate = false;
+        if let Some((&k, old)) = st.peers.iter().find(|(_, p)| p.peer_id == hs.peer_id) {
+            if old.incoming != incoming
+                && self.keep_outgoing(&hs, if incoming { old.addr } else { addr }) != incoming
+            {
+                replace = Some(k);
+            } else {
+                duplicate = true;
+            }
+        }
         let reject = !st.phase.is_active()
-            || st.peers.len() >= max
+            || (st.peers.len() >= max && replace.is_none())
             || st.banned.contains(&addr.ip())
-            || st
-                .peers
-                .values()
-                .any(|p| p.peer_id == hs.peer_id || (!incoming && p.addr == addr));
+            || duplicate
+            || (!incoming && st.peers.values().any(|p| p.addr == addr));
         if let Some(c) = st.candidates.get_mut(&addr) {
             c.connecting = false;
             c.connected = !reject;
@@ -881,9 +1018,23 @@ impl Torrent {
         if reject {
             return;
         }
-        if incoming {
+        if let Some(k) = replace
+            && let Some(old) = st.peers.get_mut(&k)
+        {
+            old.kicked = true;
+            let _ = old.tx.send(PeerCmd::Disconnect);
+        }
+        // Only TCP proves the port is open: µTP can come in through holes we punched.
+        if incoming && !stream.is_utp() {
             self.ctx.connectable.store(true, Ordering::Relaxed);
         }
+        let holepunched = punched
+            || (incoming
+                && stream.is_utp()
+                && st
+                    .punching
+                    .get(&addr.ip())
+                    .is_some_and(|t| t.elapsed() < Duration::from_secs(30)));
         let key = st.next_key;
         st.next_key += 1;
         let (tx, rx) = mpsc::unbounded_channel();
@@ -904,6 +1055,11 @@ impl Torrent {
                 up: RateMeter::default(),
                 incoming,
                 encrypted: stream.encrypted(),
+                utp: stream.is_utp(),
+                holepunched,
+                ext_holepunch: None,
+                have_all: false,
+                relayed: (Instant::now(), 0),
                 source,
                 connected_at: Instant::now(),
                 snubbed: false,
@@ -938,14 +1094,10 @@ impl Torrent {
         let is_seed = p.bitfield.all() && !p.bitfield.is_empty();
         let short = p.connected_at.elapsed() < Duration::from_secs(30);
         if let Some(addr) = p.dialable() {
-            let c = st.candidates.entry(addr).or_insert(Candidate {
-                source: p.source,
-                fails: 0,
-                next_attempt: Instant::now(),
-                connected: false,
-                connecting: false,
-                seed: false,
-            });
+            let c = st
+                .candidates
+                .entry(addr)
+                .or_insert_with(|| Candidate::new(p.source));
             c.connected = false;
             c.seed = is_seed;
             if p.rotated {
@@ -992,7 +1144,7 @@ impl Torrent {
             })
             .map(|(a, c)| {
                 let rank = match c.source {
-                    PeerSource::Manual => 0,
+                    PeerSource::Manual | PeerSource::Lsd => 0,
                     PeerSource::Tracker => 1,
                     PeerSource::Pex => 2,
                     PeerSource::Dht => 3,
@@ -1002,35 +1154,49 @@ impl Torrent {
             })
             .collect();
         picks.sort_by_key(|&(_, f, r)| (f, r));
+        // TCP first, µTP for peers it can't reach (see `Route::Auto`).
+        let route = if self.ctx.utp().is_some() {
+            Route::Auto
+        } else {
+            Route::Tcp
+        };
+        for (addr, _, _) in picks.into_iter().take(n) {
+            self.dial(st, addr, route);
+        }
+    }
+
+    /// Connect to `addr` in the background; it reports back through
+    /// `attach` or `Cmd::ConnectFailed`.
+    fn dial(self: &Arc<Self>, st: &mut State, addr: SocketAddr, route: Route) {
+        if let Some(c) = st.candidates.get_mut(&addr) {
+            c.connecting = true;
+        }
+        st.connecting += 1;
         let ours = Handshake::ours(self.info_hash, self.ctx.peer_id);
         let enc = self.ctx.settings.read().encryption;
-        for (addr, _, _) in picks.into_iter().take(n) {
-            if let Some(c) = st.candidates.get_mut(&addr) {
-                c.connecting = true;
-            }
-            st.connecting += 1;
-            let me = self.clone();
-            let sem = self.ctx.half_open.clone();
-            tokio::spawn(async move {
-                let _permit = sem.acquire_owned().await;
-                match handshake::connect(addr, &ours, enc).await {
-                    Ok((stream, hs)) => {
-                        let src = me
-                            .st
-                            .lock()
-                            .candidates
-                            .get(&addr)
-                            .map(|c| c.source)
-                            .unwrap_or(PeerSource::Tracker);
-                        me.attach(stream, hs, addr, src);
-                    }
-                    Err(e) => {
-                        debug!("connect {addr}: {e}");
-                        me.send(Cmd::ConnectFailed(addr));
-                    }
+        let utp = self.ctx.utp();
+        let punched = matches!(route, Route::Utp(crate::utp::Dial::Holepunch));
+        let me = self.clone();
+        let sem = self.ctx.half_open.clone();
+        tokio::spawn(async move {
+            let _permit = sem.acquire_owned().await;
+            match handshake::connect(addr, &ours, enc, route, utp.as_ref()).await {
+                Ok((stream, hs)) => {
+                    let src = me
+                        .st
+                        .lock()
+                        .candidates
+                        .get(&addr)
+                        .map(|c| c.source)
+                        .unwrap_or(PeerSource::Pex);
+                    me.attach(stream, hs, addr, src, punched);
                 }
-            });
-        }
+                Err(e) => {
+                    debug!("connect {addr} ({route:?}): {e}");
+                    me.send(Cmd::ConnectFailed { addr, punched });
+                }
+            }
+        });
     }
 
     // ── Pieces ───────────────────────────────────────────────────────────────
@@ -1102,7 +1268,16 @@ impl Torrent {
             st.hash_fails += 1;
             st.wasted += picker.piece_size(piece) as u64;
             let sole = contributors.len() == 1;
+            // A mirror holding a different version of a file is the likelier
+            // culprit than a peer: don't ban peers over pieces shared with one.
+            let web = contributors
+                .iter()
+                .any(|k| st.web_seeds.iter().any(|w| w.key == *k));
             for k in contributors {
+                Self::web_seed_bad_piece(st, k, sole);
+                if web {
+                    continue;
+                }
                 if let Some(p) = st.peers.get_mut(&k) {
                     p.hash_fails += 1;
                     if sole || p.hash_fails >= 3 {
@@ -1132,6 +1307,7 @@ impl Torrent {
 
     fn on_complete(self: &Arc<Self>, st: &mut State) {
         info!("{}: download complete", st.name);
+        Self::stop_web_seeds(st);
         st.completed_at = Some(now_unix());
         st.dirty = true;
         if let Some(s) = st.storage.clone() {
@@ -1179,7 +1355,7 @@ impl Torrent {
                 .map(|m| m.info.total_length)
                 .unwrap_or(1 << 30),
         };
-        let port = self.ctx.listen_port.load(Ordering::Relaxed);
+        let port = self.ctx.public_port();
         let want_peers = st.peers.len() < self.ctx.settings.read().max_peers_per_torrent;
         for (idx, t) in st.trackers.iter_mut().enumerate() {
             if !due(t) {
@@ -1301,7 +1477,7 @@ impl Torrent {
         }
         let Some(dht) = self.ctx.dht() else { return };
         st.dht_running = true;
-        let port = self.ctx.listen_port.load(Ordering::Relaxed);
+        let port = self.ctx.public_port();
         let ih = self.info_hash;
         let me = self.clone();
         tokio::spawn(async move {
@@ -1411,24 +1587,28 @@ impl Torrent {
         {
             return;
         }
-        let current: Vec<(PeerKey, SocketAddr)> = st
+        let current: HashMap<SocketAddr, (PeerKey, u8)> = st
             .peers
             .iter()
-            .filter_map(|(k, p)| p.dialable().map(|a| (*k, a)))
+            .filter_map(|(k, p)| p.dialable().map(|a| (a, (*k, p.pex_flags()))))
             .collect();
         for (k, p) in st.peers.iter_mut() {
             let Some(id) = p.ext_pex else { continue };
             let now: HashSet<SocketAddr> = current
                 .iter()
-                .filter(|(ck, _)| ck != k)
-                .map(|(_, a)| *a)
+                .filter(|(_, (ck, _))| ck != k)
+                .map(|(a, _)| *a)
                 .collect();
-            let added: Vec<SocketAddr> = now.difference(&p.pex_sent).copied().take(50).collect();
+            let added: Vec<(SocketAddr, u8)> = now
+                .difference(&p.pex_sent)
+                .take(50)
+                .map(|a| (*a, current[a].1))
+                .collect();
             let dropped: Vec<SocketAddr> = p.pex_sent.difference(&now).copied().take(50).collect();
             if added.is_empty() && dropped.is_empty() {
                 continue;
             }
-            for a in &added {
+            for (a, _) in &added {
                 p.pex_sent.insert(*a);
             }
             for a in &dropped {
@@ -1449,10 +1629,16 @@ impl Torrent {
             p.down.tick(1.0);
             p.up.tick(1.0);
         }
+        for w in st.web_seeds.iter_mut() {
+            w.down.tick(1.0);
+        }
         if !st.phase.is_active() {
             return;
         }
+        self.run_web_seeds(&mut st);
         let now = Instant::now();
+        st.punching
+            .retain(|_, t| now.duration_since(*t) < Duration::from_secs(60));
         if starving(&st) {
             // Few peers are actually sending: look for more sooner.
             st.dht_next = st.dht_next.min(now + STARVING_RETRY);
@@ -1564,6 +1750,26 @@ impl Torrent {
             None => Vec::new(),
         };
         let now = Instant::now();
+        let web_seeds = st
+            .web_seeds
+            .iter()
+            .filter(|w| w.usable() || w.down.total() > 0)
+            .map(|w| PeerInfo {
+                addr: w.host(),
+                client: "Web seed (HTTP)".into(),
+                flags: if w.active() {
+                    "W".into()
+                } else {
+                    String::new()
+                },
+                progress: 1.0,
+                download_rate: w.down.rate(),
+                upload_rate: 0,
+                downloaded: w.down.total(),
+                uploaded: 0,
+                source: "web seed".into(),
+            })
+            .collect::<Vec<_>>();
         let peers = st
             .peers
             .values()
@@ -1588,9 +1794,16 @@ impl Torrent {
                 if p.encrypted {
                     flags.push('E');
                 }
+                if p.utp {
+                    flags.push('P');
+                }
+                if p.holepunched {
+                    flags.push('h');
+                }
                 match p.source {
                     PeerSource::Incoming => flags.push('I'),
                     PeerSource::Pex => flags.push('X'),
+                    PeerSource::Lsd => flags.push('L'),
                     PeerSource::Dht => flags.push('H'),
                     _ => {}
                 }
@@ -1610,6 +1823,7 @@ impl Torrent {
                     source: p.source.label().into(),
                 }
             })
+            .chain(web_seeds)
             .collect();
         let trackers = st
             .trackers
@@ -1641,6 +1855,11 @@ impl Torrent {
                 .map(|m| m.all_trackers().cloned().collect())
                 .unwrap_or_else(|| st.extra_trackers.iter().flatten().cloned().collect()),
             peers: vec![],
+            web_seeds: st
+                .meta
+                .as_ref()
+                .map(|m| m.web_seeds.clone())
+                .unwrap_or_else(|| st.extra_web_seeds.clone()),
         }
         .to_uri();
         TorrentDetails {
@@ -1688,6 +1907,7 @@ impl Torrent {
                     display_name: Some(st.name.clone()),
                     trackers: st.extra_trackers.iter().flatten().cloned().collect(),
                     peers: vec![],
+                    web_seeds: st.extra_web_seeds.clone(),
                 }
                 .to_uri()
             }),
@@ -1774,6 +1994,56 @@ fn summarize(ih: &InfoHash, st: &State) -> TorrentSummary {
     }
 }
 
+/// Hand a received block to the picker: count it, cancel racing requests
+/// for it elsewhere, and return the assembled piece if that was its last
+/// block (for [`Torrent::spawn_verify`]).
+pub(crate) fn take_block(
+    st: &mut State,
+    key: PeerKey,
+    index: u32,
+    begin: u32,
+    block: &[u8],
+) -> Option<(u32, Vec<u8>, Vec<PeerKey>)> {
+    let len = block.len() as u64;
+    st.down.add(len);
+    st.downloaded += len;
+    let outcome = match st.picker.as_mut() {
+        Some(pk) => pk.on_block(key, index, begin, block),
+        None => crate::picker::OnBlock::Rejected,
+    };
+    let cancel_peers = |st: &State, ks: &[PeerKey]| {
+        let r = BlockReq {
+            piece: index,
+            begin,
+            len: len as u32,
+        };
+        for k in ks {
+            if let Some(p) = st.peers.get(k) {
+                let _ = p.tx.send(PeerCmd::Cancel(r));
+            }
+        }
+    };
+    match outcome {
+        crate::picker::OnBlock::Accepted { cancel } => {
+            cancel_peers(st, &cancel);
+            None
+        }
+        crate::picker::OnBlock::Complete {
+            piece,
+            data,
+            contributors,
+            cancel,
+        } => {
+            cancel_peers(st, &cancel);
+            Some((piece, data, contributors))
+        }
+        crate::picker::OnBlock::Rejected | crate::picker::OnBlock::Duplicate => {
+            st.wasted += len;
+            None
+        }
+    }
+}
+
 /// Hang up on every peer without penalising them in [`Torrent::peer_gone`].
 fn disconnect_all(st: &mut State) {
     for p in st.peers.values_mut() {
@@ -1797,7 +2067,7 @@ fn starving(st: &State) -> bool {
 
 /// Addresses no peer can be reached at. Loopback is only believed when it
 /// comes from the user or a tracker on this machine (filtered by the caller).
-fn unreachable(addr: SocketAddr, source: PeerSource) -> bool {
+pub(super) fn unreachable(addr: SocketAddr, source: PeerSource) -> bool {
     let ip = addr.ip().to_canonical();
     let bad = match ip {
         std::net::IpAddr::V4(v4) => v4.is_broadcast() || v4.is_documentation(),
@@ -1811,6 +2081,8 @@ fn unreachable(addr: SocketAddr, source: PeerSource) -> bool {
 }
 
 fn add_candidate(st: &mut State, addr: SocketAddr, source: PeerSource) {
+    // PEX and trackers sometimes list IPv4 peers as ::ffff:a.b.c.d.
+    let addr = SocketAddr::new(addr.ip().to_canonical(), addr.port());
     if unreachable(addr, source) || st.banned.contains(&addr.ip()) {
         return;
     }
@@ -1829,14 +2101,9 @@ fn add_candidate(st: &mut State, addr: SocketAddr, source: PeerSource) {
             None => return,
         }
     }
-    st.candidates.entry(addr).or_insert(Candidate {
-        source,
-        fails: 0,
-        next_attempt: Instant::now(),
-        connected: false,
-        connecting: false,
-        seed: false,
-    });
+    st.candidates
+        .entry(addr)
+        .or_insert_with(|| Candidate::new(source));
 }
 
 fn backoff(fails: u32) -> Duration {
