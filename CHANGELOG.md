@@ -7,6 +7,7 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Fixed
+- Trav 0.3.48 opened to a blank window: the Add dialog read a torrent preview that wasn't there whenever nothing was waiting to be added.
 - Quitting Trav (⌘Q, the Dock, or relaunching after an update) no longer leaves every transfer paused the next time it opens.
 - A tracker whose announce was out while the tracker list changed (the daily public-list refresh, which also runs at launch) could stay "announcing" for the rest of the session and never announce again, while another tracker showed its results. Replies are now matched by URL.
 - A magnet could stall for good if the first peer reported the wrong metadata size or sent a bad piece. Metadata is now assembled separately for each size peers report, and a dictionary that fails its hash check starts over at once, with the peers that sent it sitting out briefly.

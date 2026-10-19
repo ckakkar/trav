@@ -59,7 +59,8 @@ export function AddDialog({
   // Kept with the item it describes, so a reply for an item that has since
   // left the queue is never shown (or applied) as the next one's.
   const [inspected, setInspected] = useState<{ item: AddItem; preview: TorrentPreview } | null>(null);
-  const preview = inspected?.item === item ? inspected.preview : null;
+  // `item` is undefined with an empty queue: compare only against a real result.
+  const preview = inspected && inspected.item === item ? inspected.preview : null;
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [checked, setChecked] = useState<boolean[]>([]);
