@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "motion/react";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Copy, FolderOpen, RefreshCw, Plus, Check } from "lucide-react";
 import type { TorrentDetails, FileInfo } from "@/lib/types";
 import type { SpeedHistory } from "@/lib/engine";
@@ -12,6 +12,7 @@ import { PieceMap } from "./PieceMap";
 import { Graph } from "./Graph";
 import { statusLabel } from "./TorrentTable";
 import { ease } from "./Modal";
+import { SLIDE, useRegister } from "@/lib/motion";
 
 export type DetailTab = "overview" | "files" | "peers" | "trackers" | "speed";
 const TABS: { id: DetailTab; label: string }[] = [
@@ -44,6 +45,14 @@ export function DetailPanel({
   actions: DetailActions;
   selectionCount: number;
 }) {
+  const reg = useRegister();
+  // Tabs slide in from the side they're on; a different torrent rises into place.
+  const idx = TABS.findIndex((t) => t.id === tab);
+  const prevIdx = useRef(idx);
+  const dir = Math.sign(idx - prevIdx.current);
+  useEffect(() => {
+    prevIdx.current = idx;
+  }, [idx]);
   return (
     <section className="detail" aria-label="Torrent details">
       <nav className="tabs" role="tablist">
@@ -52,7 +61,7 @@ export function DetailPanel({
             {t.label}
             {t.id === "peers" && details ? <span className="tab-count">{details.peers.length}</span> : null}
             {t.id === "files" && details && details.files.length > 1 ? <span className="tab-count">{details.files.length}</span> : null}
-            {tab === t.id && <motion.span layoutId="tab-underline" className="tab-underline" transition={{ duration: 0.35, ease }} />}
+            {tab === t.id && <motion.span layoutId="tab-underline" className="tab-underline" transition={SLIDE[reg]} />}
           </button>
         ))}
         <div className="tabs-spacer" />
@@ -66,11 +75,11 @@ export function DetailPanel({
           </div>
         ) : (
           <motion.div
-            key={tab}
+            key={`${tab}:${details.summary.infoHash}`}
             className="detail-pane"
-            initial={{ opacity: 0, y: 4 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.25, ease }}
+            initial={{ opacity: 0, x: dir * 22, y: dir ? 0 : 8 }}
+            animate={{ opacity: 1, x: 0, y: 0 }}
+            transition={reg === "ink" ? { type: "spring", stiffness: 380, damping: 36 } : { duration: reg === "paper" ? 0.2 : 0.14, ease }}
           >
             {tab === "overview" && <Overview d={details} actions={actions} />}
             {tab === "files" && <Files key={details.summary.infoHash} d={details} actions={actions} />}

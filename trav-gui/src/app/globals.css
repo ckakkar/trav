@@ -1,14 +1,34 @@
 /* ──────────────────────────────────────────────────────────────────────────
    Trav Nova — design system
-   Tokens lifted from kkrwhofrags.xyz: Ink (dark), Paper (editorial), Phosphor
-   (terminal mode). 3px radii, hairline rules, mono micro-labels, serif display.
+   Three registers, each its own material rather than a recoloring:
+   Ink     — night instrument: blue-black depth, floating panels, light that
+             glows with the transfer.
+   Paper   — risograph print: navy ink on white, fluorescent pink overprint,
+             square corners, condensed poster type, nothing glows.
+   Phosphor — the terminal of kkrwhofrags.xyz: green on black, CRT scanlines.
+   Structure (type roles, label case, radii, bar weight) is tokenised so a
+   register can change shape, not only color.
    ────────────────────────────────────────────────────────────────────────── */
 
 :root {
   --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
-  --font-mono: var(--font-geist-mono), ui-monospace, "SF Mono", Menlo, monospace;
-  --font-display: "Dahlia", "Instrument Serif", Georgia, "Times New Roman", serif;
-  --radius: 3px;
+  /* Hashes, shortcuts, typed links: always monospaced. */
+  --font-code: var(--font-geist-mono), ui-monospace, "SF Mono", Menlo, monospace;
+  /* Numbers and small data, in tabular figures. */
+  --font-data: var(--font-sans);
+  --font-label: var(--font-sans);
+  --font-display: var(--font-sans);
+  --display-weight: 300;
+  --display-tracking: -0.035em;
+  --display-stretch: 100%;
+  --data-size: 12px;
+  --label-size: 11px;
+  --label-weight: 500;
+  --label-case: none;
+  --label-tracking: 0;
+  --radius: 7px;
+  --radius-lg: 14px;
+  --bar-h: 5px;
   --ease: cubic-bezier(0.17, 0.84, 0.44, 1);
   --sidebar-w: 236px;
   --toolbar-h: 60px;
@@ -16,54 +36,98 @@
   --row-h: 50px;
 
   /* Ink (default) */
-  --bg: #0c0d10;
-  --bg-raised: #131519;
-  --bg-inset: #16181d;
-  --bg-hover: #181a20;
-  --line: #23262d;
-  --line-soft: #1b1e24;
-  --text: #e7e8ea;
-  --text-dim: #9aa0a6;
-  --text-faint: #5c626b;
-  --accent: #ff8a3d;
-  --accent-soft: #ff8a3d1a;
-  --accent-line: #ff8a3d55;
-  --accent-ink: #1a0d04;
-  --up: #5bd66e;
-  --ok: #5bd66e;
-  --warn: #febc2e;
-  --err: #ff5f57;
-  --scrim: #05060899;
-  --shadow: 0 24px 64px -16px #000c, 0 0 0 1px #ffffff08;
+  --canvas: #04070d;
+  --bg: #0a0f1a;
+  --bg-raised: #0f1624;
+  --bg-inset: #070b14;
+  --bg-hover: #111a2a;
+  --line: #1c2537;
+  --line-soft: #141c2b;
+  --text: #e3eaf4;
+  --text-dim: #8796ac;
+  --text-faint: #56637a;
+  --accent: #56c7ff;
+  --accent-hi: #c9eeff;
+  --accent-text: #56c7ff;
+  --accent-soft: #56c7ff17;
+  --accent-line: #56c7ff4d;
+  --accent-ink: #021320;
+  --up: #a48bff;
+  --ok: #4fe0b0;
+  --warn: #ffc66b;
+  --err: #ff6b80;
+  --scrim: #02040acc;
+  --shadow: 0 30px 70px -20px #000000e6, 0 0 0 1px #ffffff0d, inset 0 1px 0 #ffffff0f;
+  --graph: glow;
+  --map-have: var(--accent);
+  --map-flight: var(--warn);
+  --map-empty: var(--line-soft);
+  --map-flash: var(--accent-hi);
   color-scheme: dark;
 }
 
 :root[data-theme="paper"] {
-  --bg: #f5f2ea;
-  --bg-raised: #efeae0;
-  --bg-inset: #e9e3d6;
-  --bg-hover: #ece6da;
-  --line: #ddd7c9;
-  --line-soft: #e6e0d3;
-  --text: #17150f;
-  --text-dim: #565147;
-  --text-faint: #8a8476;
-  --accent: #b93213;
-  --accent-soft: #b9321312;
-  --accent-line: #b9321344;
-  --accent-ink: #fff8f2;
-  --up: #2f7d3a;
-  --ok: #2f7d3a;
-  --warn: #b07a00;
-  --err: #c0262d;
-  --scrim: #2b261c40;
-  --shadow: 0 24px 60px -18px #3a301c55, 0 0 0 1px #17150f14;
+  --font-sans: "Archivo Variable", "Helvetica Neue", Arial, sans-serif;
+  --font-data: var(--font-sans);
+  --font-label: var(--font-sans);
+  --font-display: var(--font-sans);
+  --display-weight: 820;
+  --display-tracking: -0.012em;
+  --display-stretch: 62%;
+  --data-size: 12px;
+  --label-size: 11.5px;
+  --label-weight: 650;
+  --radius: 0px;
+  --radius-lg: 0px;
+  --bar-h: 7px;
+  --ease: cubic-bezier(0.2, 0.9, 0.3, 1);
+
+  --canvas: #f9f8f4;
+  --bg: #f9f8f4;
+  --bg-raised: #f1f0ea;
+  --bg-inset: #f0efe9;
+  --bg-hover: #efeff8;
+  /* Everything structural is printed in the navy ink. */
+  --rule: #1d2873;
+  --line: #cfd2e3;
+  --line-soft: #e3e4ee;
+  --text: #1d2873;
+  --text-dim: #4b5594;
+  --text-faint: #7a82b3;
+  --accent: #ff3d8a;
+  --accent-hi: #ff8fbd;
+  --accent-text: #d0126a;
+  --accent-soft: #ff3d8a1f;
+  --accent-line: #ff3d8a73;
+  --accent-ink: #1d2873;
+  --up: #2f5bea;
+  --ok: #00a35a;
+  --warn: #e39500;
+  --err: #e3262f;
+  --scrim: #1d28732e;
+  --shadow: 8px 8px 0 var(--accent);
+  --graph: print;
+  --map-flight: var(--up);
+  --map-flash: var(--rule);
   color-scheme: light;
 }
 
 :root[data-theme="phosphor"] {
-  --font-sans: var(--font-mono);
-  --font-display: var(--font-mono);
+  --font-sans: var(--font-code);
+  --font-data: var(--font-code);
+  --font-label: var(--font-code);
+  --font-display: var(--font-code);
+  --display-weight: 400;
+  --display-tracking: -0.02em;
+  --data-size: 11.5px;
+  --label-size: 10px;
+  --label-weight: 400;
+  --label-case: uppercase;
+  --label-tracking: 0.12em;
+  --radius: 3px;
+  --radius-lg: 5px;
+  --bar-h: 4px;
+  --canvas: #000;
   --bg: #000;
   --bg-raised: #050805;
   --bg-inset: #040604;
@@ -74,6 +138,8 @@
   --text-dim: #2d9a52;
   --text-faint: #1e6c3a;
   --accent: #6af59a;
+  --accent-hi: #b6ffd0;
+  --accent-text: #6af59a;
   --accent-soft: #6af59a14;
   --accent-line: #6af59a38;
   --accent-ink: #001a08;
@@ -83,6 +149,7 @@
   --err: #ff3b30;
   --scrim: #000b;
   --shadow: 0 0 0 1px #123a20, 0 0 40px -8px #6af59a22;
+  --graph: plain;
   color-scheme: dark;
 }
 
@@ -98,7 +165,7 @@ body {
 }
 
 body {
-  background: var(--bg);
+  background: var(--canvas);
   color: var(--text);
   font-family: var(--font-sans);
   font-size: 13px;
@@ -143,7 +210,7 @@ button {
 }
 
 kbd {
-  font-family: var(--font-mono);
+  font-family: var(--font-code);
   font-size: 10px;
   color: var(--text-faint);
   border: 1px solid var(--line);
@@ -154,18 +221,19 @@ kbd {
 }
 
 .mono {
-  font-family: var(--font-mono);
+  font-family: var(--font-data);
   font-variant-numeric: tabular-nums;
-  font-size: 11.5px;
+  font-size: var(--data-size);
   letter-spacing: 0;
+}
+.code {
+  font-family: var(--font-code);
 }
 .display {
   font-family: var(--font-display);
-  font-weight: 400;
-  letter-spacing: -0.01em;
-}
-:root[data-theme="phosphor"] .display {
-  letter-spacing: -0.02em;
+  font-weight: var(--display-weight);
+  font-stretch: var(--display-stretch);
+  letter-spacing: var(--display-tracking);
 }
 .faint {
   color: var(--text-faint);
@@ -184,7 +252,7 @@ kbd {
   min-width: 0;
 }
 .accent-text {
-  color: var(--accent);
+  color: var(--accent-text);
 }
 .up-text {
   color: var(--up);
@@ -198,10 +266,11 @@ kbd {
 
 .eyebrow,
 .label {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.12em;
+  font-family: var(--font-label);
+  font-size: var(--label-size);
+  font-weight: var(--label-weight);
+  text-transform: var(--label-case);
+  letter-spacing: var(--label-tracking);
   color: var(--text-faint);
   display: inline-flex;
   align-items: center;
@@ -245,7 +314,7 @@ kbd {
 }
 .btn:hover {
   border-color: var(--accent-line);
-  color: var(--accent);
+  color: var(--accent-text);
 }
 .btn:active {
   scale: 0.97;
@@ -298,7 +367,7 @@ kbd {
   flex: none;
 }
 .icon-btn:hover {
-  color: var(--accent);
+  color: var(--accent-text);
   background: var(--accent-soft);
 }
 .icon-btn:active {
@@ -319,7 +388,7 @@ kbd {
   gap: 6px;
   height: 24px;
   padding: 0 9px;
-  font-family: var(--font-mono);
+  font-family: var(--font-data);
   font-size: 11px;
   color: var(--text-dim);
   background: var(--bg-inset);
@@ -328,7 +397,7 @@ kbd {
   transition: border-color 0.2s var(--ease), color 0.2s var(--ease);
 }
 .chip:hover {
-  color: var(--accent);
+  color: var(--accent-text);
   border-color: var(--accent-line);
 }
 .seg {
@@ -336,7 +405,7 @@ kbd {
   gap: 4px;
 }
 .chip[aria-checked="true"] {
-  color: var(--accent);
+  color: var(--accent-text);
   border-color: var(--accent-line);
   background: var(--accent-soft, transparent);
 }
@@ -346,16 +415,17 @@ kbd {
   align-items: center;
   height: 18px;
   padding: 0 7px;
-  font-family: var(--font-mono);
-  font-size: 9.5px;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
+  font-size: calc(var(--label-size) - 0.5px);
+  font-family: var(--font-label);
+  font-weight: var(--label-weight);
+  text-transform: var(--label-case);
+  letter-spacing: var(--label-tracking);
   color: var(--text-dim);
   border: 1px solid var(--line);
   border-radius: var(--radius);
 }
 .pill.tone-down {
-  color: var(--accent);
+  color: var(--accent-text);
   border-color: var(--accent-line);
 }
 .pill.tone-seed {
@@ -412,7 +482,7 @@ textarea.input {
     no-repeat right 8px center;
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  font-family: var(--font-mono);
+  font-family: var(--font-data);
   font-size: 11px;
   color: var(--text-dim);
   outline: none;
@@ -586,15 +656,15 @@ textarea.input {
   text-shadow: 0 0 10px var(--accent-line);
 }
 
-/* Paper grain. */
+/* Paper's tooth: a faint navy grain, as uncoated riso stock has. */
 :root[data-theme="paper"] .app::before {
   content: "";
   position: fixed;
   inset: 0;
   z-index: -1;
   pointer-events: none;
-  opacity: 0.5;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.1  0 0 0 0 0.08  0 0 0 0 0.05  0 0 0 .06 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  opacity: 0.55;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.11  0 0 0 0 0.16  0 0 0 0 0.45  0 0 0 .07 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
 }
 
 /* ── Sidebar ───────────────────────────────────────────────────────────────── */
@@ -606,9 +676,6 @@ textarea.input {
   min-height: 0;
   border-right: 1px solid var(--line);
   background: var(--bg-raised);
-}
-:root[data-theme="paper"] .sidebar {
-  background: transparent;
 }
 
 .brand {
@@ -633,7 +700,7 @@ textarea.input {
 }
 :root[data-theme="phosphor"] .brand-mark {
   font-size: 20px;
-  color: var(--accent);
+  color: var(--accent-text);
 }
 .brand-sub {
   font-size: 10px;
@@ -690,7 +757,7 @@ textarea.input {
   transition: color 0.2s var(--ease);
 }
 .filter[aria-current="true"] .filter-icon {
-  color: var(--accent);
+  color: var(--accent-text);
 }
 .filter-label {
   flex: 1;
@@ -722,7 +789,7 @@ textarea.input {
   font-variant-numeric: tabular-nums;
 }
 .speed-num.down .speed-big {
-  color: var(--accent);
+  color: var(--accent-text);
 }
 .speed-num.up .speed-big {
   font-size: 20px;
@@ -774,7 +841,7 @@ textarea.input {
   transition: color 0.2s var(--ease), border-color 0.2s var(--ease);
 }
 .side-credit a:hover {
-  color: var(--accent);
+  color: var(--accent-text);
   border-color: var(--accent-line);
 }
 /* ── Main column ───────────────────────────────────────────────────────────── */
@@ -837,7 +904,7 @@ body[data-resizing] .main {
 }
 :root[data-theme="phosphor"] .tb-title h1::before {
   content: "› ";
-  color: var(--accent);
+  color: var(--accent-text);
 }
 
 .tb-search {
@@ -895,7 +962,7 @@ body[data-resizing] .main {
   align-items: center;
   gap: 8px;
   padding: 8px 22px;
-  font-family: var(--font-mono);
+  font-family: var(--font-data);
   font-size: 11.5px;
   color: var(--err);
   background: color-mix(in srgb, var(--err) 8%, transparent);
@@ -946,10 +1013,11 @@ body[data-resizing] .main {
   text-align: left;
   gap: 4px;
   height: 100%;
-  font-family: var(--font-mono);
-  font-size: 10px;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
+  font-size: var(--label-size);
+  font-family: var(--font-label);
+  font-weight: var(--label-weight);
+  text-transform: var(--label-case);
+  letter-spacing: var(--label-tracking);
   color: var(--text-faint);
   white-space: nowrap;
   transition: color 0.2s var(--ease);
@@ -962,7 +1030,7 @@ body[data-resizing] .main {
   color: var(--text-dim);
 }
 .th.sorted svg {
-  color: var(--accent);
+  color: var(--accent-text);
 }
 
 .tbody {
@@ -984,8 +1052,21 @@ body[data-resizing] .main {
 .trow:hover {
   background: var(--bg-hover);
 }
-.trow[data-selected] {
+.trow {
+  isolation: isolate;
+}
+/* Selection lives on its own layer so each register can animate it its own way. */
+.trow-sel {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
   background: var(--accent-soft);
+  opacity: 0;
+  transition: opacity 0.18s var(--ease);
+}
+.trow[data-selected] .trow-sel {
+  opacity: 1;
 }
 .trow[data-focused]::before {
   content: "";
@@ -1004,7 +1085,7 @@ body[data-resizing] .main {
   padding-left: 8px;
 }
 .trow[data-focused] .c-idx {
-  color: var(--accent);
+  color: var(--accent-text);
 }
 .trow .c-name {
   min-width: 0;
@@ -1040,7 +1121,7 @@ body[data-resizing] .main {
   white-space: nowrap;
 }
 .trow .c-down {
-  color: var(--accent);
+  color: var(--accent-text);
   white-space: nowrap;
 }
 .trow .c-up {
@@ -1270,9 +1351,11 @@ body[data-resizing] .main {
   min-width: 0;
 }
 .slabel {
-  font-size: 10.5px;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
+  font-size: calc(var(--label-size) + 0.5px);
+  font-family: var(--font-label);
+  font-weight: var(--label-weight);
+  text-transform: var(--label-case);
+  letter-spacing: var(--label-tracking);
   color: var(--text-dim);
   white-space: nowrap;
 }
@@ -1300,7 +1383,7 @@ body[data-resizing] .main {
   }
 }
 .trow[data-tone="down"] .slabel {
-  color: var(--accent);
+  color: var(--accent-text);
 }
 .trow[data-tone="seed"] .sdot {
   background: var(--ok);
@@ -1441,10 +1524,11 @@ body[data-resizing] .main {
   align-items: center;
   gap: 6px;
   padding: 0 10px;
-  font-family: var(--font-mono);
-  font-size: 10.5px;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
+  font-size: calc(var(--label-size) + 0.5px);
+  font-family: var(--font-label);
+  font-weight: var(--label-weight);
+  text-transform: var(--label-case);
+  letter-spacing: var(--label-tracking);
   color: var(--text-faint);
   transition: color 0.2s var(--ease);
 }
@@ -1534,6 +1618,7 @@ body[data-resizing] .main {
   font-size: 18px;
 }
 .ov-hash {
+  font-family: var(--font-code);
   display: flex;
   align-items: center;
   gap: 4px;
@@ -1559,7 +1644,7 @@ body[data-resizing] .main {
 }
 :root[data-theme="phosphor"] .ov-pct {
   font-size: 34px;
-  color: var(--accent);
+  color: var(--accent-text);
 }
 
 .piecemap {
@@ -1690,9 +1775,11 @@ body[data-resizing] .main {
 }
 .gt-head {
   height: 30px;
-  font-size: 10px;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
+  font-size: var(--label-size);
+  font-family: var(--font-label);
+  font-weight: var(--label-weight);
+  text-transform: var(--label-case);
+  letter-spacing: var(--label-tracking);
   color: var(--text-faint);
   border-bottom: 1px solid var(--line-soft);
 }
@@ -1734,9 +1821,11 @@ body[data-resizing] .main {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  font-size: 10.5px;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
+  font-size: calc(var(--label-size) + 0.5px);
+  font-family: var(--font-label);
+  font-weight: var(--label-weight);
+  text-transform: var(--label-case);
+  letter-spacing: var(--label-tracking);
   color: var(--text-faint);
 }
 .gt-row[data-tstatus="working"] .sdot {
@@ -1824,9 +1913,6 @@ body[data-resizing] .main {
   font-size: 10.5px;
   color: var(--text-faint);
 }
-:root[data-theme="paper"] .statusbar {
-  background: var(--bg-raised);
-}
 .sb-item {
   display: inline-flex;
   align-items: center;
@@ -1850,7 +1936,7 @@ body[data-resizing] .main {
 }
 .sb-btn {
   color: var(--text-dim);
-  font-family: var(--font-mono);
+  font-family: var(--font-data);
   font-size: 10.5px;
   transition: color 0.2s var(--ease);
 }
@@ -2140,7 +2226,7 @@ body[data-resizing] .main {
   background: var(--accent-soft);
 }
 .ctx-item.active .ctx-icon {
-  color: var(--accent);
+  color: var(--accent-text);
 }
 .ctx-item:disabled {
   opacity: 0.4;
@@ -2158,7 +2244,7 @@ body[data-resizing] .main {
   flex: 1;
 }
 .ctx-hint {
-  font-family: var(--font-mono);
+  font-family: var(--font-code);
   font-size: 10px;
   color: var(--text-faint);
 }
@@ -2223,7 +2309,7 @@ body[data-resizing] .main {
   width: 16px;
 }
 .palette-item[aria-selected="true"] .palette-icon {
-  color: var(--accent);
+  color: var(--accent-text);
 }
 .palette-label {
   flex: 1;
@@ -2319,6 +2405,13 @@ body[data-resizing] .main {
   font-size: 30px;
 }
 
+/* While the theme swaps, nothing transitions (see applyTheme). */
+:root[data-switching] *,
+:root[data-switching] *::before,
+:root[data-switching] *::after {
+  transition: none !important;
+}
+
 /* View-transition based theme wipe: no cross-fade, the clip-path does the work. */
 ::view-transition-old(root),
 ::view-transition-new(root) {
@@ -2333,7 +2426,7 @@ body[data-resizing] .main {
   z-index: 1000;
   display: grid;
   place-items: center;
-  background: var(--bg);
+  background: var(--canvas);
 }
 .launch-stage {
   position: relative;
@@ -2386,9 +2479,11 @@ body[data-resizing] .main {
 }
 .launch-sub {
   position: relative;
-  font-size: 10px;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
+  font-size: var(--label-size);
+  font-family: var(--font-label);
+  font-weight: var(--label-weight);
+  text-transform: var(--label-case);
+  letter-spacing: var(--label-tracking);
   color: var(--text-faint);
 }
 
@@ -2495,6 +2590,768 @@ body[data-resizing] .main {
   }
 }
 
+/* ── Moments (every register) ──────────────────────────────────────────────── */
+
+/* A status that changes (downloading → seeding) arrives rather than blinks. */
+.slabel {
+  display: inline-block;
+  animation: swapIn 0.45s var(--ease) both;
+}
+@keyframes swapIn {
+  from {
+    opacity: 0;
+    transform: translateY(5px);
+    filter: blur(2px);
+  }
+}
+/* A count that changes gives a small nudge. */
+.filter-count {
+  display: inline-block;
+  animation: bump 0.5s var(--ease) both;
+}
+@keyframes bump {
+  from {
+    transform: scale(1.45);
+    color: var(--accent-text);
+  }
+}
+/* A different torrent's overview settles in from top to bottom. */
+.overview > * {
+  animation: rise 0.5s var(--ease) both;
+}
+.overview > :nth-child(2) {
+  animation-delay: 45ms;
+}
+.overview > :nth-child(3) {
+  animation-delay: 90ms;
+}
+.overview > :nth-child(n + 4) {
+  animation-delay: 135ms;
+}
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+/* How long a toast has left. */
+.toast {
+  position: relative;
+  overflow: hidden;
+}
+.toast-life {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  background: var(--accent);
+  opacity: 0.7;
+  transform-origin: left center;
+  animation-name: life;
+  animation-timing-function: linear;
+  animation-fill-mode: forwards;
+}
+.toast-ok .toast-life {
+  background: var(--ok);
+}
+.toast-error .toast-life {
+  background: var(--err);
+}
+@keyframes life {
+  to {
+    transform: scaleX(0);
+  }
+}
+/* Paper's rubber stamp for a finished download (the other registers burst). */
+.stamp {
+  display: none;
+}
+
+/* ── Ink: floating panels on the night canvas ──────────────────────────────── */
+
+:root[data-theme="ink"] .app {
+  padding: 8px 8px 0;
+  column-gap: 8px;
+}
+:root[data-theme="ink"] .sidebar,
+:root[data-theme="ink"] .main > .toolbar,
+:root[data-theme="ink"] .main > .list-region,
+:root[data-theme="ink"] .main > .panel-wrap {
+  background: var(--bg);
+  border: 1px solid var(--line-soft);
+  box-shadow: inset 0 1px 0 #ffffff08, 0 18px 40px -24px #000;
+}
+:root[data-theme="ink"] .sidebar {
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  background: linear-gradient(180deg, #0e1526, var(--bg) 240px);
+}
+:root[data-theme="ink"] .main {
+  grid-template-rows: var(--toolbar-h) auto minmax(0, 1fr) 8px var(--panel-h);
+}
+:root[data-theme="ink"] .main > .toolbar {
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  box-shadow: inset 0 1px 0 #ffffff08;
+}
+:root[data-theme="ink"] .main > .banner {
+  border-inline: 1px solid var(--line-soft);
+}
+:root[data-theme="ink"] .main > .list-region {
+  border-top: 0;
+  border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+}
+:root[data-theme="ink"] .main > .panel-wrap {
+  border-radius: var(--radius-lg);
+}
+:root[data-theme="ink"] .main > .panel-wrap[data-collapsed] {
+  border-color: transparent;
+  box-shadow: none;
+}
+:root[data-theme="ink"] .resizer {
+  border-top: 0;
+}
+:root[data-theme="ink"] .resizer span {
+  top: 2px;
+  background: var(--line);
+}
+:root[data-theme="ink"] .statusbar {
+  background: transparent;
+  border-top: 0;
+  padding: 0 14px;
+}
+:root[data-theme="ink"] .brand {
+  border-bottom-color: var(--line-soft);
+}
+:root[data-theme="ink"] .brand-mark {
+  font-size: 25px;
+  font-weight: 500;
+  letter-spacing: -0.045em;
+}
+:root[data-theme="ink"] .tb-title h1 {
+  font-size: 27px;
+  font-weight: 350;
+}
+
+/* Sidebar: the active filter is a lit capsule. */
+:root[data-theme="ink"] .filter,
+:root[data-theme="ink"] .filter-active {
+  border-radius: 9px;
+}
+:root[data-theme="ink"] .filter-active {
+  background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 17%, transparent), color-mix(in srgb, var(--accent) 6%, transparent));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 22%, transparent), 0 0 26px -10px var(--accent);
+}
+
+/* The speed readout is lit by the transfer itself: --flux and --uflux run
+   from 0 (idle) to 1 (around 16 MB/s), so the glow is the speed. */
+:root[data-theme="ink"] .speedcard {
+  position: relative;
+  isolation: isolate;
+  border-top-color: var(--line-soft);
+}
+:root[data-theme="ink"] .speedcard::before,
+:root[data-theme="ink"] .speedcard::after {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  pointer-events: none;
+  transition: opacity 1.6s var(--ease);
+}
+:root[data-theme="ink"] .speedcard::before {
+  inset: -40px -50px 35% -40px;
+  background: radial-gradient(55% 50% at 45% 60%, color-mix(in srgb, var(--accent) 32%, transparent), transparent 72%);
+  opacity: calc(0.06 + var(--flux, 0) * 0.94);
+}
+:root[data-theme="ink"] .speedcard::after {
+  inset: 40% -40px -30px -30px;
+  background: radial-gradient(50% 55% at 60% 45%, color-mix(in srgb, var(--up) 26%, transparent), transparent 72%);
+  opacity: calc(0.05 + var(--uflux, 0) * 0.95);
+}
+:root[data-theme="ink"] .speed-big {
+  font-weight: 250;
+  letter-spacing: -0.04em;
+}
+:root[data-theme="ink"] .speed-num.down .speed-big {
+  font-size: 40px;
+  text-shadow: 0 0 calc(6px + var(--flux, 0) * 26px) color-mix(in srgb, var(--accent) 60%, transparent);
+  transition: text-shadow 1.6s var(--ease);
+}
+:root[data-theme="ink"] .speed-num.up .speed-big {
+  font-size: 23px;
+  color: var(--up);
+}
+:root[data-theme="ink"] .side-foot {
+  border-top-color: var(--line-soft);
+}
+
+/* Table: selection is a lit capsule that swells into place. */
+:root[data-theme="ink"] .thead {
+  border-bottom-color: var(--line-soft);
+}
+:root[data-theme="ink"] .trow {
+  border-bottom-color: #ffffff07;
+}
+:root[data-theme="ink"] .trow:hover {
+  background: linear-gradient(90deg, #ffffff06, transparent 70%);
+}
+:root[data-theme="ink"] .trow-sel {
+  inset: 4px 6px;
+  border-radius: 11px;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 15%, transparent), color-mix(in srgb, var(--accent) 5%, transparent) 55%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 18%, transparent);
+  transform: scale(0.97);
+  transition: opacity 0.28s var(--ease), transform 0.45s var(--ease);
+}
+:root[data-theme="ink"] .trow[data-selected] .trow-sel {
+  transform: none;
+}
+:root[data-theme="ink"] .trow[data-focused]::before {
+  left: 6px;
+  top: 14px;
+  bottom: 14px;
+  width: 3px;
+  box-shadow: 0 0 10px var(--accent);
+}
+:root[data-theme="ink"] .bar {
+  background: #ffffff0b;
+  box-shadow: inset 0 1px 1px #0008;
+  border-radius: 99px;
+}
+:root[data-theme="ink"] .trow[data-tone="down"] .bar-fill {
+  background-image: linear-gradient(90deg, transparent 0 60%, #ffffff70 80%, transparent 100%),
+    linear-gradient(90deg, color-mix(in srgb, var(--accent) 28%, var(--bg)), var(--accent) 78%, var(--accent-hi));
+}
+:root[data-theme="ink"] .trow[data-status="downloading"] .bar {
+  box-shadow: 0 0 18px -3px color-mix(in srgb, var(--accent) 65%, transparent), inset 0 1px 1px #0008;
+}
+:root[data-theme="ink"] .trow[data-tone="seed"] .bar-fill {
+  background: linear-gradient(90deg, color-mix(in srgb, var(--ok) 45%, var(--bg)), var(--ok));
+}
+:root[data-theme="ink"] .trow[data-tone="down"] .sdot {
+  box-shadow: 0 0 8px var(--accent);
+}
+:root[data-theme="ink"] .pill {
+  border-radius: 99px;
+  padding: 0 9px;
+  background: color-mix(in srgb, currentColor 9%, transparent);
+  border-color: color-mix(in srgb, currentColor 28%, transparent);
+}
+
+/* Controls: soft, lit from above. */
+:root[data-theme="ink"] .btn {
+  background: linear-gradient(180deg, #ffffff09, transparent), var(--bg-raised);
+}
+:root[data-theme="ink"] .btn.primary {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--accent-hi) 45%, var(--accent)), var(--accent));
+  border-color: transparent;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 55%, transparent), 0 8px 24px -10px var(--accent);
+}
+:root[data-theme="ink"] .btn.primary:hover {
+  filter: brightness(1.06);
+  box-shadow: 0 0 0 1px var(--accent), 0 10px 34px -8px var(--accent);
+}
+
+/* Detail panel: tabs are capsules, stats sit in a recessed well. */
+:root[data-theme="ink"] .tabs {
+  border-bottom-color: var(--line-soft);
+  padding: 0 12px;
+}
+:root[data-theme="ink"] .tab {
+  isolation: isolate;
+}
+:root[data-theme="ink"] .tab-underline {
+  inset: 6px 0;
+  height: auto;
+  z-index: -1;
+  border-radius: 99px;
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 30%, transparent);
+}
+:root[data-theme="ink"] .ov-pct {
+  font-size: 60px;
+  font-weight: 200;
+  letter-spacing: -0.05em;
+}
+:root[data-theme="ink"] .stats {
+  border: 1px solid var(--line-soft);
+  border-radius: 12px;
+  background: var(--bg-inset);
+  padding: 4px 2px;
+}
+:root[data-theme="ink"] .stat {
+  border: 0;
+}
+:root[data-theme="ink"] .piecemap {
+  border-radius: 6px;
+}
+
+/* Overlays: frosted glass over the canvas. */
+:root[data-theme="ink"] .modal-scrim {
+  backdrop-filter: blur(10px) saturate(1.2);
+  -webkit-backdrop-filter: blur(10px) saturate(1.2);
+}
+:root[data-theme="ink"] .modal,
+:root[data-theme="ink"] .palette {
+  border-radius: 18px;
+  border-color: #ffffff14;
+  background: linear-gradient(180deg, #121b2e, var(--bg) 150px);
+}
+:root[data-theme="ink"] .modal-foot {
+  background: #ffffff05;
+  border-top-color: var(--line-soft);
+}
+:root[data-theme="ink"] .settings {
+  border-top-color: var(--line-soft);
+}
+:root[data-theme="ink"] .set-nav {
+  background: transparent;
+  border-right-color: var(--line-soft);
+}
+:root[data-theme="ink"] .set-nav-item,
+:root[data-theme="ink"] .ctx-item,
+:root[data-theme="ink"] .palette-item {
+  border-radius: 8px;
+}
+:root[data-theme="ink"] .set-nav-item[aria-current="true"],
+:root[data-theme="ink"] .palette-item[aria-selected="true"] {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+:root[data-theme="ink"] .ctx-menu,
+:root[data-theme="ink"] .toast {
+  border-radius: 13px;
+  border-color: #ffffff14;
+  background: color-mix(in srgb, var(--bg-raised) 80%, transparent);
+  backdrop-filter: blur(18px) saturate(1.4);
+  -webkit-backdrop-filter: blur(18px) saturate(1.4);
+}
+:root[data-theme="ink"] .toast-life {
+  box-shadow: 0 0 8px currentColor;
+}
+:root[data-theme="ink"] .dropzone-inner {
+  border-radius: 20px;
+}
+
+/* ── Paper: a risograph print ──────────────────────────────────────────────── */
+
+/* Two inks: navy for everything structural, fluorescent pink laid over it,
+   sometimes a hair off register. */
+:root[data-theme="paper"] .sidebar {
+  background: transparent;
+  border-right: 2px solid var(--rule);
+}
+:root[data-theme="paper"] .brand,
+:root[data-theme="paper"] .toolbar {
+  border-bottom: 2px solid var(--rule);
+}
+:root[data-theme="paper"] .brand-mark,
+:root[data-theme="paper"] .tb-title h1,
+:root[data-theme="paper"] .modal-title,
+:root[data-theme="paper"] .empty-title,
+:root[data-theme="paper"] .launch-word,
+:root[data-theme="paper"] .dropzone-inner .display {
+  text-shadow: 2px 2px 0 var(--accent);
+}
+:root[data-theme="paper"] .brand-mark {
+  font-size: 38px;
+}
+:root[data-theme="paper"] .tb-title h1 {
+  font-size: 40px;
+  line-height: 0.9;
+}
+:root[data-theme="paper"] .filter {
+  font-weight: 500;
+}
+:root[data-theme="paper"] .filter[aria-current="true"] {
+  font-weight: 650;
+}
+:root[data-theme="paper"] .filter[aria-current="true"] .filter-icon {
+  color: var(--text);
+}
+/* The active filter is marked with a highlighter, which follows you down the list. */
+:root[data-theme="paper"] .filter-active {
+  inset: 5px 0;
+  border-radius: 3px 14px 4px 10px / 10px 4px 12px 5px;
+  background: color-mix(in srgb, var(--accent) 40%, transparent);
+  box-shadow: none;
+}
+:root[data-theme="paper"] .speedcard,
+:root[data-theme="paper"] .side-foot {
+  border-top: 2px solid var(--rule);
+}
+:root[data-theme="paper"] .speed-big {
+  font-family: var(--font-display);
+  font-stretch: 62%;
+  font-weight: 800;
+}
+:root[data-theme="paper"] .speed-num.down .speed-big {
+  font-size: 50px;
+  color: var(--accent);
+  text-shadow: 2px 2px 0 color-mix(in srgb, var(--up) 75%, transparent);
+}
+:root[data-theme="paper"] .speed-num.up .speed-big {
+  font-size: 28px;
+  color: var(--up);
+}
+
+/* Table */
+:root[data-theme="paper"] .thead {
+  background: var(--bg);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  border-bottom: 1px solid var(--rule);
+}
+:root[data-theme="paper"] .th.sorted {
+  color: var(--text);
+}
+:root[data-theme="paper"] .trow {
+  border-bottom-color: var(--line);
+}
+/* Hover is a screen tone. */
+:root[data-theme="paper"] .trow:not([data-selected]):hover {
+  background: radial-gradient(circle, color-mix(in srgb, var(--rule) 17%, transparent) 0.7px, transparent 1px) 0 0 / 4px 4px;
+}
+/* Selection is a highlighter stroke: drawn left to right, wiped off to the right. */
+:root[data-theme="paper"] .trow-sel {
+  inset: 9px 6px 9px 30px;
+  opacity: 1;
+  border-radius: 3px 16px 4px 12px / 12px 4px 14px 5px;
+  background: color-mix(in srgb, var(--accent) 26%, transparent);
+  transform: scaleX(0);
+  transform-origin: right center;
+  transition: transform 0.38s cubic-bezier(0.6, 0.05, 0.2, 1);
+}
+:root[data-theme="paper"] .trow[data-selected] .trow-sel {
+  transform: scaleX(1);
+  transform-origin: left center;
+}
+:root[data-theme="paper"] .trow[data-focused]::before {
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  border-radius: 0;
+  background: var(--rule);
+}
+:root[data-theme="paper"] .tname {
+  font-weight: 600;
+}
+:root[data-theme="paper"] .bar {
+  border-radius: 0;
+  background: radial-gradient(circle, color-mix(in srgb, var(--rule) 34%, transparent) 0.75px, transparent 1px) 0 0 / 3px 3px;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--rule) 25%, transparent);
+}
+:root[data-theme="paper"] .bar-fill {
+  border-radius: 0;
+}
+/* Downloading: stripes rolling through, quicker as the download speeds up. */
+:root[data-theme="paper"] .trow[data-tone="down"] .bar-fill {
+  background: var(--accent) repeating-linear-gradient(-60deg, transparent 0 4px, #ffffff40 4px 7px);
+  background-size: 16px 100%;
+  animation: roller calc(var(--flow, 2.4s) / 3) linear infinite;
+}
+@keyframes roller {
+  to {
+    background-position: 16px 0;
+  }
+}
+/* The leading edge is a registration mark, not a glow. */
+:root[data-theme="paper"] .bar-head {
+  width: 2px;
+  translate: -1px 0;
+  border-radius: 0;
+  background: var(--rule);
+  opacity: 1;
+  animation: none;
+}
+:root[data-theme="paper"] .trow[data-status="downloading"] .bar {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--rule) 25%, transparent);
+}
+:root[data-theme="paper"] .sdot,
+:root[data-theme="paper"] .sdot::after {
+  border-radius: 0;
+}
+:root[data-theme="paper"] .sdot {
+  width: 7px;
+  height: 7px;
+}
+:root[data-theme="paper"] .burst {
+  display: none;
+}
+:root[data-theme="paper"] .stamp {
+  display: block;
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  margin-top: -11px;
+  padding: 1px 6px 0;
+  font-family: var(--font-display);
+  font-stretch: 68%;
+  font-weight: 820;
+  font-size: 14px;
+  line-height: 18px;
+  letter-spacing: 0.03em;
+  color: var(--accent);
+  border: 2px solid var(--accent);
+  border-radius: 3px;
+  pointer-events: none;
+  animation: stamp 2s cubic-bezier(0.2, 0.9, 0.3, 1) both;
+}
+@keyframes stamp {
+  0% {
+    opacity: 0;
+    transform: scale(2.4) rotate(-20deg);
+  }
+  13% {
+    opacity: 1;
+    transform: scale(0.92) rotate(-8deg);
+  }
+  20% {
+    transform: scale(1) rotate(-8deg);
+  }
+  78% {
+    opacity: 1;
+    transform: scale(1) rotate(-8deg);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1) rotate(-8deg);
+  }
+}
+
+/* Controls: printed boxes; the primary button is a raised block you press flat. */
+:root[data-theme="paper"] .btn {
+  border: 1.5px solid var(--rule);
+  background: transparent;
+  font-weight: 650;
+  font-stretch: 90%;
+}
+:root[data-theme="paper"] .btn:hover {
+  color: var(--text);
+  border-color: var(--rule);
+  background: var(--accent-soft);
+}
+:root[data-theme="paper"] .btn.primary {
+  background: var(--accent);
+  color: var(--rule);
+  border-color: var(--rule);
+  box-shadow: 3px 3px 0 var(--rule);
+  transition: translate 0.12s var(--ease), box-shadow 0.12s var(--ease), background-color 0.2s var(--ease);
+}
+:root[data-theme="paper"] .btn.primary:hover {
+  filter: none;
+  color: var(--rule);
+  background: var(--accent);
+  translate: -1px -1px;
+  box-shadow: 4px 4px 0 var(--rule);
+}
+:root[data-theme="paper"] .btn.primary:active,
+:root[data-theme="paper"] .btn.danger:active {
+  scale: 1;
+  translate: 3px 3px;
+  box-shadow: 0 0 0 var(--rule);
+}
+:root[data-theme="paper"] .btn.ghost {
+  border-color: transparent;
+}
+:root[data-theme="paper"] .btn.danger {
+  border-color: var(--rule);
+  box-shadow: 3px 3px 0 var(--rule);
+}
+:root[data-theme="paper"] .icon-btn:hover {
+  color: var(--text);
+  background: var(--accent-soft);
+}
+:root[data-theme="paper"] .input,
+:root[data-theme="paper"] .tb-search,
+:root[data-theme="paper"] .select,
+:root[data-theme="paper"] .chip {
+  background-color: #fff;
+  border: 1.5px solid var(--line);
+}
+:root[data-theme="paper"] .input:focus,
+:root[data-theme="paper"] .tb-search:focus-within {
+  border-color: var(--rule);
+  box-shadow: 3px 3px 0 var(--accent);
+}
+:root[data-theme="paper"] .pill {
+  border: 1.5px solid currentColor;
+  font-stretch: 82%;
+}
+:root[data-theme="paper"] .pill.tone-down {
+  background: var(--accent);
+  color: var(--rule);
+  border-color: var(--rule);
+}
+:root[data-theme="paper"] .check span {
+  border: 1.5px solid var(--rule);
+  border-radius: 0;
+}
+:root[data-theme="paper"] .toggle-track,
+:root[data-theme="paper"] .toggle-thumb {
+  border-radius: 0;
+}
+:root[data-theme="paper"] .toggle-track {
+  border: 1.5px solid var(--rule);
+}
+:root[data-theme="paper"] .toggle-thumb {
+  background: var(--rule);
+}
+:root[data-theme="paper"] .toggle input:checked + .toggle-track {
+  background: var(--accent);
+  border-color: var(--rule);
+}
+:root[data-theme="paper"] .toggle input:checked + .toggle-track .toggle-thumb {
+  background: var(--rule);
+}
+
+/* Detail panel: a printed form. */
+:root[data-theme="paper"] .resizer {
+  border-top: 2px solid var(--rule);
+}
+:root[data-theme="paper"] .resizer span {
+  border-radius: 0;
+  background: var(--rule);
+}
+:root[data-theme="paper"] .tabs {
+  border-bottom: 1px solid var(--rule);
+}
+:root[data-theme="paper"] .tab-underline {
+  height: 5px;
+  bottom: -1px;
+  left: 4px;
+  right: 4px;
+  border-radius: 0;
+}
+:root[data-theme="paper"] .ov-name {
+  font-size: 36px;
+  line-height: 0.95;
+}
+:root[data-theme="paper"] .ov-pct {
+  font-size: 76px;
+  line-height: 0.85;
+  text-shadow: 3px 3px 0 var(--accent);
+}
+:root[data-theme="paper"] .stats {
+  border-top: 2px solid var(--rule);
+  border-left-color: var(--line);
+}
+:root[data-theme="paper"] .stat {
+  border-color: var(--line);
+}
+:root[data-theme="paper"] .piecemap {
+  height: 20px;
+  border-radius: 0;
+  box-shadow: 0 0 0 1px var(--rule);
+}
+:root[data-theme="paper"] .gt-head,
+:root[data-theme="paper"] .pane-bar {
+  border-bottom-color: var(--rule);
+}
+:root[data-theme="paper"] .pane-bar {
+  background: var(--bg);
+  backdrop-filter: none;
+}
+
+/* Overlays: sheets laid on a screen-toned page, with a pink block behind. */
+:root[data-theme="paper"] .modal-scrim {
+  background: radial-gradient(circle, color-mix(in srgb, var(--rule) 22%, transparent) 0.9px, transparent 1.2px) 0 0 / 6px 6px,
+    color-mix(in srgb, var(--rule) 6%, transparent);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+:root[data-theme="paper"] .modal,
+:root[data-theme="paper"] .palette {
+  border: 2px solid var(--rule);
+  background: var(--bg);
+}
+:root[data-theme="paper"] .modal-title {
+  font-size: 42px;
+  line-height: 0.95;
+}
+:root[data-theme="paper"] .modal-foot {
+  border-top: 2px solid var(--rule);
+}
+:root[data-theme="paper"] .palette-input {
+  border-bottom: 2px solid var(--rule);
+}
+:root[data-theme="paper"] .settings {
+  border-top: 2px solid var(--rule);
+}
+:root[data-theme="paper"] .set-nav {
+  background: transparent;
+  border-right: 2px solid var(--rule);
+}
+:root[data-theme="paper"] .set-nav-item[aria-current="true"],
+:root[data-theme="paper"] .palette-item[aria-selected="true"],
+:root[data-theme="paper"] .ctx-item.active {
+  box-shadow: none;
+  background: color-mix(in srgb, var(--accent) 32%, transparent);
+}
+:root[data-theme="paper"] .ctx-menu,
+:root[data-theme="paper"] .toast {
+  border: 2px solid var(--rule);
+  background: var(--bg);
+  box-shadow: 5px 5px 0 var(--accent);
+}
+:root[data-theme="paper"] .toast-life {
+  height: 4px;
+  opacity: 1;
+}
+:root[data-theme="paper"] .statusbar {
+  background: var(--bg);
+  border-top: 2px solid var(--rule);
+}
+:root[data-theme="paper"] .dropzone-inner {
+  border: 3px dashed var(--rule);
+  border-radius: 0;
+  background: radial-gradient(circle, color-mix(in srgb, var(--accent) 45%, transparent) 1px, transparent 1.4px) 0 0 / 7px 7px;
+}
+:root[data-theme="paper"] .empty-title {
+  font-size: 72px;
+  line-height: 0.9;
+}
+:root[data-theme="paper"] .launch-glow {
+  display: none;
+}
+/* The mark, printed in pink over a navy plate set a little off. */
+:root[data-theme="paper"] .launch-mark {
+  filter: drop-shadow(5px 5px 0 var(--rule));
+}
+:root[data-theme="paper"] .launch-word {
+  font-size: 64px;
+}
+:root[data-theme="paper"] ::-webkit-scrollbar-thumb {
+  border-radius: 0;
+  background: color-mix(in srgb, var(--rule) 35%, transparent);
+}
+
+/* Theme picker: each swatch previews its register's material. */
+.theme-pick[data-pick="ink"] .swatch {
+  border-radius: 11px;
+  box-shadow: inset 0 0 22px -6px #56c7ff70;
+}
+.theme-pick[data-pick="ink"] .swatch i {
+  border-radius: 9px;
+  box-shadow: 0 0 6px currentColor;
+}
+.theme-pick[data-pick="paper"] .swatch {
+  border-radius: 0;
+  border-width: 2px;
+}
+.theme-pick[data-pick="paper"] .swatch i {
+  border-radius: 0;
+}
+.theme-pick[data-pick="paper"] .swatch i:first-child {
+  box-shadow: 2px 2px 0 #1d2873;
+}
+.theme-pick[data-pick="phosphor"] .swatch {
+  border-radius: 3px;
+}
+.theme-pick[data-pick="ink"][aria-pressed="true"] .swatch {
+  box-shadow: inset 0 0 22px -6px #56c7ff70, 0 0 0 2px var(--bg), 0 0 0 3px var(--accent);
+}
+
 /* In the background, the looping decorations rest (one-off transitions still finish). */
 .app[data-inactive] .bar-fill,
 .app[data-inactive] .bar-head,
@@ -2526,7 +3383,7 @@ body[data-resizing] .main {
 }
 .update-notes .eyebrow {
   margin-top: 6px;
-  color: var(--accent);
+  color: var(--accent-text);
 }
 .update-notes ul {
   display: grid;

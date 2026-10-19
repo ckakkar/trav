@@ -1,15 +1,15 @@
 "use client";
 
 import { motion } from "motion/react";
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { Settings2, SunMoon, Command as CommandIcon } from "lucide-react";
 import type { GlobalStats } from "@/lib/types";
 import type { SpeedHistory } from "@/lib/engine";
 import { bytes, bytesParts } from "@/lib/format";
 import { Tween } from "@/lib/tween";
 import { AUTHOR_URL, openAuthorSite } from "@/lib/rpc";
+import { SLIDE, useRegister } from "@/lib/motion";
 import { Graph } from "./Graph";
-import { ease } from "./Modal";
 
 export interface FilterDef {
   id: string;
@@ -28,6 +28,11 @@ function Speed({ label, value, tone }: { label: string; value: number; tone: "do
       </span>
     </div>
   );
+}
+
+/** 0 at rest, 1 around 16 MB/s, on a log scale: how brightly Ink's speed readout glows. */
+function flux(rate: number) {
+  return Math.min(1, Math.log10(1 + rate / 65536) / Math.log10(257));
 }
 
 export function Sidebar({
@@ -53,6 +58,8 @@ export function Sidebar({
   mac: boolean;
   version: string;
 }) {
+  const slide = SLIDE[useRegister()];
+  const glow = { "--flux": flux(stats?.downloadRate ?? 0), "--uflux": flux(stats?.uploadRate ?? 0) } as CSSProperties;
   return (
     <aside className="sidebar" data-mac={mac || undefined}>
       <div className="brand" data-tauri-drag-region>
@@ -68,15 +75,17 @@ export function Sidebar({
         <div className="eyebrow side-eyebrow">Library</div>
         {filters.map((f) => (
           <button key={f.id} className="filter" aria-current={active === f.id} onClick={() => onFilter(f.id)}>
-            {active === f.id && <motion.span layoutId="filter-active" className="filter-active" transition={{ duration: 0.38, ease }} />}
+            {active === f.id && <motion.span layoutId="filter-active" className="filter-active" transition={slide} />}
             <span className="filter-icon">{f.icon}</span>
             <span className="filter-label">{f.label}</span>
-            <span className="filter-count mono">{f.count}</span>
+            <span key={f.count} className="filter-count mono">
+              {f.count}
+            </span>
           </button>
         ))}
       </nav>
 
-      <div className="speedcard">
+      <div className="speedcard" style={glow}>
         <div className="eyebrow side-eyebrow">Throughput</div>
         <Speed label="Down" value={stats?.downloadRate ?? 0} tone="down" />
         <Graph className="side-graph" source={() => history.global} windowMs={90_000} />

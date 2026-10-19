@@ -1,7 +1,8 @@
 import type { Metadata, Viewport } from "next";
 import { GeistSans } from "geist/font/sans";
 import { GeistMono } from "geist/font/mono";
-import "@fontsource/instrument-serif/400.css";
+// Paper's face: one variable family, from extra-condensed poster type to text.
+import "@fontsource-variable/archivo/wdth.css";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -10,7 +11,7 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#0c0d10",
+  themeColor: "#04070d",
   colorScheme: "dark light",
 };
 

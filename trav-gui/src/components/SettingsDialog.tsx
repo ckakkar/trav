@@ -282,7 +282,7 @@ export function SettingsDialog({
             </>
           ) : (
             <>
-              <Row label="Theme" hint="from kkrwhofrags.xyz">
+              <Row label="Theme" hint="⌘⇧L cycles through them">
                 <div className="theme-picks">
                   {THEMES.map((t) => (
                     <button key={t.id} className="theme-pick" data-pick={t.id} aria-pressed={prefs.theme === t.id} onClick={() => onPrefs({ ...prefs, theme: t.id })}>

@@ -124,6 +124,7 @@ const Row = memo(
         onContextMenu={(e) => onMenu(e, t.infoHash)}
         onDoubleClick={() => onOpen(t.infoHash)}
       >
+        <i className="trow-sel" aria-hidden />
         <div className="c-idx mono">{pad2(index + 1)}</div>
         <div className="c-name">
           <div className="tname" title={t.name}>
@@ -139,12 +140,20 @@ const Row = memo(
               <div className="bar-head" />
             </div>
             {done > 0 && <Burst key={done} />}
+            {done > 0 && (
+              <span key={`stamp-${done}`} className="stamp" aria-hidden>
+                Done
+              </span>
+            )}
           </div>
           <Tween key={t.infoHash} className="bar-pct mono" value={t.progress} format={(v) => pct(v, v >= 0.999 ? 0 : 1)} />
         </div>
         <div className="c-status">
           <span className="sdot" />
-          <span className="slabel mono">{st.label}</span>
+          {/* Keyed by label so a change of status replays its entrance. */}
+          <span key={st.label} className="slabel mono">
+            {st.label}
+          </span>
         </div>
         <div className="c-down num mono">
           <Tween key={t.infoHash} value={t.downloadRate} format={rate} />

@@ -750,7 +750,7 @@ export default function App() {
         <div className="resizer" onPointerDown={startResize} onDoubleClick={() => setCollapsed((c) => !c)} role="separator" aria-orientation="horizontal" title="Drag to resize · double-click to collapse">
           <span />
         </div>
-        <div className="panel-wrap" data-collapsed={collapsed || undefined}>
+        <div className="panel-wrap" data-collapsed={collapsed || (snapshot && torrents.length === 0) || undefined}>
           <DetailPanel
             details={details}
             tab={tab}

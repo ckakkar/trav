@@ -2,10 +2,10 @@
 
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { DIALOG, useRegister } from "@/lib/motion";
 import { Magnet, Search } from "lucide-react";
 import type { TorrentSummary } from "@/lib/types";
 import { looksLikeMagnet, pct } from "@/lib/format";
-import { ease } from "./Modal";
 
 export interface Command {
   id: string;
@@ -45,6 +45,7 @@ export function Palette({
   const [q, setQ] = useState("");
   const [idx, setIdx] = useState(0);
   const input = useRef<HTMLInputElement>(null);
+  const dialog = DIALOG[useRegister()];
 
   // Each opening is a fresh element: re-opening during the exit animation must
   // not resurrect the previous (frozen) input and its stale query.
@@ -97,10 +98,10 @@ export function Palette({
             className="palette"
             role="dialog"
             aria-label="Command palette"
-            initial={{ opacity: 0, y: -10, scale: 0.985 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: -6 }}
-            transition={{ duration: 0.26, ease }}
+            initial={dialog.initial}
+            animate={dialog.animate}
+            exit={dialog.exit}
+            transition={dialog.transition}
           >
             <div className="palette-input">
               <Search size={15} />
