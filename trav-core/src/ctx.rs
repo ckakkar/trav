@@ -1,5 +1,7 @@
 //! Session-wide context shared by every torrent.
 
+use std::collections::HashMap;
+use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU16, AtomicU64, AtomicUsize};
 
@@ -10,6 +12,8 @@ use crate::dht::Dht;
 use crate::governor::RttSample;
 use crate::limiter::RateLimiter;
 use crate::message::Event;
+use crate::metainfo::InfoHash;
+use crate::path_safety::{fs_key, key_within};
 use crate::persist::Store;
 use crate::settings::Settings;
 use crate::utp::UtpSocket;
@@ -46,6 +50,14 @@ pub(crate) struct Ctx {
     pub auto_upload_cap: AtomicU64,
     /// Public trackers added to non-private torrents (see `public_trackers`).
     pub public_trackers: RwLock<Vec<String>>,
+    /// Where each torrent keeps its data (see [`Ctx::claim`]).
+    pub claims: Mutex<HashMap<InfoHash, Claim>>,
+}
+
+/// A torrent's file or folder, by [`fs_key`], and its name.
+pub(crate) struct Claim {
+    key: String,
+    name: String,
 }
 
 impl Ctx {
@@ -61,6 +73,28 @@ impl Ctx {
         }
     }
 
+    /// The torrent other than `ih` whose data is at `content`, inside it or
+    /// around it: two torrents writing one place would overwrite each other.
+    pub fn claimed_by(&self, ih: &InfoHash, content: &Path) -> Option<String> {
+        holder(&self.claims.lock(), ih, &fs_key(content)).map(|c| c.name.clone())
+    }
+
+    /// Reserve `content` for `ih`; if another torrent has it, that torrent's name.
+    pub fn claim(&self, ih: InfoHash, content: &Path, name: &str) -> Result<(), String> {
+        let key = fs_key(content);
+        let mut claims = self.claims.lock();
+        if let Some(c) = holder(&claims, &ih, &key) {
+            return Err(c.name.clone());
+        }
+        let name = name.to_string();
+        claims.insert(ih, Claim { key, name });
+        Ok(())
+    }
+
+    pub fn release(&self, ih: &InfoHash) {
+        self.claims.lock().remove(ih);
+    }
+
     pub fn dht(&self) -> Option<Dht> {
         self.dht.read().clone()
     }
@@ -72,6 +106,13 @@ impl Ctx {
         }
         self.utp.read().clone()
     }
+}
+
+fn holder<'a>(claims: &'a HashMap<InfoHash, Claim>, ih: &InfoHash, key: &str) -> Option<&'a Claim> {
+    claims
+        .iter()
+        .find(|(h, c)| *h != ih && (key_within(&c.key, key) || key_within(key, &c.key)))
+        .map(|(_, c)| c)
 }
 
 /// Azureus-style peer id: `-TV0200-` + 12 random alphanumerics.

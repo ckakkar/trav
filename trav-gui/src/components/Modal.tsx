@@ -24,13 +24,19 @@ export function Modal({
   title?: ReactNode;
 }) {
   const panel = useRef<HTMLDivElement>(null);
+  // Parents pass a fresh `onClose` on every render (the engine polls twice a
+  // second); focus must follow opening and closing only, not those renders.
+  const close = useRef(onClose);
+  useEffect(() => {
+    close.current = onClose;
+  }, [onClose]);
   useEffect(() => {
     if (!open) return;
     const prev = document.activeElement as HTMLElement | null;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         e.stopPropagation();
-        onClose();
+        close.current();
       }
     };
     window.addEventListener("keydown", onKey, true);
@@ -46,7 +52,7 @@ export function Modal({
       window.removeEventListener("keydown", onKey, true);
       prev?.focus?.();
     };
-  }, [open, onClose]);
+  }, [open]);
 
   return (
     <AnimatePresence>

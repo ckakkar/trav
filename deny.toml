@@ -8,6 +8,15 @@ all-features = false
 # GUI dependencies (GTK bindings pulled in by Tauri on Linux) are informational.
 unmaintained = "workspace"
 yanked = "deny"
+# `zip` 4.x extraction bugs. tauri-plugin-updater depends on zip only on
+# Windows (it unpacks .msi/.nsis updates there); Trav ships for macOS alone,
+# where updates are .app.tar.gz and zip is never built. Drop these once a
+# stable tauri-plugin-updater moves to zip >= 9.
+ignore = [
+  { id = "RUSTSEC-2026-0367", reason = "zip is a Windows-only dependency; Trav is macOS-only" },
+  { id = "RUSTSEC-2026-0368", reason = "zip is a Windows-only dependency; Trav is macOS-only" },
+  { id = "RUSTSEC-2026-0369", reason = "zip is a Windows-only dependency; Trav is macOS-only" },
+]
 
 [licenses]
 confidence-threshold = 0.9

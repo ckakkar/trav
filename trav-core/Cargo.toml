@@ -29,6 +29,9 @@ parking_lot = "0.12"
 rand = "0.10"
 base64 = "0.23"
 fs4 = "1.1"
+# Unicode normalization, for comparing file names as macOS volumes do (already
+# in the tree through `url`).
+icu_normalizer = { version = "2.3", default-features = false, features = ["compiled_data"] }
 igd-next = { version = "0.18", features = ["aio_tokio"] }
 socket2 = "0.6.5"
 

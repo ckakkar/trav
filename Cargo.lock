@@ -5289,6 +5289,7 @@ dependencies = [
  "fs4",
  "futures",
  "hex",
+ "icu_normalizer",
  "igd-next",
  "libc",
  "num-bigint",

@@ -30,7 +30,7 @@ impl RateLimiter {
     /// Consume `n` bytes of budget, sleeping if the bucket is in debt.
     /// Debt-based accounting means large blocks never starve under tiny limits.
     pub async fn acquire(&self, n: usize) {
-        let rate = self.rate();
+        let mut rate = self.rate();
         if rate == 0 {
             return;
         }
@@ -59,8 +59,10 @@ impl RateLimiter {
             if now == 0 {
                 return;
             }
+            // Rescale once per raise: what is left was measured at `rate`.
             if now > rate {
                 left = left.mul_f64(rate as f64 / now as f64);
+                rate = now;
             }
         }
     }

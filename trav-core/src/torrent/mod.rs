@@ -506,6 +506,13 @@ impl Torrent {
                 st.ratio_stopped = false;
                 if matches!(st.phase, Phase::Error(_)) {
                     st.phase = Phase::Paused;
+                    // Its files couldn't be laid out (or another torrent had
+                    // their place): try again, now that it may be free.
+                    if st.storage.is_none()
+                        && let Some(meta) = st.meta.clone()
+                    {
+                        self.open_storage(&mut st, &meta.info);
+                    }
                 }
                 st.dirty = true;
                 self.update_phase(&mut st);
@@ -547,7 +554,11 @@ impl Torrent {
                     st.file_priorities = prio;
                     let piece_prio = piece_priorities(&meta.info, &st.file_priorities);
                     if let Some(p) = st.picker.as_mut() {
-                        p.set_piece_priorities(piece_prio);
+                        for (key, req) in p.set_piece_priorities(piece_prio) {
+                            if let Some(peer) = st.peers.get(&key) {
+                                let _ = peer.tx.send(PeerCmd::Cancel(req));
+                            }
+                        }
                     }
                     st.dirty = true;
                     if was_complete && !st.picker.as_ref().is_some_and(Picker::wanted_complete) {
@@ -776,11 +787,7 @@ impl Torrent {
                 s.close();
             });
         }
-        let left = st
-            .picker
-            .as_ref()
-            .map(Picker::wanted_bytes_left)
-            .unwrap_or(0);
+        let left = st.picker.as_ref().map(Picker::bytes_left).unwrap_or(0);
         for t in st.trackers.iter_mut().filter(|t| t.started) {
             t.started = false;
             t.status = TrackerStatus::Idle;
@@ -854,9 +861,11 @@ impl Torrent {
             st.phase = Phase::Paused;
             st.storage.clone()
         };
-        // Disk work off the reactor, and without holding the state lock.
+        // Disk work off the reactor, and without holding the state lock. Once
+        // retired, pieces still in flight can't write (or recreate) files.
         if let Some(s) = storage {
             let _ = tokio::task::spawn_blocking(move || {
+                s.retire();
                 if delete_files {
                     s.delete_files();
                 } else {
@@ -916,10 +925,7 @@ impl Torrent {
 
     fn install_metadata(self: &Arc<Self>, st: &mut State, meta: Arc<Metainfo>, from_swarm: bool) {
         st.name = meta.info.name.clone();
-        match Storage::new(&st.save_path, &meta.info) {
-            Ok(s) => st.storage = Some(Arc::new(s)),
-            Err(e) => st.phase = Phase::Error(format!("invalid file layout: {e}")),
-        }
+        self.open_storage(st, &meta.info);
         if st.file_priorities.len() != meta.info.files.len() {
             st.file_priorities = vec![1; meta.info.files.len()];
         }
@@ -939,6 +945,31 @@ impl Torrent {
         if from_swarm {
             self.rebuild_trackers(st);
         }
+    }
+
+    /// Lay out the files, unless another torrent already keeps its data there
+    /// (the two would overwrite each other): then stop with an error.
+    fn open_storage(&self, st: &mut State, info: &Info) {
+        let err = match Storage::new(&st.save_path, info) {
+            Ok(s) => match self.ctx.claim(self.info_hash, s.content_root(), &info.name) {
+                Ok(()) => {
+                    st.storage = Some(Arc::new(s));
+                    return;
+                }
+                Err(other) => format!(
+                    "“{other}” already keeps its files at {}; remove one of the two",
+                    s.content_root().display()
+                ),
+            },
+            Err(e) => format!("invalid file layout: {e}"),
+        };
+        warn!("{}: {err}", st.name);
+        self.ctx.emit(Event::TorrentError {
+            info_hash: hex::encode(self.info_hash),
+            name: st.name.clone(),
+            message: err.clone(),
+        });
+        st.phase = Phase::Error(err);
     }
 
     fn install_picker(self: &Arc<Self>, st: &mut State, meta: &Arc<Metainfo>) {
@@ -1375,7 +1406,7 @@ impl Torrent {
             return;
         }
         let left = match st.picker.as_ref() {
-            Some(p) => p.wanted_bytes_left(),
+            Some(p) => p.bytes_left(),
             None => st
                 .meta
                 .as_ref()

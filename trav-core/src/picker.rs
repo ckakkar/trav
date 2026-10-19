@@ -140,9 +140,35 @@ impl Picker {
         self.sequential
     }
 
-    pub fn set_piece_priorities(&mut self, prio: Vec<u8>) {
+    /// Set per-piece priorities. Pieces being assembled that are now skipped
+    /// are dropped; returns their outstanding requests, for the peers holding
+    /// them to cancel.
+    pub fn set_piece_priorities(&mut self, prio: Vec<u8>) -> Vec<(PeerKey, BlockReq)> {
         debug_assert_eq!(prio.len(), self.priority.len());
         self.priority = prio;
+        let skipped: Vec<u32> = self
+            .partial
+            .keys()
+            .copied()
+            .filter(|&p| self.priority[p as usize] == 0)
+            .collect();
+        let mut cancel = Vec::new();
+        for p in skipped {
+            let size = self.piece_size(p);
+            let part = self.partial.remove(&p).expect("listed above");
+            for (bi, b) in part.blocks.into_iter().enumerate() {
+                if let Block::Requested { peers, .. } = b {
+                    let begin = bi as u32 * BLOCK_SIZE;
+                    let req = BlockReq {
+                        piece: p,
+                        begin,
+                        len: (size - begin).min(BLOCK_SIZE),
+                    };
+                    cancel.extend(peers.into_iter().map(|k| (k, req)));
+                }
+            }
+        }
+        cancel
     }
 
     #[inline]
@@ -159,7 +185,13 @@ impl Picker {
         self.have.all()
     }
 
-    /// Bytes of selected pieces not yet verified (tracker `left`, ETA).
+    /// Bytes not yet verified, skipped pieces included: tracker `left`, which
+    /// is zero only for a seed (BEP 21).
+    pub fn bytes_left(&self) -> u64 {
+        self.total_length - self.have_bytes()
+    }
+
+    /// Bytes of selected pieces not yet verified (ETA, progress).
     pub fn wanted_bytes_left(&self) -> u64 {
         (0..self.num_pieces())
             .filter(|&i| self.priority[i] > 0 && !self.have.get(i))
@@ -721,6 +753,40 @@ mod tests {
         p.pick(1, &Bitfield::full(2), 8, &mut out);
         assert!(out.iter().all(|r| r.piece == 1));
         assert_eq!(p.wanted_bytes_left(), BLOCK_SIZE as u64);
+        assert_eq!(p.bytes_left(), 2 * BLOCK_SIZE as u64);
+    }
+
+    #[test]
+    fn skipping_a_piece_mid_download_drops_it() {
+        // Two pieces of two blocks; the first is half in when it gets skipped.
+        let inf = info(2, 2 * BLOCK_SIZE, 4 * BLOCK_SIZE as u64);
+        let mut p = Picker::new(&inf, Bitfield::new(2));
+        let all = Bitfield::full(2);
+        let mut out = vec![];
+        p.pick(1, &Bitfield::from_bytes(&[0b1000_0000], 2), 2, &mut out);
+        assert!(matches!(
+            p.on_block(1, 0, 0, &[0; BLOCK_SIZE as usize]),
+            OnBlock::Accepted { .. }
+        ));
+        p.pick(2, &all, 1, &mut out);
+        let cancel = p.set_piece_priorities(vec![0, 1]);
+        assert_eq!(
+            cancel,
+            [(
+                1,
+                BlockReq {
+                    piece: 0,
+                    begin: BLOCK_SIZE,
+                    len: BLOCK_SIZE
+                }
+            )]
+        );
+        // Neither the open-piece nor the end-game path hands out piece 0 again.
+        for peer in [1, 2, 3] {
+            let mut more = vec![];
+            p.pick(peer, &all, 8, &mut more);
+            assert!(more.iter().all(|r| r.piece == 1), "{more:?}");
+        }
     }
 
     /// Random interleavings of pick / receive / release / verify must keep the

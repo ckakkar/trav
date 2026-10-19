@@ -13,6 +13,18 @@ All notable changes to this project are documented here. The format follows
 - A magnet whose info dictionary can't be read now stops with an error instead of sitting at "fetching metadata".
 - Adding a torrent that is already in the list now also adds the new link's or file's trackers, not only its peers.
 - Stopping or removing a transfer flushes or deletes its files off the engine's async threads, and NAT-PMP no longer blocks one while looking up the router.
+- Two different torrents can no longer write into the same file or folder (same name and save folder, including names differing only in case). Adding the second one asks for another folder; if a magnet's metadata reveals a clash, it stops with an error naming the other torrent.
+- Two files in one torrent whose names differ only in how an accent is encoded (é as one character or two) no longer overwrite each other: macOS treats them as one name, and now Trav does too.
+- A removed torrent can no longer write to disk afterwards. A piece still held up by the speed limit or a hash check could recreate files that "Remove and delete data" had just moved to the Trash.
+- "Remove and delete data" moves only the torrent's own files to the Trash. Anything else in its folder, from you or another torrent, stays, and the folder goes too only if nothing else is in it.
+- Skipping a file partway through a piece stops downloading that piece; requests already sent for it are cancelled.
+- Trackers are told how much is really missing, so a torrent with skipped files no longer reports itself as a seed.
+- Raising a speed limit no longer releases transfers that were already waiting far sooner than the new limit allows.
+- A `.torrent` with two `info` dictionaries is refused; before, its name and files could come from a different dictionary than its info-hash.
+- Dialogs no longer pull keyboard focus back every half second while you type in Settings or the Add dialog.
+- File priority changes made just before switching to another torrent no longer carry over to it.
+- The Add dialog no longer shows a slow-to-load torrent's files, or applies its file choices, for the next torrent in the queue.
+- If installing an update fails, Install can be tried again instead of reporting that no update is waiting.
 
 ## [0.3.43] - 2026-10-15
 
