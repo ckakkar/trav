@@ -146,25 +146,28 @@ pub fn decode_prefix(data: &[u8]) -> Result<(Value, usize)> {
 }
 
 /// Locate the raw byte span of a top-level dictionary key's value.
-/// The info-hash must be computed over the exact original bytes.
+/// The info-hash must be computed over the exact original bytes. A key that
+/// appears twice is an error: which copy counts would be ambiguous.
 pub fn raw_value_span<'a>(data: &'a [u8], key: &[u8]) -> Result<&'a [u8]> {
+    let name = || String::from_utf8_lossy(key).into_owned();
     let mut p = Parser { data, pos: 0 };
     if p.peek()? != b'd' {
         return Err(Error::Bencode("expected top-level dict".into()));
     }
     p.pos += 1;
+    let mut found = None;
     while p.peek()? != b'e' {
         let k = p.bytes()?;
         let start = p.pos;
         p.skip(1)?;
         if k == key {
-            return Ok(&data[start..p.pos]);
+            if found.is_some() {
+                return Err(Error::Bencode(format!("duplicate key '{}'", name())));
+            }
+            found = Some(&data[start..p.pos]);
         }
     }
-    Err(Error::Bencode(format!(
-        "key '{}' not found",
-        String::from_utf8_lossy(key)
-    )))
+    found.ok_or_else(|| Error::Bencode(format!("key '{}' not found", name())))
 }
 
 struct Parser<'a> {
@@ -292,6 +295,8 @@ mod tests {
     fn raw_span() {
         let raw = b"d8:announce3:url4:infod4:name1:xee";
         assert_eq!(raw_value_span(raw, b"info").unwrap(), b"d4:name1:xe");
+        let twice = b"d4:infod4:name1:xe4:infod4:name1:yee";
+        assert!(raw_value_span(twice, b"info").is_err());
     }
 
     #[test]

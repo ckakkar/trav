@@ -7,6 +7,7 @@ mod menu;
 mod tray;
 mod update;
 
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
@@ -94,24 +95,84 @@ async fn remove_to_trash(engine: &EngineHandle, mut params: Value) -> Result<Val
     if let Some(h) = params.get("hash").and_then(Value::as_str) {
         hashes.push(h.to_owned());
     }
-    let paths: Vec<PathBuf> = hashes
+    let owned: Vec<(PathBuf, HashSet<PathBuf>)> = hashes
         .iter()
         .filter_map(|h| engine.details(h))
         .filter_map(|d| {
             let save = PathBuf::from(&d.summary.save_path);
             let content = PathBuf::from(d.content_path?);
             // Only the torrent's own file or folder inside its save folder.
-            (content != save && content.starts_with(&save) && content.exists()).then_some(content)
+            let files = d.files.iter().filter_map(|f| f.disk_path.as_ref());
+            (content != save && content.starts_with(&save) && content.exists())
+                .then(|| (content, files.map(PathBuf::from).collect()))
         })
         .collect();
     params["deleteFiles"] = Value::Bool(false);
     let result = trav_core::rpc::dispatch(engine, "remove", params).await?;
-    if !paths.is_empty() {
-        tauri::async_runtime::spawn_blocking(move || trash_paths(&paths))
-            .await
-            .map_err(|e| e.to_string())??;
+    if !owned.is_empty() {
+        tauri::async_runtime::spawn_blocking(move || {
+            let paths: Vec<PathBuf> = owned
+                .iter()
+                .flat_map(|(content, files)| trash_targets(content, files))
+                .collect();
+            let res = trash_paths(&paths);
+            for (content, _) in &owned {
+                prune_empty(content);
+            }
+            res
+        })
+        .await
+        .map_err(|e| e.to_string())??;
     }
     Ok(result)
+}
+
+/// What to move to the Trash for a torrent with data at `content`: all of it
+/// in one piece when everything there is the torrent's, else only `files`,
+/// so things the user (or another torrent) put in its folder stay put.
+fn trash_targets(content: &Path, files: &HashSet<PathBuf>) -> Vec<PathBuf> {
+    if !content.is_dir() || only_these(content, files) {
+        return vec![content.to_path_buf()];
+    }
+    files
+        .iter()
+        .filter(|f| f.starts_with(content) && f.symlink_metadata().is_ok())
+        .cloned()
+        .collect()
+}
+
+/// Whether every file under `dir` is one of `files` (Finder's `.DS_Store` aside).
+fn only_these(dir: &Path, files: &HashSet<PathBuf>) -> bool {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return false;
+    };
+    entries.flatten().all(|e| {
+        let p = e.path();
+        match e.file_type() {
+            Ok(t) if t.is_dir() => only_these(&p, files),
+            _ => files.contains(&p) || e.file_name() == ".DS_Store",
+        }
+    })
+}
+
+/// Remove folders under (and including) `dir` that are left empty but for
+/// `.DS_Store`; true if `dir` is gone.
+fn prune_empty(dir: &Path) -> bool {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return false;
+    };
+    let mut empty = true;
+    for e in entries.flatten() {
+        let p = e.path();
+        let is_dir = e.file_type().is_ok_and(|t| t.is_dir());
+        if !(is_dir && prune_empty(&p) || e.file_name() == ".DS_Store") {
+            empty = false;
+        }
+    }
+    if empty {
+        let _ = std::fs::remove_file(dir.join(".DS_Store"));
+    }
+    empty && std::fs::remove_dir(dir).is_ok()
 }
 
 fn trash_paths(paths: &[PathBuf]) -> Result<(), String> {
@@ -486,5 +547,36 @@ mod tests {
         // Opened again later: a real second request.
         assert!(o.add(["/a.torrent".to_string()], t + Opens::DEDUPE));
         assert_eq!(o.take(), ["/a.torrent"]);
+    }
+
+    #[test]
+    fn trash_spares_files_that_arent_the_torrents() {
+        let root = std::env::temp_dir().join(format!("trav-trash-{}", std::process::id()));
+        let content = root.join("Show");
+        std::fs::create_dir_all(content.join("extras")).unwrap();
+        for f in ["ep1.mkv", "extras/a.srt", "notes.txt"] {
+            std::fs::write(content.join(f), b"x").unwrap();
+        }
+        let mut files: HashSet<PathBuf> = ["ep1.mkv", "extras/a.srt"]
+            .iter()
+            .map(|f| content.join(f))
+            .collect();
+        let mut got = trash_targets(&content, &files);
+        got.sort();
+        assert_eq!(got, [content.join("ep1.mkv"), content.join("extras/a.srt")]);
+        // With the torrent's files gone, its emptied folders go; the user's file stays.
+        for f in &got {
+            std::fs::remove_file(f).unwrap();
+        }
+        assert!(!prune_empty(&content));
+        assert!(!content.join("extras").exists());
+        assert!(content.join("notes.txt").exists());
+        // When everything there is the torrent's, the folder goes in one piece.
+        files.insert(content.join("notes.txt"));
+        assert_eq!(
+            trash_targets(&content, &files),
+            std::slice::from_ref(&content)
+        );
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

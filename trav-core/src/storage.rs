@@ -11,7 +11,7 @@ use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use parking_lot::Mutex;
+use parking_lot::{Mutex, RwLock};
 use sha1::{Digest, Sha1};
 
 use crate::error::Result;
@@ -36,6 +36,8 @@ pub struct Storage {
     files: Vec<StorageFile>,
     total_length: u64,
     handles: Mutex<HashMap<usize, Arc<File>>>,
+    /// Set by [`Storage::retire`]; writes hold the read side while they run.
+    retired: RwLock<bool>,
 }
 
 impl Storage {
@@ -70,6 +72,7 @@ impl Storage {
             files,
             total_length: info.total_length,
             handles: Mutex::new(HashMap::new()),
+            retired: RwLock::new(false),
         })
     }
 
@@ -177,6 +180,10 @@ impl Storage {
     }
 
     pub fn write(&self, offset: u64, data: &[u8]) -> io::Result<()> {
+        let retired = self.retired.read();
+        if *retired {
+            return Err(io::Error::other("the torrent was removed"));
+        }
         for (idx, f, file_off, a, b) in self.overlapping(offset, data.len()) {
             if f.pad {
                 continue;
@@ -229,6 +236,10 @@ impl Storage {
 
     /// Zero-length files never receive a write; materialise them explicitly.
     pub fn create_empty_files(&self) {
+        let retired = self.retired.read();
+        if *retired {
+            return;
+        }
         for f in self.files.iter().filter(|f| f.length == 0 && !f.pad) {
             if self.refuse_symlinks(&f.path).is_err() {
                 continue;
@@ -253,6 +264,13 @@ impl Storage {
 
     pub fn close(&self) {
         self.handles.lock().clear();
+    }
+
+    /// Refuse every write from now on, once those in progress finish. A
+    /// removed torrent can still have pieces in flight (peers held up by the
+    /// rate limiter, hash checks), and they must not recreate its files.
+    pub fn retire(&self) {
+        *self.retired.write() = true;
     }
 
     /// Delete payload files and any directories left empty under the content root.
@@ -283,10 +301,10 @@ impl Storage {
 
 /// Give every payload file its own path. Sanitizing can map distinct names
 /// onto one (`a:b` and `a?b` both become `a_b`), and macOS volumes ignore
-/// case; two files on one path would overwrite each other while each piece
+/// case and Unicode normalization; two files on one path would overwrite each other while each piece
 /// still passes its hash check. Later duplicates become "name (2).ext", ….
 fn unique_paths(files: &mut [StorageFile], root: &Path) {
-    let key = |p: &Path| p.to_string_lossy().to_lowercase();
+    let key = path_safety::fs_key;
     // Directories files live in are taken too: a file can't share a folder's name.
     let mut taken: HashSet<String> = files
         .iter()
@@ -442,6 +460,24 @@ mod tests {
         assert_eq!(names, ["a_b.txt", "a_b (2).txt", "README", "readme (2)"]);
         s.write(0, b"1111222233334444").unwrap();
         assert_eq!(s.read(0, 16).unwrap(), b"1111222233334444");
+    }
+
+    #[test]
+    fn unicode_equivalent_names_get_their_own_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let s = Storage::new(dir.path(), &info(&[("caf\u{e9}", 4), ("cafe\u{301}", 4)])).unwrap();
+        assert_eq!(s.files()[1].path.file_name().unwrap(), "cafe\u{301} (2)");
+        s.write(0, b"aaaabbbb").unwrap();
+        assert_eq!(s.read(0, 8).unwrap(), b"aaaabbbb");
+    }
+
+    #[test]
+    fn a_retired_storage_writes_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let s = Storage::new(dir.path(), &info(&[("a", 4)])).unwrap();
+        s.retire();
+        assert!(s.write(0, b"late").is_err());
+        assert!(!dir.path().join("t").exists());
     }
 
     #[test]

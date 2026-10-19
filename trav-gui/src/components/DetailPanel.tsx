@@ -73,7 +73,7 @@ export function DetailPanel({
             transition={{ duration: 0.25, ease }}
           >
             {tab === "overview" && <Overview d={details} actions={actions} />}
-            {tab === "files" && <Files d={details} actions={actions} />}
+            {tab === "files" && <Files key={details.summary.infoHash} d={details} actions={actions} />}
             {tab === "peers" && <Peers d={details} actions={actions} />}
             {tab === "trackers" && <Trackers d={details} actions={actions} />}
             {tab === "speed" && <Speed d={details} history={history} />}

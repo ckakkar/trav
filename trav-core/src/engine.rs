@@ -149,6 +149,7 @@ impl Engine {
             rtt_samples: parking_lot::Mutex::new(Vec::new()),
             auto_upload_cap: AtomicU64::new(0),
             public_trackers: RwLock::new(crate::public_trackers::load(store_root)),
+            claims: parking_lot::Mutex::new(HashMap::new()),
         });
 
         let (snapshot_tx, snapshot_rx) = watch::channel(Arc::new(EngineSnapshot::empty()));
@@ -476,7 +477,11 @@ impl Session {
 
     async fn load_persisted(self: &Arc<Self>) {
         let b64 = base64::engine::general_purpose::STANDARD;
-        for (ih, r) in self.ctx.store.load_all() {
+        let mut saved = self.ctx.store.load_all();
+        // Oldest first: if two torrents claim one place on disk, the one
+        // added first keeps it (see `Ctx::claim`).
+        saved.sort_by_key(|(_, r)| r.added_at);
+        for (ih, r) in saved {
             let meta = self
                 .ctx
                 .store
@@ -709,6 +714,15 @@ impl EngineHandle {
         let save_path = req
             .save_path
             .unwrap_or_else(|| s.ctx.settings.read().download_dir.clone());
+        if let Some(m) = &meta
+            && let Ok(content) = crate::path_safety::jail_join(&save_path, [m.info.name.as_str()])
+            && let Some(other) = s.ctx.claimed_by(&ih, &content)
+        {
+            return Err(Error::Engine(format!(
+                "“{other}” already keeps its files at {}. Choose another folder for this torrent.",
+                content.display()
+            )));
+        }
         let file_priorities = match (&meta, req.file_priorities) {
             (Some(m), Some(p)) => crate::torrent::full_priorities(&m.info, p).unwrap_or_default(),
             _ => Vec::new(),
@@ -848,6 +862,7 @@ impl EngineHandle {
             done: tx,
         });
         let _ = tokio::time::timeout(Duration::from_secs(10), rx).await;
+        self.s.ctx.release(&ih);
         self.s.ctx.store.remove(&ih);
         self.s.ctx.emit(Event::TorrentRemoved {
             info_hash: hex::encode(ih),

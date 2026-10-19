@@ -225,11 +225,9 @@ impl Metainfo {
 
     pub fn from_bytes(data: &[u8]) -> Result<Self> {
         let root = bencode::decode(data)?;
-        let info_raw = bencode::raw_value_span(data, b"info")?;
-        let info_val = root
-            .get("info")
-            .ok_or_else(|| Error::Metainfo("missing info".into()))?;
-        let info = Info::from_value(info_val, info_raw.to_vec())?;
+        // Parse the info dict from the very bytes that are hashed, so a
+        // torrent's name and files always belong to its info-hash.
+        let info = Info::from_bytes(bencode::raw_value_span(data, b"info")?)?;
         let info_hash = info.info_hash();
 
         let mut trackers: Vec<Vec<String>> = root

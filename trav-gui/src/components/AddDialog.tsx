@@ -56,7 +56,10 @@ export function AddDialog({
   onError: (msg: string) => void;
 }) {
   const item = items[0];
-  const [preview, setPreview] = useState<TorrentPreview | null>(null);
+  // Kept with the item it describes, so a reply for an item that has since
+  // left the queue is never shown (or applied) as the next one's.
+  const [inspected, setInspected] = useState<{ item: AddItem; preview: TorrentPreview } | null>(null);
+  const preview = inspected?.item === item ? inspected.preview : null;
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [checked, setChecked] = useState<boolean[]>([]);
@@ -73,17 +76,23 @@ export function AddDialog({
   }, [defaultSavePath, pathTouched]);
 
   useEffect(() => {
-    setPreview(null);
+    setInspected(null);
     setError(null);
+    setLoading(false);
     if (!item || item.kind === "magnet") return;
+    let stale = false;
     setLoading(true);
     call<TorrentPreview>("inspect", source(item))
       .then((p) => {
-        setPreview(p);
+        if (stale) return;
+        setInspected({ item, preview: p });
         setChecked(p.files.map(() => true));
       })
-      .catch((e) => setError(String(e?.message ?? e)))
-      .finally(() => setLoading(false));
+      .catch((e) => !stale && setError(String(e?.message ?? e)))
+      .finally(() => !stale && setLoading(false));
+    return () => {
+      stale = true;
+    };
   }, [item]);
 
   const selectedSize = useMemo(

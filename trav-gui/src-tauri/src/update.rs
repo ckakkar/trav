@@ -57,7 +57,7 @@ pub async fn install_update(app: AppHandle) -> Result<(), String> {
         .ok_or("No update is waiting to be installed.")?;
     let emitter = app.clone();
     let mut downloaded = 0u64;
-    update
+    let installed = update
         .download_and_install(
             move |chunk, total| {
                 downloaded += chunk as u64;
@@ -65,8 +65,16 @@ pub async fn install_update(app: AppHandle) -> Result<(), String> {
             },
             || {},
         )
-        .await
-        .map_err(|e| e.to_string())?;
+        .await;
+    if let Err(e) = installed {
+        // Keep it for another try (unless a newer check has replaced it).
+        let state = app.state::<Pending>();
+        let mut pending = state.0.lock().unwrap();
+        if pending.is_none() {
+            *pending = Some(update);
+        }
+        return Err(e.to_string());
+    }
     tracing::info!("update {} installed; restarting", update.version);
     crate::quit(&app, true);
     Ok(())

@@ -69,6 +69,22 @@ pub fn jail_join<'a>(
     Ok(out)
 }
 
+/// A path as macOS volumes compare names: ignoring case and Unicode
+/// normalization (`é` precomposed or as `e` plus an accent is one name). Two
+/// paths with the same key are the same file there.
+pub fn fs_key(path: &Path) -> String {
+    icu_normalizer::DecomposingNormalizer::new_nfd()
+        .normalize(&path.to_string_lossy().to_lowercase())
+        .into_owned()
+}
+
+/// Whether `inner` is `outer` or lies inside it, by [`fs_key`]s.
+pub fn key_within(outer: &str, inner: &str) -> bool {
+    inner
+        .strip_prefix(outer)
+        .is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
+}
+
 /// Verify `target` is lexically inside `root` with no `..`/root/prefix components after it.
 pub fn ensure_within(root: &Path, target: &Path) -> Result<()> {
     let rel = target
@@ -104,5 +120,15 @@ mod tests {
         assert!(p.starts_with(root));
         assert_eq!(p, Path::new("/downloads/_/_/x"));
         assert!(ensure_within(root, Path::new("/downloads/../x")).is_err());
+    }
+
+    #[test]
+    fn keys_match_as_the_volume_does() {
+        let key = |s: &str| fs_key(Path::new(s));
+        assert_eq!(key("/D/Caf\u{e9}.txt"), key("/D/cafe\u{301}.TXT"));
+        assert_ne!(key("/D/cafe.txt"), key("/D/caf\u{e9}.txt"));
+        assert!(key_within(&key("/D/Show"), &key("/D/show")));
+        assert!(key_within(&key("/D/Show"), &key("/D/show/ep1.mkv")));
+        assert!(!key_within(&key("/D/Show"), &key("/D/Shows")));
     }
 }
