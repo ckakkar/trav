@@ -3,6 +3,7 @@
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useRef, type ReactNode } from "react";
 import { X } from "lucide-react";
+import { DIALOG, useRegister } from "@/lib/motion";
 
 export const ease = [0.17, 0.84, 0.44, 1] as const;
 
@@ -24,6 +25,7 @@ export function Modal({
   title?: ReactNode;
 }) {
   const panel = useRef<HTMLDivElement>(null);
+  const motionSet = DIALOG[useRegister()];
   // Parents pass a fresh `onClose` on every render (the engine polls twice a
   // second); focus must follow opening and closing only, not those renders.
   const close = useRef(onClose);
@@ -72,10 +74,10 @@ export function Modal({
             aria-label={label}
             className="modal"
             style={{ width: `min(${width}px, calc(100vw - 32px))` }}
-            initial={{ opacity: 0, y: 14, scale: 0.985 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 8, scale: 0.99 }}
-            transition={{ duration: 0.32, ease }}
+            initial={motionSet.initial}
+            animate={motionSet.animate}
+            exit={motionSet.exit}
+            transition={motionSet.transition}
           >
             {(eyebrow || title) && (
               <header className="modal-head">

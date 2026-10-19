@@ -2,7 +2,7 @@
 
 import { AnimatePresence, motion } from "motion/react";
 import { createContext, useCallback, useContext, useRef, useState, type ReactNode } from "react";
-import { ease } from "./Modal";
+import { TOAST, useRegister } from "@/lib/motion";
 
 type Tone = "info" | "ok" | "error";
 interface Toast {
@@ -10,6 +10,8 @@ interface Toast {
   title: string;
   body?: string;
   tone: Tone;
+  /** Milliseconds on screen; the countdown line runs for as long. */
+  life: number;
 }
 
 const Ctx = createContext<(title: string, opts?: { body?: string; tone?: Tone }) => void>(() => {});
@@ -19,10 +21,12 @@ export const useToast = () => useContext(Ctx);
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [items, setItems] = useState<Toast[]>([]);
   const seq = useRef(0);
+  const choreo = TOAST[useRegister()];
   const push = useCallback((title: string, opts?: { body?: string; tone?: Tone }) => {
     const id = ++seq.current;
-    setItems((xs) => [...xs.slice(-3), { id, title, body: opts?.body, tone: opts?.tone ?? "info" }]);
-    setTimeout(() => setItems((xs) => xs.filter((x) => x.id !== id)), opts?.tone === "error" ? 7000 : 4200);
+    const life = opts?.tone === "error" ? 7000 : 4200;
+    setItems((xs) => [...xs.slice(-3), { id, title, body: opts?.body, tone: opts?.tone ?? "info", life }]);
+    setTimeout(() => setItems((xs) => xs.filter((x) => x.id !== id)), life);
   }, []);
   return (
     <Ctx.Provider value={push}>
@@ -34,10 +38,10 @@ export function ToastProvider({ children }: { children: ReactNode }) {
               key={t.id}
               layout
               className={`toast toast-${t.tone}`}
-              initial={{ opacity: 0, y: 16, scale: 0.98 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, x: 24, transition: { duration: 0.18 } }}
-              transition={{ duration: 0.34, ease }}
+              initial={choreo.initial}
+              animate={choreo.animate}
+              exit={choreo.exit}
+              transition={choreo.transition}
               onClick={() => setItems((xs) => xs.filter((x) => x.id !== t.id))}
             >
               <span className="toast-dot" />
@@ -45,6 +49,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
                 <div className="toast-title">{t.title}</div>
                 {t.body && <div className="toast-body">{t.body}</div>}
               </div>
+              <span className="toast-life" style={{ animationDuration: `${t.life}ms` }} />
             </motion.div>
           ))}
         </AnimatePresence>

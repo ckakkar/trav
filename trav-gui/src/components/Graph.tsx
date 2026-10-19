@@ -46,7 +46,7 @@ export function Graph({
     let h = 0;
     let dpr = 1;
     let shownMax = 64 * 1024;
-    let colors = { down: "", up: "", line: "", faint: "" };
+    let colors = { down: "", up: "", line: "", faint: "", style: "plain" };
     let frames = 0;
     let visible = true;
 
@@ -56,6 +56,8 @@ export function Graph({
         up: cssVar(c, "--up"),
         line: cssVar(c, "--line-soft"),
         faint: cssVar(c, "--text-faint"),
+        // How the register draws: "glow" (Ink), "print" (Paper, overprinting inks), "plain".
+        style: cssVar(c, "--graph"),
       };
     };
     readColors();
@@ -120,7 +122,7 @@ export function Graph({
         ctx.strokeStyle = colors.line;
         ctx.lineWidth = 1;
         ctx.setLineDash([2, 4]);
-        ctx.font = `10px ${cssVar(c, "--font-mono") || "ui-monospace, monospace"}`;
+        ctx.font = `10px ${cssVar(c, "--font-data") || "ui-monospace, monospace"}`;
         ctx.fillStyle = colors.faint;
         ctx.textAlign = "right";
         for (const f of [0.25, 0.5, 0.75]) {
@@ -135,6 +137,8 @@ export function Graph({
       }
 
       if (vis.length >= 2) {
+        const print = colors.style === "print";
+        const glow = colors.style === "glow";
         for (const series of ["up", "down"] as const) {
           const color = series === "down" ? colors.down : colors.up;
           const pts: [number, number][] = vis.map((s) => [x(s.t), y(s[series])]);
@@ -142,24 +146,48 @@ export function Graph({
           ctx.lineTo(pts[pts.length - 1][0], bottom);
           ctx.lineTo(pts[0][0], bottom);
           ctx.closePath();
-          const g = ctx.createLinearGradient(0, top, 0, bottom);
-          g.addColorStop(0, withAlpha(color, series === "down" ? 0.28 : 0.12));
-          g.addColorStop(1, withAlpha(color, 0));
-          ctx.fillStyle = g;
+          if (print) {
+            // Flat ink that overprints: pink over blue turns violet where they meet.
+            ctx.globalCompositeOperation = "multiply";
+            ctx.fillStyle = withAlpha(color, series === "down" ? 0.32 : 0.22);
+          } else {
+            const g = ctx.createLinearGradient(0, top, 0, bottom);
+            g.addColorStop(0, withAlpha(color, series === "down" ? (glow ? 0.34 : 0.28) : glow ? 0.16 : 0.12));
+            g.addColorStop(1, withAlpha(color, 0));
+            ctx.fillStyle = g;
+          }
           ctx.fill();
           path(pts);
           ctx.strokeStyle = color;
-          ctx.lineWidth = series === "down" ? 1.6 : 1.3;
-          ctx.setLineDash(series === "up" ? [3, 3] : []);
+          ctx.lineWidth = print ? (series === "down" ? 2 : 1.5) : series === "down" ? 1.6 : 1.3;
+          ctx.setLineDash(series === "up" && !print ? [3, 3] : []);
+          if (glow) {
+            ctx.shadowColor = color;
+            ctx.shadowBlur = series === "down" ? 10 : 6;
+          }
           ctx.stroke();
+          ctx.shadowBlur = 0;
           ctx.setLineDash([]);
+          ctx.globalCompositeOperation = "source-over";
         }
-        // Leading-edge dot on the download trace.
+        // Leading edge of the download trace.
         const last = vis[vis.length - 1];
+        const lx = Math.min(w - 3, x(last.t));
+        const ly = y(last.down);
         ctx.fillStyle = colors.down;
-        ctx.beginPath();
-        ctx.arc(Math.min(w - 2, x(last.t)), y(last.down), 2.2, 0, Math.PI * 2);
-        ctx.fill();
+        if (print) ctx.fillRect(lx - 2.5, ly - 2.5, 5, 5);
+        else {
+          if (glow) {
+            ctx.fillStyle = withAlpha(colors.down, 0.25);
+            ctx.beginPath();
+            ctx.arc(lx, ly, 5 + Math.sin(performance.now() / 260) * 1.2, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = colors.down;
+          }
+          ctx.beginPath();
+          ctx.arc(lx, ly, 2.2, 0, Math.PI * 2);
+          ctx.fill();
+        }
       }
       raf = requestAnimationFrame(draw);
     }

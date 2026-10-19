@@ -6,6 +6,11 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+- Ink and Paper are redesigned as two different materials. **Ink** is a night instrument: blue-black, panels floating on the window with rounded corners, a cyan download and violet upload palette, thin sans-serif numerals, and a soft light behind the speed readout that brightens with your actual download speed. **Paper** is a risograph print: navy ink on white with a fluorescent pink overprint, square corners, heavy rules, condensed poster type set a hair off register, screen-tone dots on hover and behind dialogs, and a highlighter stroke for selection. Phosphor is unchanged.
+- Motion throughout, in each theme's own manner. Switching theme blooms from where you clicked (Ink), rolls on like a print pass (Paper) or scans down the screen (Phosphor). Dialogs, menus and toasts come into focus (Ink), are set down with a snap (Paper) or draw themselves line by line (Phosphor). Selecting a row swells a lit capsule (Ink) or swipes a highlighter across it (Paper). A changed status slides into place, filter counts nudge when they change, detail tabs slide from the side they're on, newly verified pieces flash on the piece map, toasts show how long they have left, and a finished download is stamped "Done" in Paper. Reduced Motion still turns it all off.
+- The window's buttons sit inside the sidebar.
+
 ### Fixed
 - Trav 0.3.48 opened to a blank window: the Add dialog read a torrent preview that wasn't there whenever nothing was waiting to be added.
 - Quitting Trav (⌘Q, the Dock, or relaunching after an update) no longer leaves every transfer paused the next time it opens.

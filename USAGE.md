@@ -76,7 +76,7 @@ In the list:
 | 1 – 5 | detail tabs |
 | / | filter the list |
 
-**Themes:** Ink (dark) → Paper (light) → Phosphor (terminal green), with ⇧⌘L or in Settings.
+**Themes:** Ink (dark) → Paper (light, risograph print) → Phosphor (terminal green), with ⇧⌘L or in Settings › Interface.
 
 ## Removing
 
