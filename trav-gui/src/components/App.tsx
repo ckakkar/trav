@@ -101,10 +101,10 @@ function launchStage(): "launch" | "done" {
   return reduced || document.visibilityState === "hidden" ? "done" : "launch";
 }
 
-export default function App() {
+export default function App({ skipLaunch = false }: { skipLaunch?: boolean }) {
   const toast = useToast();
   // launch → (overlay dissolving, app animating in) reveal → done
-  const [boot, setBoot] = useState<"launch" | "reveal" | "done">(launchStage);
+  const [boot, setBoot] = useState<"launch" | "reveal" | "done">(() => (skipLaunch ? "done" : launchStage()));
   const [inactive, setInactive] = useState(false);
   const [prefs, setPrefs] = useState<UiPrefs>(() => ({ ...DEFAULT_PREFS, ...load<Partial<UiPrefs>>("prefs", {}) }));
   const [filter, setFilter] = useState<string>(() => load("filter", "all"));

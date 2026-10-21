@@ -185,6 +185,15 @@ fn trash_paths(paths: &[PathBuf]) -> Result<(), String> {
     })
 }
 
+/// Errors from the window (render crashes, uncaught exceptions) go to the log
+/// with their stack, which is otherwise lost with the webview's console.
+#[tauri::command]
+fn ui_error(kind: String, message: String, stack: Option<String>) {
+    let message: String = message.chars().take(2000).collect();
+    let stack: String = stack.unwrap_or_default().chars().take(6000).collect();
+    tracing::error!(target: "ui", "{kind}: {message}\n{stack}");
+}
+
 #[tauri::command]
 fn take_pending_opens(state: State<'_>) -> Vec<String> {
     state.opens.lock().unwrap().take()
@@ -423,6 +432,7 @@ pub fn run() {
         .manage(update::Pending::default())
         .invoke_handler(tauri::generate_handler![
             rpc,
+            ui_error,
             take_pending_opens,
             set_notify,
             set_keep_awake,

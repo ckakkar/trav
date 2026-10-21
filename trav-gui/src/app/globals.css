@@ -2419,6 +2419,33 @@ body[data-resizing] .main {
   mix-blend-mode: normal;
 }
 
+/* ── Recovering from a crash in the window (see Recover.tsx) ─────────────── */
+.recover {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: var(--canvas);
+}
+.recover-card {
+  display: grid;
+  justify-items: start;
+  gap: 12px;
+  max-width: 460px;
+}
+.recover-title {
+  margin: 0;
+  font-size: 34px;
+  line-height: 1.05;
+}
+.recover-body {
+  margin: 0;
+  color: var(--text-dim);
+  line-height: 1.5;
+  user-select: text;
+}
+
 /* ── Launch ──────────────────────────────────────────────────────────────── */
 .launch {
   position: fixed;
