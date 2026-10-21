@@ -6,9 +6,15 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+- A crash in the window no longer leaves the dead "This page couldn't load" screen, which also stopped Trav from fetching the update that fixed it. The window restarts itself (transfers never stop), and after three failures in a minute it says so and offers Reload. Errors from the window, with their stacks, now go to Trav's log in `~/Library/Application Support/trav/logs`.
+
+### Changed
+- Switching theme blooms out from where you clicked in every theme again (from the middle of the window with ⇧⌘L or the menu).
+
 ### Changed
 - Ink and Paper are redesigned as two different materials. **Ink** is a night instrument: blue-black, panels floating on the window with rounded corners, a cyan download and violet upload palette, thin sans-serif numerals, and a soft light behind the speed readout that brightens with your actual download speed. **Paper** is a risograph print: navy ink on white with a fluorescent pink overprint, square corners, heavy rules, condensed poster type set a hair off register, screen-tone dots on hover and behind dialogs, and a highlighter stroke for selection. Phosphor is unchanged.
-- Motion throughout, in each theme's own manner. Switching theme blooms from where you clicked (Ink), rolls on like a print pass (Paper) or scans down the screen (Phosphor). Dialogs, menus and toasts come into focus (Ink), are set down with a snap (Paper) or draw themselves line by line (Phosphor). Selecting a row swells a lit capsule (Ink) or swipes a highlighter across it (Paper). A changed status slides into place, filter counts nudge when they change, detail tabs slide from the side they're on, newly verified pieces flash on the piece map, toasts show how long they have left, and a finished download is stamped "Done" in Paper. Reduced Motion still turns it all off.
+- Motion throughout, in each theme's own manner. Dialogs, menus and toasts come into focus (Ink), are set down with a snap (Paper) or draw themselves line by line (Phosphor). Selecting a row swells a lit capsule (Ink) or swipes a highlighter across it (Paper). A changed status slides into place, filter counts nudge when they change, detail tabs slide from the side they're on, newly verified pieces flash on the piece map, toasts show how long they have left, and a finished download is stamped "Done" in Paper. Reduced Motion still turns it all off.
 - The window's buttons sit inside the sidebar.
 
 ### Fixed
