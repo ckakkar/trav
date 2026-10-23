@@ -6,6 +6,9 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+- Dependencies updated: Tauri 2.12.5 with its plugins (updater 2.14, notifications 2.7), tokio 1.54, num-bigint 0.5, Next.js 16.4.2, React 19.3.1, motion 14.6, lucide 1.61, Geist 1.8.
+
 ### Fixed
 - A crash in the window no longer leaves the dead "This page couldn't load" screen, which also stopped Trav from fetching the update that fixed it. The window restarts itself (transfers never stop), and after three failures in a minute it says so and offers Reload. Errors from the window, with their stacks, now go to Trav's log in `~/Library/Application Support/trav/logs`.
 

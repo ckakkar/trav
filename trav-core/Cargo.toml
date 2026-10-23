@@ -24,14 +24,14 @@ serde.workspace = true
 serde_json.workspace = true
 futures = "0.3"
 sha1 = "0.11"
-num-bigint = "0.4"
+num-bigint = "0.5"
 parking_lot = "0.12"
 rand = "0.10"
 base64 = "0.23"
 fs4 = "1.1"
 # Unicode normalization, for comparing file names as macOS volumes do (already
 # in the tree through `url`).
-icu_normalizer = { version = "2.3", default-features = false, features = ["compiled_data"] }
+icu_normalizer = { version = "2.4", default-features = false, features = ["compiled_data"] }
 igd-next = { version = "0.18", features = ["aio_tokio"] }
 socket2 = "0.6.5"
 
