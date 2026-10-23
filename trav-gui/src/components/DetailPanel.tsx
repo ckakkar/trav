@@ -15,6 +15,8 @@ import { ease } from "./Modal";
 import { SLIDE, useRegister } from "@/lib/motion";
 
 export type DetailTab = "overview" | "files" | "peers" | "trackers" | "speed";
+
+const TRACKER_STATUS: Record<string, string> = { idle: "Idle", announcing: "Announcing", working: "Working", error: "Error" };
 const TABS: { id: DetailTab; label: string }[] = [
   { id: "overview", label: "Overview" },
   { id: "files", label: "Files" },
@@ -408,7 +410,7 @@ function Trackers({ d, actions }: { d: TorrentDetails; actions: DetailActions })
           <div key={i} className="gt-row" data-tstatus={t.status}>
             <span className="mono t-status">
               <span className="sdot" />
-              {t.status}
+              {TRACKER_STATUS[t.status] ?? t.status}
             </span>
             <span className="t-url">
               <span className="mono ellipsis" title={t.url}>

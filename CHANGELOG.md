@@ -6,6 +6,15 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+- In a narrow window the toolbar's Add button no longer runs off the edge: Magnet and Add shrink to their icons. In a short window the sidebar's bottom row no longer gets cut off; the filter list scrolls and the speed graph compacts.
+- Number fields in Settings no longer show native spinners, which WebKit drew outside the scrolling pane.
+
+### Changed
+- Tracker statuses read Working, Announcing, Idle and Error instead of raw lowercase codes; info-hashes in the Add dialog are set in the monospace face.
+- Checkboxes show a real checkmark, and keyboard focus rings match the theme (a soft lit ring in Ink, a pink rule in Paper) without being clipped inside tabs and lists.
+- The speed graphs fill their width from the first seconds after launch and zoom out as history builds, instead of starting as a sliver at the right edge.
+
 ### Changed
 - Dependencies updated: Tauri 2.12.5 with its plugins (updater 2.14, notifications 2.7), tokio 1.54, num-bigint 0.5, Next.js 16.4.2, React 19.3.1, motion 14.6, lucide 1.61, Geist 1.8.
 

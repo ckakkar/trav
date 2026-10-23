@@ -198,12 +198,12 @@ export function AddDialog({
               {preview.numPieces} × {bytes(preview.pieceLength, 0)}
             </span>
             {preview.private && <span className="pill">private</span>}
-            <span className="faint ellipsis">{preview.infoHash}</span>
+            <span className="faint ellipsis code">{preview.infoHash}</span>
           </div>
         )}
         {m && (
           <div className="add-meta mono">
-            <span className="faint">{m.hash}</span>
+            <span className="faint code">{m.hash}</span>
             <span>files can be chosen once metadata arrives</span>
           </div>
         )}
