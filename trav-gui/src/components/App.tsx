@@ -717,10 +717,10 @@ export default function App({ skipLaunch = false }: { skipLaunch?: boolean }) {
               )}
             </AnimatePresence>
             <button className="btn" onClick={openMagnet} title="Add magnet link (⌘V)">
-              <Magnet size={14} /> Magnet
+              <Magnet size={14} /> <span className="btn-label">Magnet</span>
             </button>
             <button className="btn primary" onClick={openTorrentPicker} title="Add torrent file (⌘O)">
-              <Plus size={14} /> Add
+              <Plus size={14} /> <span className="btn-label">Add</span>
             </button>
           </div>
         </header>

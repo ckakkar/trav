@@ -99,10 +99,11 @@ export function Graph({
       if (++frames % 60 === 0) readColors();
       const samples = src.current() ?? [];
       const now = performance.now() - SAMPLE_MS;
-      // Until a full window of history exists, stretch what we have (min 20 s)
-      // so the trace fills the canvas instead of hugging the right edge.
+      // Until a full window of history exists, stretch what we have (a few
+      // seconds at least) so the trace fills the canvas from launch and zooms
+      // out as history builds up, instead of hugging the right edge.
       const first = samples.length ? samples[0].t : now;
-      const span = Math.max(20_000, Math.min(windowMs, now - first));
+      const span = Math.max(4_000, Math.min(windowMs, now - first));
       const t0 = now - span;
       const vis = samples.filter((s) => s.t >= t0 - SAMPLE_MS * 2);
 

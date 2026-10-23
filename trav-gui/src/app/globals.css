@@ -462,6 +462,16 @@ kbd {
 .input::placeholder {
   color: var(--text-faint);
 }
+/* No native spinners: they clash with every register, and WebKit paints them
+   outside scrolled panes. Arrow keys still step the value. */
+.input[type="number"] {
+  appearance: textfield;
+}
+.input[type="number"]::-webkit-inner-spin-button,
+.input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
 .input.sm {
   height: 24px;
   font-size: 11px;
@@ -718,7 +728,10 @@ textarea.input {
 .filters {
   display: flex;
   flex-direction: column;
-  padding: 0 10px;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 10px 8px;
 }
 .filter {
   position: relative;
@@ -848,6 +861,7 @@ textarea.input {
 
 .main {
   grid-row: 1;
+  container: main / inline-size;
   display: grid;
   grid-template-rows: var(--toolbar-h) auto minmax(0, 1fr) 7px var(--panel-h);
   min-height: 0;
@@ -2615,6 +2629,70 @@ body[data-resizing] .main {
     transform: translateX(424px);
     opacity: 0;
   }
+}
+
+/* ── Small and short windows ───────────────────────────────────────────────── */
+
+/* A narrow window: toolbar buttons keep their icons, the counts give way. */
+@container main (max-width: 780px) {
+  .toolbar .btn-label,
+  .tb-title .mono {
+    display: none;
+  }
+  .toolbar .btn {
+    padding: 0 9px;
+  }
+  .tb-search {
+    max-width: 240px;
+  }
+}
+/* A short window: the throughput card compacts before anything is cut off. */
+@media (max-height: 720px) {
+  .side-graph {
+    height: 38px;
+  }
+  .side-eyebrow {
+    margin: 12px 0 6px;
+  }
+  .filter {
+    height: 29px;
+  }
+}
+
+/* A real checkmark, in every register but the terminal's filled box. */
+:root:not([data-theme="phosphor"]) .check input:checked + span {
+  box-shadow: none;
+  background: var(--accent)
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 6.2l2.3 2.3 4.7-5' fill='none' stroke='white' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")
+    center / 11px no-repeat;
+}
+:root[data-theme="ink"] .check span {
+  border-radius: 4px;
+}
+:root[data-theme="ink"] .check input:checked + span {
+  box-shadow: 0 0 8px -1px color-mix(in srgb, var(--accent) 70%, transparent);
+}
+:root[data-theme="paper"] .check input:checked + span {
+  border-color: var(--rule);
+}
+
+/* Keyboard focus in each register's own hand: a soft lit ring, a printed pink rule.
+   Inside clipped strips (tabs, lists) the ring is drawn inside the element. */
+:root[data-theme="ink"] :focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 75%, transparent);
+  outline-offset: 2px;
+}
+:root[data-theme="paper"] :focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.tab:focus-visible,
+.filter:focus-visible,
+.set-nav-item:focus-visible,
+.palette-item:focus-visible,
+.ctx-item:focus-visible,
+.th:focus-visible {
+  outline-offset: -3px;
 }
 
 /* ── Moments (every register) ──────────────────────────────────────────────── */
