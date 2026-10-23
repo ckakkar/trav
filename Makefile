@@ -56,6 +56,6 @@ icons: ## Re-render the app icon and menu bar glyph (scripts/app-icon.swift)
 	cd trav-gui && npx tauri icon src-tauri/icons/source.png >/dev/null
 	cd trav-gui/src-tauri/icons && rm -rf glyph.png android ios icon.ico icon.png 64x64.png Square*Logo.png StoreLogo.png
 
-clean: ## Remove build output
+clean: ## Remove build output and caches (Rust target, Next build, generated Tauri schemas)
 	cargo clean
-	rm -rf trav-gui/.next trav-gui/out
+	rm -rf trav-gui/.next trav-gui/out trav-gui/tsconfig.tsbuildinfo trav-gui/src-tauri/gen
