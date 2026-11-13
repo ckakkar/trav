@@ -10,6 +10,7 @@ All notable changes to this project are documented here. The format follows
 - Trav checks for updates itself, from the app rather than the window, and if the window doesn't respond to an update it finds (it has crashed, or never loaded), offers it in a native dialog. A broken release can always be replaced; 0.3.48's couldn't.
 
 ### Added
+- A fourth theme, Pinstripe: light, glossy and three-dimensional, with pinstriped windows, brushed-metal panels, a breathing blue gel button, barber-pole progress bars and dialogs that come down as sheets. Pick it in Settings › Interface or cycle to it with the theme button.
 - Create Torrent… (File menu, ⌘N, or the command palette): make a .torrent from a file or folder, with trackers, web seeds, private, comment, source and piece size, and start seeding it straight away. Hashing streams the data (about 1.9 GB/s from cache), can be cancelled at any moment, and never follows symlinks.
 - A watch folder (Settings › Downloads): any .torrent saved there is added by itself once it has finished arriving, then renamed to .torrent.added (or .torrent.invalid), so it's added only once.
 - Speed limits per torrent (right-click › Speed limits…, or Overview), on top of the overall ones, kept across restarts.
