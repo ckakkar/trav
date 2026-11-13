@@ -16,6 +16,7 @@ All notable changes to this project are documented here. The format follows
 - Move Data…: move a torrent's files to another folder, from the right-click menu or the Save path in Overview. Files are renamed in place on the same disk and copied (then removed) across disks; nothing is ever overwritten, a failure puts back what had moved, and the torrent carries on from the new folder.
 
 ### Changed
+- BitTorrent v2: hybrid (v1 + v2) torrents and magnet links download through their v1 half, and a v2-only torrent or magnet now says so plainly instead of failing with "missing pieces".
 - VoiceOver and the keyboard: the torrent list is a grid VoiceOver can walk (rows with positions, cells, and progress read as percentages), it follows the selected row, detail tabs are linked to their panel and switch with the arrow keys, and Tab no longer escapes an open dialog into the window behind it.
 - Dependencies updated (Next.js 16.4.6, motion 14.13, lucide 1.72, Geist 1.9 and the Tauri plugins). The updater now uses zip 9, so the cargo-deny exception for zip 4's advisories is gone.
 

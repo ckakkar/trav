@@ -68,6 +68,15 @@ impl Info {
                 .filter(|&p| p > 0 && (p as u64) <= MAX_PIECE_LENGTH)
                 .ok_or_else(|| bad("missing or invalid piece length"))? as u32;
 
+        // BitTorrent v2 (BEP 52) describes content with `file tree` and
+        // per-file SHA-256 hashes. A hybrid torrent carries v1's `pieces` too
+        // and downloads through it; a v2-only one can't yet.
+        let v2_only = v.get("pieces").is_none()
+            && (v.get("meta version").and_then(Value::as_int) == Some(2)
+                || v.get("file tree").is_some());
+        if v2_only {
+            return Err(bad(V2_ONLY));
+        }
         let pieces_raw = v
             .get("pieces")
             .and_then(Value::as_bytes)
@@ -355,6 +364,9 @@ pub fn normalize_tiers(tiers: Vec<Vec<String>>) -> Vec<Vec<String>> {
         .collect()
 }
 
+/// Why a BitTorrent v2-only torrent or magnet can't be added.
+pub const V2_ONLY: &str = "this is a BitTorrent v2-only torrent, which Trav can't download yet; a hybrid (v1 + v2) or v1 version of it will work";
+
 /// Build a `.torrent` from a file or directory (used by tests and for seeding new content).
 pub fn create_torrent(
     root: &Path,
@@ -512,5 +524,52 @@ mod tests {
             .bytes("pieces", vec![0u8; 20])
             .build();
         assert!(Info::from_bytes(&info.encode()).is_err());
+    }
+
+    #[test]
+    fn hybrid_torrents_download_through_their_v1_half() {
+        let content = b"hello hybrid";
+        let info = DictBuilder::new()
+            .bytes("name", "hybrid.txt")
+            .int("length", content.len() as i64)
+            .int("piece length", 16384)
+            .bytes("pieces", Sha1::digest(content).to_vec())
+            .int("meta version", 2)
+            .value(
+                "file tree",
+                DictBuilder::new()
+                    .value(
+                        "hybrid.txt",
+                        DictBuilder::new()
+                            .value(
+                                "",
+                                DictBuilder::new()
+                                    .int("length", content.len() as i64)
+                                    .bytes("pieces root", vec![7u8; 32])
+                                    .build(),
+                            )
+                            .build(),
+                    )
+                    .build(),
+            )
+            .build();
+        let raw = DictBuilder::new().value("info", info).build().encode();
+        let m = Metainfo::from_bytes(&raw).unwrap();
+        assert_eq!(m.info.name, "hybrid.txt");
+        assert_eq!(m.info.num_pieces(), 1);
+        assert_eq!(m.info_hash, m.info.info_hash(), "the v1 (SHA-1) info-hash");
+    }
+
+    #[test]
+    fn v2_only_torrents_say_why_they_cant_be_added() {
+        let info = DictBuilder::new()
+            .bytes("name", "v2.txt")
+            .int("piece length", 16384)
+            .int("meta version", 2)
+            .value("file tree", DictBuilder::new().build())
+            .build();
+        let raw = DictBuilder::new().value("info", info).build().encode();
+        let err = Metainfo::from_bytes(&raw).unwrap_err().to_string();
+        assert!(err.contains("v2-only"), "{err}");
     }
 }
