@@ -1061,6 +1061,11 @@ impl EngineHandle {
         self.s.ctx.events.subscribe()
     }
 
+    /// Tell every interface something happened (e.g. progress of a job).
+    pub(crate) fn emit(&self, e: Event) {
+        self.s.ctx.emit(e);
+    }
+
     pub fn listen_port(&self) -> u16 {
         self.s.ctx.listen_port.load(Ordering::Relaxed)
     }

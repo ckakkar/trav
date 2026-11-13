@@ -3534,3 +3534,21 @@ body[data-resizing] .main {
   gap: 8px;
   margin-top: 16px;
 }
+
+/* ── Create torrent dialog ───────────────────────────────────────────────── */
+.create-options {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 16px;
+}
+.create-path {
+  overflow-wrap: anywhere;
+  user-select: text;
+  -webkit-user-select: text;
+}
+.create-progress-head {
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
