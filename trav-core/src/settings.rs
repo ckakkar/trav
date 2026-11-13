@@ -44,6 +44,8 @@ pub struct Settings {
     pub alt_to: u16,
     /// Days the schedule starts on: bit 0 = Sunday … bit 6 = Saturday.
     pub alt_days: u8,
+    /// `.torrent` files saved here are added by themselves (see `watch`).
+    pub watch_dir: Option<PathBuf>,
     /// Which defaults this file was written with (for migrations). Files from
     /// before versioning have none, so it defaults to 0 rather than current.
     #[serde(default)]
@@ -77,6 +79,7 @@ impl Default for Settings {
             alt_from: 9 * 60,
             alt_to: 17 * 60,
             alt_days: 0b011_1110,
+            watch_dir: None,
             version: Self::VERSION,
         }
     }

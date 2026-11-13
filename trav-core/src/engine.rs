@@ -34,6 +34,8 @@ use crate::utp::UtpSocket;
 
 const SNAPSHOT_INTERVAL: Duration = Duration::from_millis(500);
 const SAVE_INTERVAL: Duration = Duration::from_secs(20);
+/// How often the watch folder is scanned (a file is taken on its second sighting).
+const WATCH_INTERVAL: Duration = Duration::from_secs(2);
 
 /// Where a torrent comes from.
 #[derive(Debug, Clone)]
@@ -170,6 +172,7 @@ impl Engine {
         s.start_dht().await;
         s.spawn_tracker_list_refresh();
         s.spawn_lsd();
+        s.spawn_watch();
         crate::upnp::spawn(Arc::downgrade(&s.ctx));
         s.load_persisted().await;
         s.apply_queue();
@@ -368,6 +371,69 @@ impl Session {
                 }
                 drop(s);
                 tokio::time::sleep(Duration::from_secs(3600)).await;
+            }
+        });
+    }
+
+    /// The watch folder: every few seconds, add the `.torrent` files that have
+    /// finished arriving there, and mark them so they're added only once.
+    fn spawn_watch(self: &Arc<Self>) {
+        let weak = Arc::downgrade(self);
+        tokio::spawn(async move {
+            let mut seen = crate::watch::Seen::default();
+            // Files that failed for a reason that may pass, and when to retry.
+            let mut retry: HashMap<PathBuf, std::time::Instant> = HashMap::new();
+            let mut tick = tokio::time::interval(WATCH_INTERVAL);
+            loop {
+                tick.tick().await;
+                let Some(s) = weak.upgrade() else { break };
+                if !s.running.load(Ordering::Relaxed) {
+                    break;
+                }
+                let Some(dir) = s.ctx.settings.read().watch_dir.clone() else {
+                    continue;
+                };
+                let found = tokio::task::spawn_blocking(move || {
+                    let ready = crate::watch::ready(&dir, &mut seen);
+                    (ready, seen)
+                })
+                .await;
+                let Ok((ready, back)) = found else { break };
+                seen = back;
+                let h = EngineHandle {
+                    s: s.clone(),
+                    snapshot_rx: s.snapshot_tx.subscribe(),
+                };
+                retry.retain(|_, at| *at > std::time::Instant::now());
+                for path in ready {
+                    if retry.contains_key(&path) {
+                        continue;
+                    }
+                    let suffix = match h
+                        .add(AddTorrent::new(TorrentSource::File(path.clone())))
+                        .await
+                    {
+                        Ok(hash) => {
+                            info!("watch folder: added {} ({hash})", path.display());
+                            "added"
+                        }
+                        // Already in the list is as good as added.
+                        Err(Error::Engine(m)) if m.contains("already in the list") => "added",
+                        Err(e @ (Error::Metainfo(_) | Error::Bencode(_))) => {
+                            warn!("watch folder: {} isn't a torrent: {e}", path.display());
+                            "invalid"
+                        }
+                        Err(e) => {
+                            // Could be passing (a full disk, a locked file): try again in a minute.
+                            warn!("watch folder: couldn't add {}: {e}", path.display());
+                            retry.insert(path, std::time::Instant::now() + Duration::from_secs(60));
+                            continue;
+                        }
+                    };
+                    let p = path.clone();
+                    let _ =
+                        tokio::task::spawn_blocking(move || crate::watch::mark(&p, suffix)).await;
+                }
             }
         });
     }

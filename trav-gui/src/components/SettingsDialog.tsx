@@ -174,6 +174,26 @@ export function SettingsDialog({
                   </button>
                 </div>
               </Row>
+              <Row label="Watch folder" hint="a .torrent saved here is added by itself, then renamed to .torrent.added">
+                <div className="field-row">
+                  <input className="input mono" value={s.watchDir ?? ""} placeholder="off" readOnly aria-label="Watch folder" />
+                  <button
+                    className="btn"
+                    aria-label="Choose watch folder"
+                    onClick={async () => {
+                      const p = await pickFolder(s.watchDir ?? s.downloadDir);
+                      if (p) set("watchDir", p);
+                    }}
+                  >
+                    <FolderOpen size={14} />
+                  </button>
+                  {s.watchDir && (
+                    <button className="btn ghost" onClick={() => set("watchDir", null)}>
+                      Turn off
+                    </button>
+                  )}
+                </div>
+              </Row>
               <Row label="Active downloads" hint="the rest wait in the queue · 0 = no limit">
                 <Num value={s.maxActiveDownloads} onChange={(v) => set("maxActiveDownloads", v)} max={500} />
               </Row>

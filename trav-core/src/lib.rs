@@ -32,6 +32,7 @@ mod torrent;
 pub mod tracker;
 mod upnp;
 pub mod utp;
+mod watch;
 
 pub use engine::{AddTorrent, Engine, EngineHandle, TorrentSource};
 pub use error::{Error, Result};

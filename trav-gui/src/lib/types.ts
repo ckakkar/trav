@@ -170,6 +170,8 @@ export interface Settings {
   altTo: number;
   /** Bit 0 = Sunday … bit 6 = Saturday. */
   altDays: number;
+  /** `.torrent` files saved here are added by themselves; null = off. */
+  watchDir: string | null;
   version: number;
 }
 
