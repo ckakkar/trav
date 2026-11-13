@@ -4,15 +4,17 @@
 // Paper is set down with a little snap, like a sheet off the press; Phosphor
 // draws itself line by line and collapses like a CRT switching off. Pinstripe
 // lowers sheets from the title bar, then lets small controls glide into place.
+// Bevel and Bitmap never glide: windows zoom open in a few hard steps and
+// highlights jump. Hologram materialises: a line of light unfolds and flickers.
 
 import { useSyncExternalStore } from "react";
 import type { TargetAndTransition, Transition } from "motion/react";
 
-export type Register = "ink" | "paper" | "phosphor" | "pinstripe";
+export type Register = "ink" | "paper" | "phosphor" | "pinstripe" | "bevel" | "bitmap" | "hologram";
 
 function current(): Register {
   const t = typeof document === "undefined" ? "ink" : document.documentElement.dataset.theme;
-  return t === "paper" || t === "phosphor" || t === "pinstripe" ? t : "ink";
+  return t === "paper" || t === "phosphor" || t === "pinstripe" || t === "bevel" || t === "bitmap" || t === "hologram" ? t : "ink";
 }
 
 function subscribe(cb: () => void) {
@@ -37,6 +39,9 @@ interface Choreo {
 
 const inkSpring: Transition = { type: "spring", stiffness: 420, damping: 34, mass: 0.8 };
 const paperSnap: Transition = { type: "spring", stiffness: 900, damping: 30, mass: 0.7 };
+/** An easing that moves in `n` hard steps, as old window managers drew. */
+const stepped = (n: number) => (t: number) => Math.ceil(t * n) / n;
+const instant: Transition = { duration: 0 };
 
 /** Dialogs and the command palette. */
 export const DIALOG: Record<Register, Choreo> = {
@@ -63,6 +68,24 @@ export const DIALOG: Record<Register, Choreo> = {
     animate: { opacity: 1, clipPath: "inset(0 0 0% 0)" },
     exit: { opacity: 0, clipPath: "inset(50% 0 50% 0)", transition: { duration: 0.16, ease: "easeIn" } },
     transition: { duration: 0.3, ease: "linear" },
+  },
+  bevel: {
+    initial: { opacity: 1, scale: 0.35 },
+    animate: { opacity: 1, scale: 1 },
+    exit: { opacity: 0, transition: instant },
+    transition: { duration: 0.16, ease: stepped(4) },
+  },
+  bitmap: {
+    initial: { opacity: 1, scale: 0.12 },
+    animate: { opacity: 1, scale: 1 },
+    exit: { opacity: 0, transition: instant },
+    transition: { duration: 0.24, ease: stepped(6) },
+  },
+  hologram: {
+    initial: { opacity: 0, scaleX: 0.5, scaleY: 0.01 },
+    animate: { opacity: [0, 1, 0.45, 1], scaleX: [0.5, 1, 1, 1], scaleY: [0.01, 0.01, 1, 1] },
+    exit: { opacity: 0, scaleY: 0.01, transition: { duration: 0.16, ease: "easeIn" } },
+    transition: { duration: 0.44, times: [0, 0.32, 0.72, 1], ease: "easeOut" },
   },
 };
 
@@ -92,6 +115,24 @@ export const MENU: Record<Register, Choreo> = {
     exit: { opacity: 0, transition: { duration: 0.08 } },
     transition: { duration: 0.18, ease: "linear" },
   },
+  bevel: {
+    initial: { opacity: 1, clipPath: "inset(0 0 100% 0)" },
+    animate: { opacity: 1, clipPath: "inset(0 0 0% 0)" },
+    exit: { opacity: 0, transition: instant },
+    transition: { duration: 0.12, ease: "linear" },
+  },
+  bitmap: {
+    initial: { opacity: 1 },
+    animate: { opacity: 1 },
+    exit: { opacity: 0, transition: instant },
+    transition: instant,
+  },
+  hologram: {
+    initial: { opacity: 0, clipPath: "inset(0 50% 0 50%)" },
+    animate: { opacity: [0, 1, 0.6, 1], clipPath: "inset(0 0% 0 0%)" },
+    exit: { opacity: 0, transition: { duration: 0.1 } },
+    transition: { duration: 0.24, ease: "easeOut" },
+  },
 };
 
 /** Toasts: arrive at the corner, leave to the side. */
@@ -120,6 +161,24 @@ export const TOAST: Record<Register, Choreo> = {
     exit: { opacity: 0, transition: { duration: 0.12 } },
     transition: { duration: 0.32, ease: "linear" },
   },
+  bevel: {
+    initial: { opacity: 1 },
+    animate: { opacity: 1 },
+    exit: { opacity: 0, transition: instant },
+    transition: instant,
+  },
+  bitmap: {
+    initial: { opacity: 1, scale: 0.2 },
+    animate: { opacity: 1, scale: 1 },
+    exit: { opacity: 0, transition: instant },
+    transition: { duration: 0.16, ease: stepped(4) },
+  },
+  hologram: {
+    initial: { opacity: 0, x: 28, skewX: -12 },
+    animate: { opacity: [0, 1, 0.5, 1], x: 0, skewX: 0 },
+    exit: { opacity: 0, x: 16, transition: { duration: 0.16 } },
+    transition: { duration: 0.36, ease: "easeOut" },
+  },
 };
 
 /** The shared-layout highlights (active filter, selected tab). */
@@ -128,4 +187,7 @@ export const SLIDE: Record<Register, Transition> = {
   paper: { duration: 0.26, ease: [0.6, 0.05, 0.2, 1] },
   pinstripe: { type: "spring", stiffness: 230, damping: 28, mass: 1.1 },
   phosphor: { duration: 0.12, ease: "linear" },
+  bevel: instant,
+  bitmap: instant,
+  hologram: { type: "spring", stiffness: 700, damping: 38, mass: 0.6 },
 };

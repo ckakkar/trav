@@ -7,9 +7,11 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Fixed
+- In a narrow window (around 900 px wide) the torrent list's last column no longer runs off the edge, in every theme.
 - Trav checks for updates itself, from the app rather than the window, and if the window doesn't respond to an update it finds (it has crashed, or never loaded), offers it in a native dialog. A broken release can always be replaced; 0.3.48's couldn't.
 
 ### Added
+- Three more themes, each its own world: Bevel, a mid-90s desktop (gray faces lit from the top left, navy title bars, block progress bars, a green-on-black performance graph, yellow tooltip notifications, a teal desktop behind an empty list); Bitmap, a one-bit desktop (black, white and dither, striped title bars, inverted selection, crossed checkboxes, a heavy ring around the default button); and Hologram, a heads-up display (light on a dark grid, corner brackets, notched controls, iridescent shimmering meters, a slow scan, dialogs that materialise from a line of light). Each moves in its own way, too.
 - A fourth theme, Pinstripe: light, glossy and three-dimensional, with pinstriped windows, brushed-metal panels, a breathing blue gel button, barber-pole progress bars and dialogs that come down as sheets. Pick it in Settings › Interface or cycle to it with the theme button.
 - Create Torrent… (File menu, ⌘N, or the command palette): make a .torrent from a file or folder, with trackers, web seeds, private, comment, source and piece size, and start seeding it straight away. Hashing streams the data (about 1.9 GB/s from cache), can be cancelled at any moment, and never follows symlinks.
 - A watch folder (Settings › Downloads): any .torrent saved there is added by itself once it has finished arriving, then renamed to .torrent.added (or .torrent.invalid), so it's added only once.
