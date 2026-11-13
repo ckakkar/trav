@@ -430,6 +430,7 @@ pub fn run() {
         .manage(shell.clone())
         .manage(menu::MenuState::default())
         .manage(update::Pending::default())
+        .manage(update::Updates::default())
         .invoke_handler(tauri::generate_handler![
             rpc,
             ui_error,
@@ -442,6 +443,8 @@ pub fn run() {
             menu::set_menu_state,
             update::check_update,
             update::install_update,
+            update::update_ack,
+            update::set_auto_update,
         ])
         .setup(move |app| {
             let handle = app.handle().clone();
@@ -496,6 +499,7 @@ pub fn run() {
             }
 
             tray::setup(&handle)?;
+            update::spawn_checker(&handle);
             Ok(())
         })
         .on_window_event(|window, event| {

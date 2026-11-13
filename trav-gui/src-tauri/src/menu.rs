@@ -283,6 +283,12 @@ pub fn on_event(app: &AppHandle, id: &str) {
         crate::quit(app, false);
         return;
     }
+    // Checked natively, so it works even when the window has failed.
+    if id == "check-updates" {
+        crate::show(app);
+        crate::update::check_now(app);
+        return;
+    }
     let url = match id {
         "help" => Some(HELP_URL.to_string()),
         "issue" => Some(ISSUES_URL.to_string()),

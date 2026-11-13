@@ -262,7 +262,11 @@ fn on_menu(app: &AppHandle, id: &str) {
             }
         }
         "quit" => quit(app, false),
-        "open-torrent" | "settings" | "check-updates" => {
+        "check-updates" => {
+            show(app);
+            crate::update::check_now(app);
+        }
+        "open-torrent" | "settings" => {
             show(app);
             let _ = app.emit("trav://menu", id);
         }

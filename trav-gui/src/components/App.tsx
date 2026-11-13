@@ -34,6 +34,11 @@ import {
   appVersion,
   call,
   checkUpdate,
+  ackUpdate,
+  onUpdateAvailable,
+  onUpToDate,
+  onUpdateCheckFailed,
+  setAutoUpdate,
   copyText,
   onEngineEvent,
   onMenu as onMenuBar,
@@ -230,16 +235,20 @@ export default function App({ skipLaunch = false }: { skipLaunch?: boolean }) {
     },
     [toast, version],
   );
+  // The app checks by itself (see update.rs) and announces what it finds;
+  // acknowledging tells it the window is alive to show it.
+  useEffect(() => setAutoUpdate(prefs.autoUpdate && process.env.NODE_ENV !== "development"), [prefs.autoUpdate]);
   useEffect(() => {
-    // Development builds aren't released; only a manual check makes sense there.
-    if (!prefs.autoUpdate || process.env.NODE_ENV === "development") return;
-    const first = setTimeout(() => runUpdateCheck(false), 15_000);
-    const every = setInterval(() => runUpdateCheck(false), 3600_000);
-    return () => {
-      clearTimeout(first);
-      clearInterval(every);
-    };
-  }, [prefs.autoUpdate, runUpdateCheck]);
+    const offs = [
+      onUpdateAvailable(({ info, manual }) => {
+        ackUpdate(info.version);
+        if (manual || !deferred.current.has(info.version)) setUpdate(info);
+      }),
+      onUpToDate(() => toast("You’re up to date", { body: version ? `Trav ${version} is the latest version.` : undefined, tone: "ok" })),
+      onUpdateCheckFailed((m) => toast("Couldn’t check for updates", { body: m, tone: "error" })),
+    ];
+    return () => offs.forEach((off) => off());
+  }, [toast, version]);
 
   const act = useCallback(
     async (method: string, hashes: string[], extra?: Record<string, unknown>) => {
@@ -499,8 +508,6 @@ export default function App({ skipLaunch = false }: { skipLaunch?: boolean }) {
         return setCollapsed((c) => !c);
       case "theme":
         return cycleTheme();
-      case "check-updates":
-        return void runUpdateCheck(true);
       case "pause-all":
         return void call("pauseAll").then(refresh).catch(fail);
       case "resume-all":

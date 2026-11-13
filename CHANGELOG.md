@@ -7,6 +7,12 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Fixed
+- Trav checks for updates itself, from the app rather than the window, and if the window doesn't respond to an update it finds (it has crashed, or never loaded), offers it in a native dialog. A broken release can always be replaced; 0.3.48's couldn't.
+
+### Changed
+- Dependencies updated (parking_lot 0.13, Next.js 16.4.6, motion 14.13, lucide 1.72, Geist 1.9 and the Tauri plugins). The updater now uses zip 9, so the cargo-deny exception for zip 4's advisories is gone.
+
+### Fixed
 - In a narrow window the toolbar's Add button no longer runs off the edge: Magnet and Add shrink to their icons. In a short window the sidebar's bottom row no longer gets cut off; the filter list scrolls and the speed graph compacts.
 - Number fields in Settings no longer show native spinners, which WebKit drew outside the scrolling pane.
 
