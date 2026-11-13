@@ -57,9 +57,31 @@ export function DetailPanel({
   }, [idx]);
   return (
     <section className="detail" aria-label="Torrent details">
-      <nav className="tabs" role="tablist">
+      <nav
+        className="tabs"
+        role="tablist"
+        aria-label="Details"
+        onKeyDown={(e) => {
+          const step = { ArrowRight: 1, ArrowLeft: -1, Home: -TABS.length, End: TABS.length }[e.key];
+          if (step === undefined) return;
+          e.preventDefault();
+          e.stopPropagation();
+          const next = TABS[Math.max(0, Math.min(TABS.length - 1, idx + step))].id;
+          onTab(next);
+          document.getElementById(`tab-${next}`)?.focus();
+        }}
+      >
         {TABS.map((t) => (
-          <button key={t.id} role="tab" aria-selected={tab === t.id} className="tab" onClick={() => onTab(t.id)}>
+          <button
+            key={t.id}
+            id={`tab-${t.id}`}
+            role="tab"
+            aria-selected={tab === t.id}
+            aria-controls="detail-tabpanel"
+            tabIndex={tab === t.id ? 0 : -1}
+            className="tab"
+            onClick={() => onTab(t.id)}
+          >
             {t.label}
             {t.id === "peers" && details ? <span className="tab-count">{details.peers.length}</span> : null}
             {t.id === "files" && details && details.files.length > 1 ? <span className="tab-count">{details.files.length}</span> : null}
@@ -69,7 +91,7 @@ export function DetailPanel({
         <div className="tabs-spacer" />
         {selectionCount > 1 && <span className="mono faint tabs-note">{selectionCount} selected · showing focused</span>}
       </nav>
-      <div className="detail-body">
+      <div className="detail-body" id="detail-tabpanel" role="tabpanel" aria-labelledby={`tab-${tab}`}>
         {!details ? (
           <div className="detail-empty">
             <span className="display">Select a torrent</span>

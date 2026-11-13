@@ -213,6 +213,36 @@ describe.each(THEMES)("the window in %s", (theme) => {
     expectHealthy();
   });
 
+  it("is navigable by VoiceOver and the keyboard", async () => {
+    mockEngine(LIBRARY);
+    await mount(theme);
+    const grid = host.querySelector('[role="grid"]')!;
+    expect(grid.getAttribute("aria-rowcount")).toBe(String(LIBRARY.length + 1));
+    const rows = host.querySelectorAll('[role="row"][id^="row-"]');
+    expect(rows).toHaveLength(LIBRARY.length);
+    expect(rows[0].querySelectorAll('[role="gridcell"]').length).toBeGreaterThan(5);
+    expect(rows[0].querySelector('[role="progressbar"]')?.getAttribute("aria-valuenow")).toBe("41");
+    await click(rows[0]);
+    await settle();
+    expect(grid.getAttribute("aria-activedescendant")).toBe(rows[0].id);
+    // Tabs point at their panel, and the arrow keys move between them.
+    const tab = host.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')!;
+    expect(document.getElementById(tab.getAttribute("aria-controls")!)?.getAttribute("role")).toBe("tabpanel");
+    tab.focus();
+    await act(async () => tab.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true })));
+    await settle();
+    expect(host.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toContain("Files");
+    // Tab stays inside an open dialog.
+    await click(host.querySelector('[aria-label="Settings"]'));
+    await settle();
+    const dialog = document.querySelector('[role="dialog"]')!;
+    for (let i = 0; i < 40; i++) {
+      await act(async () => window.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", shiftKey: i % 3 === 0, bubbles: true })));
+      expect(dialog.contains(document.activeElement), `focus after ${i + 1} Tab presses`).toBe(true);
+    }
+    expectHealthy();
+  });
+
   it("shows a .torrent waiting to be added, with its files", async () => {
     mockEngine(LIBRARY, ["/Users/you/Downloads/night.torrent"]);
     await mount(theme);

@@ -112,6 +112,8 @@ const Row = memo(
     return (
       <div
         role="row"
+        id={`row-${t.infoHash}`}
+        aria-rowindex={index + 2}
         aria-selected={selected}
         className="trow"
         data-status={t.status}
@@ -125,17 +127,25 @@ const Row = memo(
         onDoubleClick={() => onOpen(t.infoHash)}
       >
         <i className="trow-sel" aria-hidden />
-        <div className="c-idx mono">{pad2(index + 1)}</div>
-        <div className="c-name">
+        <div role="gridcell" className="c-idx mono">{pad2(index + 1)}</div>
+        <div role="gridcell" className="c-name">
           <div className="tname" title={t.name}>
             {t.name}
           </div>
           <div className="tmeta mono">{meta}</div>
         </div>
-        <div className="c-size num mono">{unknownSize ? "—" : bytes(t.size)}</div>
-        <div className="c-prog">
+        <div role="gridcell" className="c-size num mono">{unknownSize ? "—" : bytes(t.size)}</div>
+        <div role="gridcell" className="c-prog">
           <div className="bar-wrap">
-            <div className="bar" style={{ "--p": p, "--flow": flow(t.downloadRate) } as CSSProperties}>
+            <div
+              className="bar"
+              role="progressbar"
+              aria-label="Progress"
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={unknownSize ? undefined : Math.round(p * 100)}
+              aria-valuetext={unknownSize ? "Fetching torrent info" : pct(p, 1)}
+              style={{ "--p": p, "--flow": flow(t.downloadRate) } as CSSProperties}>
               <div className="bar-fill" />
               <div className="bar-head" />
             </div>
@@ -148,27 +158,27 @@ const Row = memo(
           </div>
           <Tween key={t.infoHash} className="bar-pct mono" value={t.progress} format={(v) => pct(v, v >= 0.999 ? 0 : 1)} />
         </div>
-        <div className="c-status">
+        <div role="gridcell" className="c-status">
           <span className="sdot" />
           {/* Keyed by label so a change of status replays its entrance. */}
           <span key={st.label} className="slabel mono">
             {st.label}
           </span>
         </div>
-        <div className="c-down num mono">
+        <div role="gridcell" className="c-down num mono">
           <Tween key={t.infoHash} value={t.downloadRate} format={rate} />
         </div>
-        <div className="c-up num mono">
+        <div role="gridcell" className="c-up num mono">
           <Tween key={t.infoHash} value={t.uploadRate} format={rate} />
         </div>
-        <div className="c-eta num mono">{t.status === "downloading" ? eta(t.eta) : ""}</div>
-        <div className="c-peers num mono">
+        <div role="gridcell" className="c-eta num mono">{t.status === "downloading" ? eta(t.eta) : ""}</div>
+        <div role="gridcell" className="c-peers num mono">
           {t.seeds}
           <span className="faint"> · </span>
           {t.peers}
         </div>
-        <div className="c-ratio num mono">{t.ratio.toFixed(2)}</div>
-        <div className="c-added num mono">{ago(t.addedAt)}</div>
+        <div role="gridcell" className="c-ratio num mono">{t.ratio.toFixed(2)}</div>
+        <div role="gridcell" className="c-added num mono">{ago(t.addedAt)}</div>
       </div>
     );
   },
@@ -218,8 +228,18 @@ export function TorrentTable({
 }) {
   const animate = torrents.length <= 150;
   return (
-    <div className="table" role="grid" aria-rowcount={torrents.length}>
-      <div className="thead" role="row">
+    // Focusable as a whole, like a Finder list: the arrow keys move the
+    // selection (App's keyboard handler) and VoiceOver follows the focused row.
+    <div
+      className="table"
+      role="grid"
+      aria-label="Torrents"
+      aria-multiselectable
+      aria-rowcount={torrents.length + 1}
+      aria-activedescendant={focus && torrents.some((t) => t.infoHash === focus) ? `row-${focus}` : undefined}
+      tabIndex={0}
+    >
+      <div className="thead" role="row" aria-rowindex={1}>
         {COLS.map((c) => (
           <button
             key={c.key}

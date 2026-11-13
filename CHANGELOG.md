@@ -10,6 +10,7 @@ All notable changes to this project are documented here. The format follows
 - Trav checks for updates itself, from the app rather than the window, and if the window doesn't respond to an update it finds (it has crashed, or never loaded), offers it in a native dialog. A broken release can always be replaced; 0.3.48's couldn't.
 
 ### Changed
+- VoiceOver and the keyboard: the torrent list is a grid VoiceOver can walk (rows with positions, cells, and progress read as percentages), it follows the selected row, detail tabs are linked to their panel and switch with the arrow keys, and Tab no longer escapes an open dialog into the window behind it.
 - Dependencies updated (parking_lot 0.13, Next.js 16.4.6, motion 14.13, lucide 1.72, Geist 1.9 and the Tauri plugins). The updater now uses zip 9, so the cargo-deny exception for zip 4's advisories is gone.
 
 ### Fixed
