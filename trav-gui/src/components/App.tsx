@@ -11,6 +11,7 @@ import {
   FileDown,
   FolderOpen,
   FolderInput,
+  FilePlus2,
   Gauge,
   Layers,
   ListOrdered,
@@ -58,11 +59,12 @@ import {
   type UpdateInfo,
 } from "@/lib/rpc";
 import { bytes, looksLikeMagnet } from "@/lib/format";
-import { FILTER_TESTS, isPausedLike, visibleTorrents, type FilterId } from "@/lib/torrents";
+import { FILTER_TESTS, isPausedLike, parentOf, visibleTorrents, type FilterId } from "@/lib/torrents";
 import { load, save } from "@/lib/storage";
 import { Sidebar, type FilterDef } from "./Sidebar";
 import { StatusBar } from "./StatusBar";
 import { LimitsDialog } from "./LimitsDialog";
+import { CreateDialog } from "./CreateDialog";
 import { Launch } from "./Launch";
 import { Mark } from "./Mark";
 import { TorrentTable, type Sort, type SortKey } from "./TorrentTable";
@@ -102,7 +104,7 @@ const FILTERS: FilterSpec[] = [
 const DEFAULT_PREFS: UiPrefs = { theme: "ink", notify: true, confirmRemove: true, scanlines: true, autoUpdate: true, keepAwake: true, menuBarSpeed: true };
 
 /** ⌘-shortcuts the Mac app's menu bar owns (handled there, not here). */
-const MENU_KEYS = new Set(["k", "o", ",", "u", "r", "i", ".", "/", "f", "1", "2", "3", "4", "5", "6", "7"]);
+const MENU_KEYS = new Set(["k", "o", ",", "u", "n", "r", "i", ".", "/", "f", "1", "2", "3", "4", "5", "6", "7"]);
 
 /** The launch sequence plays once per app start, when the window is on screen to see it. */
 function launchStage(): "launch" | "done" {
@@ -382,6 +384,8 @@ export default function App({ skipLaunch = false }: { skipLaunch?: boolean }) {
   useEffect(
     () =>
       onEngineEvent((e: EngineEvent) => {
+        // Hashing progress comes ten times a second and changes nothing in the library.
+        if (e.type === "createProgress") return;
         if (e.type === "torrentCompleted") {
           toast("Download complete", { body: e.name, tone: "ok" });
         } else if (e.type === "torrentError") toast("Torrent error", { body: `${e.name}: ${e.message}`, tone: "error" });
@@ -514,6 +518,8 @@ export default function App({ skipLaunch = false }: { skipLaunch?: boolean }) {
         return void openTorrentPicker();
       case "add-magnet":
         return openMagnet();
+      case "create-torrent":
+        return setCreateOpen(true);
       case "settings":
         return setSettingsOpen(true);
       case "palette":
@@ -588,6 +594,8 @@ export default function App({ skipLaunch = false }: { skipLaunch?: boolean }) {
   };
 
   // ── Context menu & palette entries ────────────────────────────────────────
+  const [createOpen, setCreateOpen] = useState(false);
+
   // ── Speed limits ──────────────────────────────────────────────────────────
   const [limitsFor, setLimitsFor] = useState<{ hashes: string[]; name: string; download: number; upload: number } | null>(null);
   const openLimits = useCallback(
@@ -685,6 +693,7 @@ export default function App({ skipLaunch = false }: { skipLaunch?: boolean }) {
     () => [
       { id: "add", label: "Add torrent file…", hint: "⌘O", icon: <FileDown size={14} />, run: openTorrentPicker },
       { id: "magnet", label: "Add magnet link…", hint: "⌘V", icon: <Magnet size={14} />, run: openMagnet },
+      { id: "create", label: "Create torrent…", hint: "⌘N", icon: <FilePlus2 size={14} />, run: () => setCreateOpen(true) },
       { id: "resume-all", label: "Resume all", icon: <Play size={14} />, run: () => call("resumeAll").then(refresh).catch(fail) },
       { id: "pause-all", label: "Pause all", icon: <Pause size={14} />, run: () => call("pauseAll").then(refresh).catch(fail) },
       { id: "settings", label: "Settings", hint: "⌘,", icon: <Settings2 size={14} />, run: () => setSettingsOpen(true) },
@@ -845,6 +854,21 @@ export default function App({ skipLaunch = false }: { skipLaunch?: boolean }) {
       </main>
 
       <StatusBar stats={stats} link={link} onLimits={() => setSettingsOpen(true)} onAltSpeed={setAltSpeed} />
+
+      <CreateDialog
+        open={createOpen}
+        onClose={() => setCreateOpen(false)}
+        onCreated={(created, seed, sourcePath) => {
+          // The dialog stays open on its success state; seeding starts behind it.
+          if (!seed) return;
+          call<{ infoHash: string }>("add", { path: created.out, savePath: parentOf(sourcePath) })
+            .then(() => {
+              refresh();
+              toast("Seeding", { body: created.name, tone: "ok" });
+            })
+            .catch((e) => fail(e, "Couldn’t start seeding"));
+        }}
+      />
 
       <LimitsDialog
         target={limitsFor}

@@ -180,4 +180,6 @@ export type EngineEvent =
   | { type: "metadataReceived"; infoHash: string; name: string }
   | { type: "torrentCompleted"; infoHash: string; name: string }
   | { type: "torrentError"; infoHash: string; name: string; message: string }
-  | { type: "torrentRemoved"; infoHash: string };
+  | { type: "torrentRemoved"; infoHash: string }
+  /** Progress making a torrent (Create Torrent…); the dialog listens for its own id. */
+  | { type: "createProgress"; id: string; hashed: number; total: number };

@@ -61,3 +61,13 @@ describe("filters", () => {
     expect(isPausedLike(torrent({ status: "seeding" }))).toBe(false);
   });
 });
+
+describe("parentOf", () => {
+  it("is the folder that holds a file or a chosen folder", async () => {
+    const { parentOf } = await import("@/lib/torrents");
+    expect(parentOf("/Users/you/Shared")).toBe("/Users/you");
+    expect(parentOf("/Users/you/Shared/")).toBe("/Users/you");
+    expect(parentOf("/Users/you/film.mkv")).toBe("/Users/you");
+    expect(parentOf("/film.mkv")).toBe("/");
+  });
+});

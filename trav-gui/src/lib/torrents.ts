@@ -96,3 +96,10 @@ export function visibleTorrents(list: TorrentSummary[], filter: FilterId, search
     sort,
   );
 }
+
+/** The folder holding `path` (a file, or a folder chosen as a whole). */
+export function parentOf(path: string): string {
+  const trimmed = path.replace(/\/+$/, "");
+  const cut = trimmed.lastIndexOf("/");
+  return cut > 0 ? trimmed.slice(0, cut) : "/";
+}

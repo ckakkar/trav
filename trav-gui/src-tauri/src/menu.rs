@@ -110,6 +110,13 @@ pub fn build(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
             )?,
             &item(app, "add-magnet", "Add Magnet Link…", Some("CmdOrCtrl+U"))?,
             &sep()?,
+            &item(
+                app,
+                "create-torrent",
+                "Create Torrent…",
+                Some("CmdOrCtrl+N"),
+            )?,
+            &sep()?,
             &PredefinedMenuItem::close_window(app, None)?,
         ],
     )?;
