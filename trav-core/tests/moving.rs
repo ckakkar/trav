@@ -149,3 +149,99 @@ async fn removing_with_its_data_during_a_move_deletes_the_moved_files() {
     assert!(!old.join("Show/a.bin").exists(), "old files deleted");
     h.shutdown().await;
 }
+
+/// `count` files named `Show/NNNNN.bin`, all `byte`, under `parent`.
+fn show(parent: &Path, count: usize, byte: u8) -> Vec<u8> {
+    let dir = parent.join("Show");
+    std::fs::create_dir_all(&dir).unwrap();
+    for i in 0..count {
+        std::fs::write(dir.join(format!("{i:05}.bin")), [byte; 64]).unwrap();
+    }
+    create_torrent(&dir, 16 * 1024, &[], false).unwrap()
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn two_moves_into_one_folder_never_overwrite_each_other() {
+    // Two different torrents, both called "Show", moved to one place at once
+    // (QA round 2, F4): one must be refused, and every byte must survive.
+    let tmp = tempfile::tempdir().unwrap();
+    let (a, b, dest) = (
+        tmp.path().join("a"),
+        tmp.path().join("b"),
+        tmp.path().join("dest"),
+    );
+    let h = Engine::start_with(tmp.path().join("state"), Some(settings(&a)))
+        .await
+        .unwrap();
+    let mut hashes = Vec::new();
+    for (root, byte) in [(&a, b'A'), (&b, b'B')] {
+        let mut add = AddTorrent::new(TorrentSource::Bytes(show(root, 500, byte)));
+        add.save_path = Some(root.to_path_buf());
+        let hash = h.add(add).await.unwrap();
+        wait_for(&h, &hash, TorrentStatus::Seeding).await;
+        hashes.push(hash);
+    }
+    let (ra, rb) = tokio::join!(
+        h.move_storage(&hashes[0], dest.clone()),
+        h.move_storage(&hashes[1], dest.clone())
+    );
+    assert!(
+        ra.is_ok() != rb.is_ok(),
+        "exactly one move goes ahead: {ra:?} {rb:?}"
+    );
+    let (moved, stayed, byte_moved, byte_stayed) = if ra.is_ok() {
+        (&a, &b, b'A', b'B')
+    } else {
+        (&b, &a, b'B', b'A')
+    };
+    for i in [0, 499] {
+        let name = format!("Show/{i:05}.bin");
+        assert_eq!(std::fs::read(dest.join(&name)).unwrap(), [byte_moved; 64]);
+        assert_eq!(
+            std::fs::read(stayed.join(&name)).unwrap(),
+            [byte_stayed; 64]
+        );
+        assert!(!moved.join(&name).exists());
+    }
+    h.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn quitting_during_a_move_resumes_from_the_new_folder() {
+    // QA round 2, F5: a move that finishes while the app quits must be the
+    // folder the torrent comes back to.
+    let tmp = tempfile::tempdir().unwrap();
+    let (old, dest) = (tmp.path().join("dl"), tmp.path().join("new"));
+    let bytes = show(&old, 12_000, 7);
+    let h = Engine::start_with(tmp.path().join("state"), Some(settings(&old)))
+        .await
+        .unwrap();
+    let hash = h
+        .add(AddTorrent::new(TorrentSource::Bytes(bytes)))
+        .await
+        .unwrap();
+    wait_for(&h, &hash, TorrentStatus::Seeding).await;
+    let mover = {
+        let (h, hash, dest) = (h.clone(), hash.clone(), dest.clone());
+        tokio::spawn(async move { h.move_storage(&hash, dest).await })
+    };
+    let deadline = Instant::now() + Duration::from_secs(20);
+    while !dest.join("Show/00000.bin").exists() {
+        assert!(Instant::now() < deadline, "the move never started");
+        tokio::time::sleep(Duration::from_millis(1)).await;
+    }
+    h.shutdown().await;
+    let _ = mover.await;
+    assert!(
+        dest.join("Show/11999.bin").exists(),
+        "quitting waits for the move"
+    );
+    drop(h);
+
+    let h = Engine::start_with(tmp.path().join("state"), None)
+        .await
+        .unwrap();
+    let save_path = h.details(&hash).unwrap().summary.save_path;
+    h.shutdown().await;
+    assert_eq!(save_path, dest.display().to_string());
+}

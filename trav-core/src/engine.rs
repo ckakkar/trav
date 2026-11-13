@@ -36,6 +36,9 @@ const SNAPSHOT_INTERVAL: Duration = Duration::from_millis(500);
 const SAVE_INTERVAL: Duration = Duration::from_secs(20);
 /// How often the watch folder is scanned (a file is taken on its second sighting).
 const WATCH_INTERVAL: Duration = Duration::from_secs(2);
+/// At most this many files marked invalid are kept an eye on (to restore one
+/// whose writer had only paused).
+const WATCH_REVISIT_MAX: usize = 256;
 
 /// Where a torrent comes from.
 #[derive(Debug, Clone)]
@@ -154,6 +157,7 @@ impl Engine {
             auto_upload_cap: AtomicU64::new(0),
             public_trackers: RwLock::new(crate::public_trackers::load(store_root)),
             claims: parking_lot::Mutex::new(HashMap::new()),
+            reservations: parking_lot::Mutex::new(HashMap::new()),
         });
 
         let (snapshot_tx, snapshot_rx) = watch::channel(Arc::new(EngineSnapshot::empty()));
@@ -383,6 +387,10 @@ impl Session {
             let mut seen = crate::watch::Seen::default();
             // Files that failed for a reason that may pass, and when to retry.
             let mut retry: HashMap<PathBuf, std::time::Instant> = HashMap::new();
+            // Files marked invalid this session: where they went, and how they
+            // looked then. One that changes afterwards was still being written
+            // (a writer that paused), so it goes back to be looked at again.
+            let mut invalid: HashMap<PathBuf, crate::watch::Marked> = HashMap::new();
             let mut tick = tokio::time::interval(WATCH_INTERVAL);
             loop {
                 tick.tick().await;
@@ -393,6 +401,13 @@ impl Session {
                 let Some(dir) = s.ctx.settings.read().watch_dir.clone() else {
                     continue;
                 };
+                // First, so a file put back is seen in this scan.
+                if !invalid.is_empty() {
+                    let marks = std::mem::take(&mut invalid);
+                    invalid = tokio::task::spawn_blocking(move || crate::watch::revisit(marks))
+                        .await
+                        .unwrap_or_default();
+                }
                 let found = tokio::task::spawn_blocking(move || {
                     let ready = crate::watch::ready(&dir, &mut seen);
                     (ready, seen)
@@ -406,7 +421,9 @@ impl Session {
                 };
                 retry.retain(|_, at| *at > std::time::Instant::now());
                 for path in ready {
-                    if retry.contains_key(&path) {
+                    // Never touch a torrent's own files (a watch folder that is
+                    // also the download folder can hold payloads named .torrent).
+                    if retry.contains_key(&path) || s.ctx.owns_path(&path) {
                         continue;
                     }
                     let suffix = match h
@@ -431,8 +448,13 @@ impl Session {
                         }
                     };
                     let p = path.clone();
-                    let _ =
+                    let marked =
                         tokio::task::spawn_blocking(move || crate::watch::mark(&p, suffix)).await;
+                    if let (Ok(Some(m)), "invalid") = (marked, suffix)
+                        && invalid.len() < WATCH_REVISIT_MAX
+                    {
+                        invalid.insert(m.path.clone(), m);
+                    }
                 }
             }
         });
@@ -1009,6 +1031,7 @@ impl EngineHandle {
         });
         let _ = tokio::time::timeout(Duration::from_secs(10), rx).await;
         self.s.ctx.release(&ih);
+        self.s.ctx.unreserve(&ih);
         self.s.ctx.store.remove(&ih);
         self.s.ctx.emit(Event::TorrentRemoved {
             info_hash: hex::encode(ih),
@@ -1104,6 +1127,9 @@ impl EngineHandle {
         }
         let _ =
             tokio::time::timeout(Duration::from_secs(5), futures::future::join_all(waits)).await;
+        // Again, now that every torrent has stopped: a move that finished
+        // while stopping changed where its files are.
+        self.s.save_all(true);
         if let Some(h) = self.s.listener.lock().take() {
             h.abort();
         }

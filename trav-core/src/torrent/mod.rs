@@ -890,11 +890,22 @@ impl Torrent {
         // wherever they ended up (and quitting never strands half a move).
         let storage = match (moving, meta) {
             (Some(task), Some(meta)) => match task.await {
-                Ok(Ok(dest)) => Storage::new(&dest, &meta.info).ok().map(Arc::new),
+                Ok(Ok(dest)) => {
+                    // The move finished: the files live there now, so that's the
+                    // folder resume data must name (it's saved after this).
+                    {
+                        let mut st = self.st.lock();
+                        st.save_path = dest.clone();
+                        st.dirty = true;
+                    }
+                    self.ctx.release(&self.info_hash);
+                    Storage::new(&dest, &meta.info).ok().map(Arc::new)
+                }
                 _ => storage,
             },
             _ => storage,
         };
+        self.ctx.unreserve(&self.info_hash);
         // Disk work off the reactor, and without holding the state lock. Once
         // retired, pieces still in flight can't write (or recreate) files.
         if let Some(s) = storage {
@@ -948,10 +959,13 @@ impl Torrent {
             let _ = done.send(Ok(()));
             return;
         };
+        // Reserve the destination before a single file moves: a second move
+        // (another torrent with the same name) can't then pick the same place.
         let taken = match crate::path_safety::jail_join(&dest, [meta.info.name.as_str()]) {
             Ok(root) => self
                 .ctx
-                .claimed_by(&self.info_hash, &root)
+                .reserve(self.info_hash, &root, &meta.info.name)
+                .err()
                 .map(|other| format!("“{other}” already keeps its files at {}", root.display())),
             Err(e) => Some(e.to_string()),
         };
@@ -1023,6 +1037,8 @@ impl Torrent {
         }
         st.dirty = true;
         self.open_storage(st, &meta.info);
+        // Only now: the new folder is claimed, so it was never up for grabs.
+        self.ctx.unreserve(&self.info_hash);
         self.update_phase(st);
         let _ = done.send(res);
     }

@@ -55,24 +55,82 @@ fn move_one(src: &Path, dst: &Path) -> io::Result<()> {
     if let Some(parent) = dst.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    match std::fs::rename(src, dst) {
-        Err(e) if e.kind() == io::ErrorKind::CrossesDevices => {
-            let len = std::fs::metadata(src)?.len();
-            let copied = std::fs::copy(src, dst).and_then(|n| {
-                if n == len {
-                    Ok(())
-                } else {
-                    Err(io::Error::other(format!("copied {n} of {len} bytes")))
-                }
-            });
-            if let Err(e) = copied {
-                let _ = std::fs::remove_file(dst);
-                return Err(e);
-            }
-            std::fs::remove_file(src)
-        }
+    match rename_no_replace(src, dst) {
+        Err(e) if e.kind() == io::ErrorKind::CrossesDevices => copy_then_remove(src, dst),
         other => other,
     }
+}
+
+/// Another volume: copy into a file that must not exist yet, then remove the
+/// original. If that removal fails, the copy (ours: we created it) goes, so
+/// the move can be retried.
+fn copy_then_remove(src: &Path, dst: &Path) -> io::Result<()> {
+    let meta = std::fs::metadata(src)?;
+    let copied = (|| {
+        let mut out = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(dst)?;
+        let n = io::copy(&mut std::fs::File::open(src)?, &mut out)?;
+        if n != meta.len() {
+            return Err(io::Error::other(format!(
+                "copied {n} of {} bytes",
+                meta.len()
+            )));
+        }
+        out.set_permissions(meta.permissions())?;
+        out.sync_all()
+    })();
+    let done = copied.and_then(|()| std::fs::remove_file(src));
+    if done.is_err() {
+        let _ = std::fs::remove_file(dst);
+    }
+    done
+}
+
+/// `rename` that fails rather than replace a file already at `dst` (two moves
+/// into one folder must never overwrite each other's files).
+fn rename_no_replace(src: &Path, dst: &Path) -> io::Result<()> {
+    use std::ffi::CString;
+    use std::os::unix::ffi::OsStrExt;
+    let from = CString::new(src.as_os_str().as_bytes())?;
+    let to = CString::new(dst.as_os_str().as_bytes())?;
+    // SAFETY: two NUL-terminated paths that outlive the call.
+    #[cfg(target_os = "macos")]
+    let rc = unsafe { libc::renamex_np(from.as_ptr(), to.as_ptr(), libc::RENAME_EXCL) };
+    #[cfg(target_os = "linux")]
+    let rc = unsafe {
+        libc::renameat2(
+            libc::AT_FDCWD,
+            from.as_ptr(),
+            libc::AT_FDCWD,
+            to.as_ptr(),
+            libc::RENAME_NOREPLACE,
+        )
+    };
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    let rc = {
+        let _ = (&from, &to);
+        if dst.symlink_metadata().is_ok() {
+            return Err(io::ErrorKind::AlreadyExists.into());
+        }
+        return std::fs::rename(src, dst);
+    };
+    if rc == 0 {
+        return Ok(());
+    }
+    let e = io::Error::last_os_error();
+    // A filesystem without exclusive renames: check, then rename.
+    if matches!(
+        e.raw_os_error(),
+        Some(libc::EINVAL) | Some(libc::ENOTSUP) | Some(libc::ENOSYS)
+    ) {
+        if dst.symlink_metadata().is_ok() {
+            return Err(io::ErrorKind::AlreadyExists.into());
+        }
+        return std::fs::rename(src, dst);
+    }
+    Err(e)
 }
 
 /// Nothing between `root` and `path` may be a symlink: it would send the files
@@ -218,5 +276,34 @@ mod tests {
         );
         assert!(from.path().join("Show/a").exists());
         assert!(!elsewhere.path().join("a").exists());
+    }
+
+    #[test]
+    fn a_rename_never_replaces_a_file_that_appeared_meanwhile() {
+        let dir = tempfile::tempdir().unwrap();
+        let (a, b) = (dir.path().join("a"), dir.path().join("b"));
+        std::fs::write(&a, b"mine").unwrap();
+        std::fs::write(&b, b"theirs").unwrap();
+        assert!(move_one(&a, &b).is_err());
+        assert_eq!(std::fs::read(&a).unwrap(), b"mine");
+        assert_eq!(std::fs::read(&b).unwrap(), b"theirs");
+    }
+
+    #[test]
+    fn a_copy_whose_original_cant_be_removed_is_taken_back() {
+        // QA round 2, F6: across volumes, a source that can't be unlinked
+        // must not leave a stray copy that blocks retrying.
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let locked = dir.path().join("locked");
+        std::fs::create_dir(&locked).unwrap();
+        let (src, dst) = (locked.join("f"), dir.path().join("copy"));
+        std::fs::write(&src, b"two").unwrap();
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o555)).unwrap();
+        let res = copy_then_remove(&src, &dst);
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(res.is_err());
+        assert_eq!(std::fs::read(&src).unwrap(), b"two");
+        assert!(!dst.exists(), "no stray copy");
     }
 }
