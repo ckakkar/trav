@@ -434,11 +434,20 @@ pub fn create(
         .unwrap_or(Path::new("."));
     let parent =
         fs::canonicalize(parent).map_err(|e| io_at("open the destination folder", parent, e))?;
-    let out = parent.join(
-        requested_out
-            .file_name()
-            .ok_or_else(|| bad("Choose a .torrent filename"))?,
-    );
+    // Held open from here on: the .torrent is written and put in place
+    // relative to this folder, so a path swapped for a symlink while hashing
+    // can't send it anywhere else.
+    let out_dir = OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW)
+        .open(&parent)
+        .map_err(|e| io_at("open the destination folder", &parent, e))?;
+    let out_name = requested_out
+        .file_name()
+        .ok_or_else(|| bad("Choose a .torrent filename"))?;
+    let out_c =
+        CString::new(out_name.as_encoded_bytes()).map_err(|_| bad("Choose a .torrent filename"))?;
+    let out = parent.join(out_name);
     refuse_input_output(&out, &input, &entries, &meta)?;
     progress(0, total);
     check_cancel(cancel)?;
@@ -581,7 +590,7 @@ pub fn create(
     let bytes = top.build().encode();
     let parsed = Metainfo::from_bytes(&bytes)?;
     check_cancel(cancel)?;
-    let mut output = AtomicOutput::new(&out)?;
+    let mut output = AtomicOutput::new(&out_dir, &out)?;
     for chunk in bytes.chunks(BUFFER) {
         check_cancel(cancel)?;
         output.file.write_all(chunk)?;
@@ -606,10 +615,17 @@ pub fn create(
             return Err(bad("A selected file changed; try again"));
         }
     }
+    // The checks below go by path: the path must still be the folder held open.
+    let held = out_dir.metadata()?;
+    let still = fs::symlink_metadata(&parent).ok();
+    if !still.is_some_and(|m| m.is_dir() && same_file(&m, &held)) {
+        return Err(bad("The destination folder moved or changed; try again"));
+    }
     refuse_input_output(&out, &input, &entries, &meta)?;
     check_cancel(cancel)?;
-    fs::rename(&output.temp, &out).map_err(|e| io_at("save the torrent", &out, e))?;
-    output.committed = true;
+    output
+        .commit(&out_c)
+        .map_err(|e| io_at("save the torrent", &out, e))?;
     Ok(Created {
         info_hash: hex::encode(parsed.info_hash),
         name,
@@ -655,45 +671,68 @@ fn refuse_input_output(out: &Path, input: &Path, entries: &[Entry], root: &Metad
     Ok(())
 }
 
+/// The .torrent being written: a 0600 temporary file beside the chosen name,
+/// in the folder held open, renamed over it only once complete.
 struct AtomicOutput {
     file: File,
-    temp: PathBuf,
+    dir: File,
+    temp: CString,
     committed: bool,
 }
 
 impl AtomicOutput {
-    fn new(out: &Path) -> Result<Self> {
-        let parent = out
-            .parent()
-            .ok_or_else(|| bad("Choose a destination folder"))?;
+    fn new(dir: &File, out: &Path) -> Result<Self> {
+        let dir = dir.try_clone()?;
         for _ in 0..32 {
-            let temp = parent.join(format!(".trav-create-{:016x}.tmp", rand::random::<u64>()));
-            match OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .mode(0o600)
-                .custom_flags(libc::O_NOFOLLOW)
-                .open(&temp)
-            {
-                Ok(file) => {
-                    return Ok(Self {
-                        file,
-                        temp,
-                        committed: false,
-                    });
-                }
-                Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
-                Err(error) => return Err(io_at("write the torrent", out, error)),
+            let temp = c_name(&format!(".trav-create-{:016x}.tmp", rand::random::<u64>()))?;
+            // SAFETY: dir is a live directory descriptor and temp is
+            // NUL-terminated; a successful descriptor is owned once, by File.
+            let fd = unsafe {
+                libc::openat(
+                    dir.as_raw_fd(),
+                    temp.as_ptr(),
+                    libc::O_WRONLY
+                        | libc::O_CREAT
+                        | libc::O_EXCL
+                        | libc::O_NOFOLLOW
+                        | libc::O_CLOEXEC,
+                    0o600 as libc::c_uint,
+                )
+            };
+            if fd >= 0 {
+                let file = unsafe { File::from_raw_fd(fd) };
+                return Ok(Self {
+                    file,
+                    dir,
+                    temp,
+                    committed: false,
+                });
+            }
+            let error = io::Error::last_os_error();
+            if error.kind() != io::ErrorKind::AlreadyExists {
+                return Err(io_at("write the torrent", out, error));
             }
         }
         Err(bad("Could not create a temporary torrent file; try again"))
+    }
+
+    /// Put the finished file in place under `name`, in the held folder.
+    fn commit(&mut self, name: &CStr) -> io::Result<()> {
+        let dir = self.dir.as_raw_fd();
+        // SAFETY: a live directory descriptor and two NUL-terminated names.
+        if unsafe { libc::renameat(dir, self.temp.as_ptr(), dir, name.as_ptr()) } != 0 {
+            return Err(io::Error::last_os_error());
+        }
+        self.committed = true;
+        Ok(())
     }
 }
 
 impl Drop for AtomicOutput {
     fn drop(&mut self) {
         if !self.committed {
-            let _ = fs::remove_file(&self.temp);
+            // SAFETY: a live directory descriptor and a NUL-terminated name.
+            unsafe { libc::unlinkat(self.dir.as_raw_fd(), self.temp.as_ptr(), 0) };
         }
     }
 }

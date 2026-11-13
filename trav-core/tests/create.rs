@@ -516,3 +516,36 @@ fn create_failure_after_writing_temp_preserves_existing_output_and_cleans_up() {
         "temporary output was removed after failure"
     );
 }
+
+#[test]
+fn a_destination_folder_swapped_for_a_symlink_while_hashing_is_never_written_through() {
+    // QA round 3, F11: the .torrent goes into the folder chosen, or nowhere;
+    // never into wherever a symlink put in its place points.
+    let tmp = temp();
+    let source = tmp.path().join("payload.bin");
+    fs::write(&source, b"selected payload").unwrap();
+    let (chosen, outside) = (tmp.path().join("chosen"), tmp.path().join("outside"));
+    fs::create_dir(&chosen).unwrap();
+    fs::create_dir(&outside).unwrap();
+    let victim = outside.join("output.torrent");
+    fs::write(&victim, b"UNSELECTED USER DATA").unwrap();
+    let mut swapped = false;
+    let result = create(
+        &options(&source, &chosen.join("output.torrent")),
+        &mut |hashed, _| {
+            if hashed == 0 && !swapped {
+                fs::rename(&chosen, tmp.path().join("chosen-moved")).unwrap();
+                std::os::unix::fs::symlink(&outside, &chosen).unwrap();
+                swapped = true;
+            }
+        },
+        &AtomicBool::new(false),
+    );
+    assert!(swapped);
+    assert!(result.is_err(), "a moved destination folder is refused");
+    assert_eq!(fs::read(&victim).unwrap(), b"UNSELECTED USER DATA");
+    let left: Vec<_> = fs::read_dir(tmp.path().join("chosen-moved"))
+        .unwrap()
+        .collect();
+    assert!(left.is_empty(), "no temporary file left behind");
+}

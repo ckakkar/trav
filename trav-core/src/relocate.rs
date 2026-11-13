@@ -56,21 +56,30 @@ fn move_one(src: &Path, dst: &Path) -> io::Result<()> {
         std::fs::create_dir_all(parent)?;
     }
     match rename_no_replace(src, dst) {
-        Err(e) if e.kind() == io::ErrorKind::CrossesDevices => copy_then_remove(src, dst),
+        // Another volume, or one that can't rename without replacing (FAT,
+        // some network shares): copy into a file only we can have created.
+        Err(e)
+            if matches!(
+                e.kind(),
+                io::ErrorKind::CrossesDevices | io::ErrorKind::Unsupported
+            ) =>
+        {
+            copy_then_remove(src, dst)
+        }
         other => other,
     }
 }
 
-/// Another volume: copy into a file that must not exist yet, then remove the
-/// original. If that removal fails, the copy (ours: we created it) goes, so
-/// the move can be retried.
+/// Copy into a new file (failing if anything is already at `dst`), then remove
+/// the original. If the copy or that removal fails, the copy goes again: it is
+/// ours, we created it. A file someone else put at `dst` is never touched.
 fn copy_then_remove(src: &Path, dst: &Path) -> io::Result<()> {
     let meta = std::fs::metadata(src)?;
-    let copied = (|| {
-        let mut out = std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(dst)?;
+    let mut out = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(dst)?;
+    let done = (|| {
         let n = io::copy(&mut std::fs::File::open(src)?, &mut out)?;
         if n != meta.len() {
             return Err(io::Error::other(format!(
@@ -79,17 +88,29 @@ fn copy_then_remove(src: &Path, dst: &Path) -> io::Result<()> {
             )));
         }
         out.set_permissions(meta.permissions())?;
-        out.sync_all()
+        out.sync_all()?;
+        std::fs::remove_file(src)
     })();
-    let done = copied.and_then(|()| std::fs::remove_file(src));
     if done.is_err() {
-        let _ = std::fs::remove_file(dst);
+        remove_if_ours(dst, &out);
     }
     done
 }
 
+/// Remove `path` only if it is still the file open as `ours`.
+fn remove_if_ours(path: &Path, ours: &std::fs::File) {
+    use std::os::unix::fs::MetadataExt;
+    let (Ok(now), Ok(mine)) = (std::fs::symlink_metadata(path), ours.metadata()) else {
+        return;
+    };
+    if now.dev() == mine.dev() && now.ino() == mine.ino() {
+        let _ = std::fs::remove_file(path);
+    }
+}
+
 /// `rename` that fails rather than replace a file already at `dst` (two moves
-/// into one folder must never overwrite each other's files).
+/// into one folder must never overwrite each other's files). Where the
+/// filesystem can't do that atomically, `Unsupported`: never check-then-rename.
 fn rename_no_replace(src: &Path, dst: &Path) -> io::Result<()> {
     use std::ffi::CString;
     use std::os::unix::ffi::OsStrExt;
@@ -111,24 +132,17 @@ fn rename_no_replace(src: &Path, dst: &Path) -> io::Result<()> {
     #[cfg(not(any(target_os = "macos", target_os = "linux")))]
     let rc = {
         let _ = (&from, &to);
-        if dst.symlink_metadata().is_ok() {
-            return Err(io::ErrorKind::AlreadyExists.into());
-        }
-        return std::fs::rename(src, dst);
+        return Err(io::ErrorKind::Unsupported.into());
     };
     if rc == 0 {
         return Ok(());
     }
     let e = io::Error::last_os_error();
-    // A filesystem without exclusive renames: check, then rename.
     if matches!(
         e.raw_os_error(),
         Some(libc::EINVAL) | Some(libc::ENOTSUP) | Some(libc::ENOSYS)
     ) {
-        if dst.symlink_metadata().is_ok() {
-            return Err(io::ErrorKind::AlreadyExists.into());
-        }
-        return std::fs::rename(src, dst);
+        return Err(io::ErrorKind::Unsupported.into());
     }
     Err(e)
 }
@@ -305,5 +319,17 @@ mod tests {
         assert!(res.is_err());
         assert_eq!(std::fs::read(&src).unwrap(), b"two");
         assert!(!dst.exists(), "no stray copy");
+    }
+
+    #[test]
+    fn a_copy_never_removes_a_file_it_didnt_create() {
+        // QA round 3, F9: whatever is already at the destination stays.
+        let dir = tempfile::tempdir().unwrap();
+        let (src, dst) = (dir.path().join("src"), dir.path().join("dst"));
+        std::fs::write(&src, b"mine").unwrap();
+        std::fs::write(&dst, b"OTHER USER DATA").unwrap();
+        assert!(copy_then_remove(&src, &dst).is_err());
+        assert_eq!(std::fs::read(&src).unwrap(), b"mine");
+        assert_eq!(std::fs::read(&dst).unwrap(), b"OTHER USER DATA");
     }
 }
