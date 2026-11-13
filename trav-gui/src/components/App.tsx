@@ -40,6 +40,7 @@ import {
   onUpdateAvailable,
   onUpToDate,
   onUpdateCheckFailed,
+  pendingUpdate,
   setAutoUpdate,
   copyText,
   onEngineEvent,
@@ -243,15 +244,26 @@ export default function App({ skipLaunch = false }: { skipLaunch?: boolean }) {
   // acknowledging tells it the window is alive to show it.
   useEffect(() => setAutoUpdate(prefs.autoUpdate && process.env.NODE_ENV !== "development"), [prefs.autoUpdate]);
   useEffect(() => {
+    // Shown: UpdateDialog acknowledges once it has rendered (a view that
+    // crashed showing it hasn't shown it). Put off by the user: answer now.
+    const offer = ({ info, manual }: { info: UpdateInfo; manual: boolean }) => {
+      if (manual || !deferred.current.has(info.version)) setUpdate(info);
+      else ackUpdate(info.version);
+    };
+    // An announcement sent before these listeners were up was lost: ask for it,
+    // now and once more after they've surely registered.
+    const replay = () => pendingUpdate().then((p) => p && offer(p)).catch(() => {});
+    replay();
+    const again = setTimeout(replay, 2000);
     const offs = [
-      onUpdateAvailable(({ info, manual }) => {
-        ackUpdate(info.version);
-        if (manual || !deferred.current.has(info.version)) setUpdate(info);
-      }),
+      onUpdateAvailable(offer),
       onUpToDate(() => toast("You’re up to date", { body: version ? `Trav ${version} is the latest version.` : undefined, tone: "ok" })),
       onUpdateCheckFailed((m) => toast("Couldn’t check for updates", { body: m, tone: "error" })),
     ];
-    return () => offs.forEach((off) => off());
+    return () => {
+      clearTimeout(again);
+      offs.forEach((off) => off());
+    };
   }, [toast, version]);
 
   const act = useCallback(

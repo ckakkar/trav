@@ -33,6 +33,8 @@ pub struct Updates {
     /// Check periodically (the window's "Check for updates automatically").
     auto: AtomicBool,
     announced: Mutex<Option<Announcement>>,
+    /// A native update dialog is on screen: never stack a second one.
+    dialog_open: AtomicBool,
 }
 
 impl Default for Updates {
@@ -40,15 +42,21 @@ impl Default for Updates {
         Self {
             auto: AtomicBool::new(true),
             announced: Mutex::new(None),
+            dialog_open: AtomicBool::new(false),
         }
     }
 }
 
 /// The latest update the window was told about.
 struct Announcement {
-    version: String,
+    info: UpdateInfo,
+    manual: bool,
+    /// When the window's time to answer started: the announcement, the
+    /// window last coming on screen, or the window last failing.
     at: Instant,
-    /// The window answered: it is showing the update, or the user put it off.
+    /// The window has shown the update (its dialog rendered), or the user put
+    /// this version off. Cleared when the window fails, since a view that
+    /// crashed showing it hasn't really shown it.
     acked: bool,
     /// The native dialog was offered for it already.
     fell_back: bool,
@@ -65,7 +73,7 @@ pub struct UpdateInfo {
 
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct Available {
+pub struct Available {
     info: UpdateInfo,
     /// Asked for from the menu: show it even if the user put this version off.
     manual: bool,
@@ -120,12 +128,22 @@ pub fn check_now(app: &AppHandle) {
 
 /// Record an announcement; false when it's a re-check of a version already
 /// announced, which stays quiet (a menu check always announces).
-fn record(announced: &mut Option<Announcement>, version: &str, manual: bool, now: Instant) -> bool {
-    if !manual && announced.as_ref().is_some_and(|a| a.version == version) {
+fn record(
+    announced: &mut Option<Announcement>,
+    info: &UpdateInfo,
+    manual: bool,
+    now: Instant,
+) -> bool {
+    if !manual
+        && announced
+            .as_ref()
+            .is_some_and(|a| a.info.version == info.version)
+    {
         return false;
     }
     *announced = Some(Announcement {
-        version: version.to_string(),
+        info: info.clone(),
+        manual,
         at: now,
         acked: false,
         fell_back: false,
@@ -133,38 +151,78 @@ fn record(announced: &mut Option<Announcement>, version: &str, manual: bool, now
     true
 }
 
-/// The version to offer natively: announced, unanswered for `ACK_WITHIN`
-/// while the window was on screen, and not offered already.
+/// The version to offer natively: announced and unanswered for `ACK_WITHIN`
+/// of the window being on screen (hidden time doesn't count: the clock
+/// restarts while it's hidden), and not offered already.
 fn due_fallback(
     announced: &mut Option<Announcement>,
     visible: bool,
     now: Instant,
 ) -> Option<String> {
     let a = announced.as_mut()?;
-    if a.acked || a.fell_back || !visible || now.duration_since(a.at) < ACK_WITHIN {
+    if a.acked || a.fell_back {
+        return None;
+    }
+    if !visible {
+        a.at = now;
+        return None;
+    }
+    if now.duration_since(a.at) < ACK_WITHIN {
         return None;
     }
     a.fell_back = true;
-    Some(a.version.clone())
+    Some(a.info.version.clone())
+}
+
+/// The window failed while rendering: whatever it acknowledged it may not
+/// have shown, so it must answer again (after its restart) or the native
+/// dialog takes over.
+fn reopen(announced: &mut Option<Announcement>, now: Instant) {
+    if let Some(a) = announced.as_mut()
+        && !a.fell_back
+    {
+        a.acked = false;
+        a.at = now;
+    }
+}
+
+pub fn window_failed(app: &AppHandle) {
+    reopen(
+        &mut app.state::<Updates>().announced.lock().unwrap(),
+        Instant::now(),
+    );
+}
+
+/// The announcement the window hasn't answered, for a window that has just
+/// started listening (one sent before then was lost).
+#[tauri::command]
+pub fn update_pending(app: AppHandle) -> Option<Available> {
+    let state = app.state::<Updates>();
+    let announced = state.announced.lock().unwrap();
+    announced.as_ref().filter(|a| !a.acked).map(|a| Available {
+        info: a.info.clone(),
+        manual: a.manual,
+    })
 }
 
 fn announce(app: &AppHandle, info: UpdateInfo, manual: bool) {
     let fresh = {
         let state = app.state::<Updates>();
         let mut announced = state.announced.lock().unwrap();
-        record(&mut announced, &info.version, manual, Instant::now())
+        record(&mut announced, &info, manual, Instant::now())
     };
     if fresh {
         let _ = app.emit("trav://update-available", Available { info, manual });
     }
 }
 
-/// The window received an announcement (and is showing it or was told to wait).
+/// The window has shown the update (its dialog rendered) or the user put this
+/// version off.
 #[tauri::command]
 pub fn update_ack(version: String, app: AppHandle) {
     let state = app.state::<Updates>();
     if let Some(a) = state.announced.lock().unwrap().as_mut()
-        && a.version == version
+        && a.info.version == version
     {
         a.acked = true;
     }
@@ -222,6 +280,13 @@ fn window_visible(app: &AppHandle) -> bool {
 }
 
 fn offer_natively(app: &AppHandle, version: String) {
+    if app
+        .state::<Updates>()
+        .dialog_open
+        .swap(true, Ordering::SeqCst)
+    {
+        return;
+    }
     let app = app.clone();
     app.dialog()
         .message(format!(
@@ -235,6 +300,7 @@ fn offer_natively(app: &AppHandle, version: String) {
             "Later".into(),
         ))
         .show(move |install| {
+            app.state::<Updates>().dialog_open.store(false, Ordering::SeqCst);
             if !install {
                 return;
             }
@@ -289,28 +355,34 @@ pub async fn install_update(app: AppHandle) -> Result<(), String> {
 mod tests {
     use super::*;
 
+    fn info(version: &str) -> UpdateInfo {
+        UpdateInfo {
+            version: version.into(),
+            current_version: "0.4.0".into(),
+            notes: None,
+            date: None,
+        }
+    }
+
     #[test]
     fn rechecks_stay_quiet_and_menu_checks_announce_again() {
         let t = Instant::now();
         let mut a = None;
-        assert!(record(&mut a, "0.4.1", false, t));
-        assert!(!record(&mut a, "0.4.1", false, t + CHECK_EVERY));
-        assert!(record(&mut a, "0.4.1", true, t + CHECK_EVERY));
-        assert!(record(&mut a, "0.4.2", false, t + CHECK_EVERY));
-        assert_eq!(a.unwrap().version, "0.4.2");
+        assert!(record(&mut a, &info("0.4.1"), false, t));
+        assert!(!record(&mut a, &info("0.4.1"), false, t + CHECK_EVERY));
+        assert!(record(&mut a, &info("0.4.1"), true, t + CHECK_EVERY));
+        assert!(record(&mut a, &info("0.4.2"), false, t + CHECK_EVERY));
+        assert_eq!(a.unwrap().info.version, "0.4.2");
     }
 
     #[test]
     fn falls_back_once_when_a_visible_window_never_answers() {
         let t = Instant::now();
         let mut a = None;
-        record(&mut a, "0.4.1", false, t);
-        // Not yet: give the window its time.
+        record(&mut a, &info("0.4.1"), false, t);
         assert_eq!(due_fallback(&mut a, true, t + ACK_WITHIN / 2), None);
-        // A hidden window may simply be asleep: wait for it to be shown.
-        assert_eq!(due_fallback(&mut a, false, t + ACK_WITHIN * 2), None);
         assert_eq!(
-            due_fallback(&mut a, true, t + ACK_WITHIN * 2).as_deref(),
+            due_fallback(&mut a, true, t + ACK_WITHIN).as_deref(),
             Some("0.4.1")
         );
         // Offered once per announcement.
@@ -318,11 +390,58 @@ mod tests {
     }
 
     #[test]
+    fn hidden_time_doesnt_count_toward_the_window_s_time_to_answer() {
+        let t = Instant::now();
+        let mut a = None;
+        record(&mut a, &info("0.4.1"), false, t);
+        // Hidden for a minute (asleep, or never shown at login)…
+        assert_eq!(due_fallback(&mut a, false, t + ACK_WITHIN * 2), None);
+        // …then shown: it gets its full time from there.
+        assert_eq!(
+            due_fallback(&mut a, true, t + ACK_WITHIN * 2 + ACK_WITHIN / 2),
+            None
+        );
+        assert!(due_fallback(&mut a, true, t + ACK_WITHIN * 3).is_some());
+    }
+
+    #[test]
     fn an_answered_announcement_never_falls_back() {
         let t = Instant::now();
         let mut a = None;
-        record(&mut a, "0.4.1", false, t);
+        record(&mut a, &info("0.4.1"), false, t);
         a.as_mut().unwrap().acked = true;
         assert_eq!(due_fallback(&mut a, true, t + ACK_WITHIN * 10), None);
+    }
+
+    #[test]
+    fn a_window_that_crashes_after_answering_must_answer_again() {
+        // QA F1: the dialog crashed after the window had acknowledged.
+        let t = Instant::now();
+        let mut a = None;
+        record(&mut a, &info("0.4.1"), false, t);
+        a.as_mut().unwrap().acked = true;
+        reopen(&mut a, t + ACK_WITHIN * 5);
+        assert!(
+            !a.as_ref().unwrap().acked,
+            "a restarted window is asked again"
+        );
+        assert_eq!(
+            due_fallback(&mut a, true, t + ACK_WITHIN * 5 + ACK_WITHIN / 2),
+            None
+        );
+        assert_eq!(
+            due_fallback(&mut a, true, t + ACK_WITHIN * 6).as_deref(),
+            Some("0.4.1")
+        );
+    }
+
+    #[test]
+    fn a_failure_after_the_native_offer_doesnt_offer_twice() {
+        let t = Instant::now();
+        let mut a = None;
+        record(&mut a, &info("0.4.1"), false, t);
+        assert!(due_fallback(&mut a, true, t + ACK_WITHIN).is_some());
+        reopen(&mut a, t + ACK_WITHIN * 2);
+        assert_eq!(due_fallback(&mut a, true, t + ACK_WITHIN * 9), None);
     }
 }

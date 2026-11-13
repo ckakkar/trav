@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { UpdateInfo } from "@/lib/rpc";
-import { installUpdate } from "@/lib/rpc";
+import { ackUpdate, installUpdate } from "@/lib/rpc";
 import { bytes } from "@/lib/format";
 import { Modal } from "./Modal";
 
@@ -42,6 +42,10 @@ function Notes({ text }: { text: string }) {
 
 export function UpdateDialog({ update, onClose, onError }: { update: UpdateInfo | null; onClose: () => void; onError: (m: string) => void }) {
   const [progress, setProgress] = useState<{ done: number; total: number | null } | null>(null);
+  // Rendered without crashing: now the window has really shown it (update.rs).
+  useEffect(() => {
+    if (update) ackUpdate(update.version);
+  }, [update]);
 
   const install = async () => {
     setProgress({ done: 0, total: null });

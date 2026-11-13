@@ -119,6 +119,8 @@ export const onUpdateAvailable = (cb: (u: { info: UpdateInfo; manual: boolean })
 export const onUpToDate = (cb: () => void) => subscribe<null>("trav://update-none", () => cb());
 export const onUpdateCheckFailed = (cb: (message: string) => void) => subscribe<string>("trav://update-failed", cb);
 export const ackUpdate = (version: string) => invoke("update_ack", { version }).catch(() => {});
+/** An announcement the window hasn't answered (one sent before it was listening). */
+export const pendingUpdate = () => invoke<{ info: UpdateInfo; manual: boolean } | null>("update_pending");
 
 /** Whether the app checks for updates by itself. */
 export function setAutoUpdate(enabled: boolean) {

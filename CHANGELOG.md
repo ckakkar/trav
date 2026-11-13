@@ -17,7 +17,7 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 - VoiceOver and the keyboard: the torrent list is a grid VoiceOver can walk (rows with positions, cells, and progress read as percentages), it follows the selected row, detail tabs are linked to their panel and switch with the arrow keys, and Tab no longer escapes an open dialog into the window behind it.
-- Dependencies updated (parking_lot 0.13, Next.js 16.4.6, motion 14.13, lucide 1.72, Geist 1.9 and the Tauri plugins). The updater now uses zip 9, so the cargo-deny exception for zip 4's advisories is gone.
+- Dependencies updated (Next.js 16.4.6, motion 14.13, lucide 1.72, Geist 1.9 and the Tauri plugins). The updater now uses zip 9, so the cargo-deny exception for zip 4's advisories is gone.
 
 ### Fixed
 - In a narrow window the toolbar's Add button no longer runs off the edge: Magnet and Add shrink to their icons. In a short window the sidebar's bottom row no longer gets cut off; the filter list scrolls and the speed graph compacts.
