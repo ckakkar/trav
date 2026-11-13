@@ -6,6 +6,7 @@
 
 pub mod bencode;
 pub mod bitfield;
+pub mod create;
 mod ctx;
 pub mod dht;
 pub mod engine;
