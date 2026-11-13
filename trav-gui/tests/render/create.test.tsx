@@ -86,7 +86,7 @@ function healthy() {
   expect(host.querySelector('[role="dialog"]')?.getAttribute("aria-label")).toBe("Create torrent");
 }
 
-for (const theme of ["ink", "paper", "phosphor"]) {
+for (const theme of ["ink", "paper", "phosphor", "pinstripe"]) {
   describe(`Create torrent in ${theme}`, () => {
     it("renders the fields and completes a native-picker/mockIPC create flow", async () => {
       await mount(theme);

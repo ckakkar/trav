@@ -14,7 +14,7 @@ import { torrent } from "../unit/fixtures";
 // React reads this to decide whether act() is in charge of scheduling.
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-const THEMES = ["ink", "paper", "phosphor"] as const;
+const THEMES = ["ink", "paper", "phosphor", "pinstripe"] as const;
 
 const LIBRARY: TorrentSummary[] = [
   torrent({ infoHash: "1".repeat(40), name: "ubuntu-26.04-desktop-amd64.iso", status: "downloading", progress: 0.41, downloadRate: 3_000_000, uploadRate: 90_000, eta: 900, peers: 61, seeds: 48 }),
