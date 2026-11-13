@@ -4,6 +4,7 @@ export type TorrentStatus =
   | "paused"
   | "queued"
   | "checking"
+  | "moving"
   | "metadata"
   | "downloading"
   | "seeding"
@@ -11,6 +12,8 @@ export type TorrentStatus =
   | "error";
 
 export interface GlobalStats {
+  /** The alternative limits are in force (switched on, or by the schedule). */
+  altSpeed: boolean;
   downloadRate: number;
   uploadRate: number;
   sessionDownloaded: number;
@@ -55,6 +58,9 @@ export interface TorrentSummary {
   sequential: boolean;
   private: boolean;
   availability: number;
+  /** This torrent's own limits, bytes per second (0 = none). */
+  downloadLimit: number;
+  uploadLimit: number;
 }
 
 export interface EngineSnapshot {
@@ -154,6 +160,18 @@ export interface Settings {
   encryption: "prefer" | "require" | "off";
   /** Also announce to well-known public trackers (never for private torrents). */
   publicTrackers: boolean;
+  /** Alternative limits (bytes per second), switched on by hand or on a schedule. */
+  altDownloadLimit: number;
+  altUploadLimit: number;
+  altSpeed: boolean;
+  altSchedule: boolean;
+  /** Minutes after local midnight; from > to spans midnight. */
+  altFrom: number;
+  altTo: number;
+  /** Bit 0 = Sunday … bit 6 = Saturday. */
+  altDays: number;
+  /** `.torrent` files saved here are added by themselves; null = off. */
+  watchDir: string | null;
   version: number;
 }
 
@@ -162,4 +180,6 @@ export type EngineEvent =
   | { type: "metadataReceived"; infoHash: string; name: string }
   | { type: "torrentCompleted"; infoHash: string; name: string }
   | { type: "torrentError"; infoHash: string; name: string; message: string }
-  | { type: "torrentRemoved"; infoHash: string };
+  | { type: "torrentRemoved"; infoHash: string }
+  /** Progress making a torrent (Create Torrent…); the dialog listens for its own id. */
+  | { type: "createProgress"; id: string; hashed: number; total: number };

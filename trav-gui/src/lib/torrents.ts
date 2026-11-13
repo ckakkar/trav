@@ -15,6 +15,7 @@ export function statusLabel(t: TorrentSummary): { label: string; tone: string } 
     paused: ["Paused", "idle"],
     queued: ["Queued", "idle"],
     checking: ["Checking", "warn"],
+    moving: ["Moving", "warn"],
     metadata: ["Fetching info", "warn"],
     finished: ["Finished", "seed-dim"],
     error: ["Error", "err"],
@@ -28,6 +29,7 @@ const statusRank: Record<TorrentStatus, number> = {
   downloading: 0,
   metadata: 1,
   checking: 2,
+  moving: 2,
   seeding: 3,
   queued: 4,
   finished: 5,
@@ -93,4 +95,11 @@ export function visibleTorrents(list: TorrentSummary[], filter: FilterId, search
     list.filter((t) => test(t) && (!q || t.name.toLowerCase().includes(q) || t.infoHash.startsWith(q))),
     sort,
   );
+}
+
+/** The folder holding `path` (a file, or a folder chosen as a whole). */
+export function parentOf(path: string): string {
+  const trimmed = path.replace(/\/+$/, "");
+  const cut = trimmed.lastIndexOf("/");
+  return cut > 0 ? trimmed.slice(0, cut) : "/";
 }

@@ -28,6 +28,8 @@ impl Magnet {
         }
 
         let mut info_hash = None;
+        // A v2 (BEP 52) hash: fine beside a btih (a hybrid), not on its own.
+        let mut btmh = false;
         let mut display_name = None;
         let mut trackers = Vec::new();
         let mut peers = Vec::new();
@@ -39,6 +41,8 @@ impl Magnet {
                     if let Some(h) = value.strip_prefix("urn:btih:") {
                         info_hash =
                             Some(parse_btih(h).ok_or_else(|| bad(format!("bad btih '{h}'")))?);
+                    } else if value.starts_with("urn:btmh:") {
+                        btmh = true;
                     }
                 }
                 "dn" => display_name = Some(value.into_owned()),
@@ -55,7 +59,13 @@ impl Magnet {
             }
         }
 
-        let info_hash = info_hash.ok_or_else(|| bad("missing xt=urn:btih:".into()))?;
+        let info_hash = info_hash.ok_or_else(|| {
+            if btmh {
+                bad(crate::metainfo::V2_ONLY.replace("torrent", "magnet link"))
+            } else {
+                bad("missing xt=urn:btih:".into())
+            }
+        })?;
         Ok(Self {
             info_hash,
             display_name,
@@ -137,5 +147,13 @@ mod tests {
         assert!(Magnet::parse("http://x").is_err());
         assert!(Magnet::parse("magnet:?dn=x").is_err());
         assert!(Magnet::parse("magnet:?xt=urn:btih:zz").is_err());
+        // Hybrid magnets carry both hashes: the v1 one is used.
+        let hybrid = Magnet::parse("magnet:?xt=urn:btih:c12fe1c06bba254a9dc9f519b335aa7c1367a88a&xt=urn:btmh:1220d2474e86c95b19b8bcfdb92bc12c9d44667cfa36d2474e86c95b19b8bcfdb92b").unwrap();
+        assert_eq!(
+            hex::encode(hybrid.info_hash),
+            "c12fe1c06bba254a9dc9f519b335aa7c1367a88a"
+        );
+        let v2 = Magnet::parse("magnet:?xt=urn:btmh:1220d2474e86c95b19b8bcfdb92bc12c9d44667cfa36d2474e86c95b19b8bcfdb92b").unwrap_err();
+        assert!(v2.to_string().contains("v2-only magnet link"), "{v2}");
     }
 }

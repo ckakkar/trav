@@ -6,6 +6,7 @@
 
 pub mod bencode;
 pub mod bitfield;
+pub mod create;
 mod ctx;
 pub mod dht;
 pub mod engine;
@@ -22,6 +23,7 @@ pub mod peer;
 pub mod persist;
 pub mod picker;
 mod public_trackers;
+pub mod relocate;
 pub mod rpc;
 mod rtt;
 pub mod settings;
@@ -31,6 +33,7 @@ mod torrent;
 pub mod tracker;
 mod upnp;
 pub mod utp;
+mod watch;
 
 pub use engine::{AddTorrent, Engine, EngineHandle, TorrentSource};
 pub use error::{Error, Result};

@@ -1,11 +1,12 @@
 /* ──────────────────────────────────────────────────────────────────────────
    Trav Nova — design system
-   Three registers, each its own material rather than a recoloring:
+   Four registers, each its own material rather than a recoloring:
    Ink     — night instrument: blue-black depth, floating panels, light that
              glows with the transfer.
    Paper   — risograph print: navy ink on white, fluorescent pink overprint,
              square corners, condensed poster type, nothing glows.
    Phosphor — the terminal of kkrwhofrags.xyz: green on black, CRT scanlines.
+   Pinstripe — silver hardware, a finely striped window, blue gel and glass tubes.
    Structure (type roles, label case, radii, bar weight) is tokenised so a
    register can change shape, not only color.
    ────────────────────────────────────────────────────────────────────────── */
@@ -151,6 +152,57 @@
   --shadow: 0 0 0 1px #123a20, 0 0 40px -8px #6af59a22;
   --graph: plain;
   color-scheme: dark;
+}
+
+:root[data-theme="pinstripe"] {
+  --font-sans: "Lucida Grande", -apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif;
+  --font-data: var(--font-sans);
+  --font-label: var(--font-sans);
+  --font-display: var(--font-sans);
+  --display-weight: 600;
+  --display-tracking: -0.015em;
+  --display-stretch: 100%;
+  --data-size: 11.5px;
+  --label-size: 11px;
+  --label-weight: 600;
+  --label-case: none;
+  --label-tracking: 0;
+  --radius: 5px;
+  --radius-lg: 10px;
+  --bar-h: 10px;
+  --ease: cubic-bezier(0.18, 0.78, 0.28, 1);
+  --canvas: #f1f2f4;
+  --bg: #f7f8fa;
+  --bg-raised: #e4e7eb;
+  --bg-inset: #fff;
+  --bg-hover: #e7f0fa;
+  --line: #9ba3ae;
+  --line-soft: #d8dde4;
+  --text: #26313e;
+  --text-dim: #465363;
+  --text-faint: #56616f;
+  --accent: #1466bb;
+  --accent-hi: #bfddfa;
+  --accent-text: #075299;
+  --accent-soft: #1466bb17;
+  --accent-line: #2878c3;
+  --accent-ink: #fff;
+  --up: #3f6d3a;
+  --ok: #24643e;
+  --warn: #80500b;
+  --err: #a82b28;
+  --scrim: #29374838;
+  --shadow: 0 18px 38px -10px #15233266, 0 3px 8px #17263a33, inset 0 1px 0 #fff;
+  --graph: plain;
+  --map-have: #347abb;
+  --map-flight: #bc7a24;
+  --map-empty: #dce2e9;
+  --map-flash: #8fc2f2;
+  --pin-stripes: repeating-linear-gradient(180deg, #fbfbfc 0 1px, #eceef1 1px 2px, #f7f8fa 2px 4px);
+  --pin-metal: repeating-linear-gradient(0deg, #ffffff25 0 1px, #6371830b 1px 2px, transparent 2px 4px), linear-gradient(180deg, #f1f2f4, #d6d9de 54%, #c8cdd3);
+  --pin-blue: linear-gradient(180deg, #d3edff 0%, #78b5e8 18%, #236ab2 24%, #0853a2 52%, #1b66b1 78%, #579bd6 100%);
+  --pin-selection: linear-gradient(180deg, #79a7d3 0, #387ab9 2px, #2f70b1 55%, #205a99);
+  color-scheme: light;
 }
 
 * {
@@ -2686,6 +2738,7 @@ body[data-resizing] .main {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
+.table:focus-visible,
 .tab:focus-visible,
 .filter:focus-visible,
 .set-nav-item:focus-visible,
@@ -2693,6 +2746,691 @@ body[data-resizing] .main {
 .ctx-item:focus-visible,
 .th:focus-visible {
   outline-offset: -3px;
+}
+
+/* ── Speed limits ────────────────────────────────────────────────────────── */
+.limits-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+.limits-fields .num-input .input {
+  width: 100%;
+}
+.schedule {
+  display: grid;
+  gap: 8px;
+  justify-items: end;
+}
+.schedule .input[type="time"] {
+  width: 104px;
+}
+.days .chip {
+  min-width: 26px;
+  justify-content: center;
+}
+/* The turtle lights up while the alternative limits are in force. */
+.sb-turtle[data-on] {
+  color: var(--warn);
+}
+:root[data-theme="ink"] .sb-turtle[data-on] {
+  filter: drop-shadow(0 0 4px var(--warn));
+}
+
+/* ── Pinstripe: early Mac OS X ────────────────────────────────────────────── */
+/* Silver hardware around a striped window. Every override stays in this register. */
+:root[data-theme="pinstripe"] body {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
+
+:root[data-theme="pinstripe"] :is(.app, .modal, .palette, .launch, .recover) {
+  background: var(--pin-stripes);
+}
+
+:root[data-theme="pinstripe"] :is(.sidebar, .toolbar, .statusbar, .set-nav) {
+  background: var(--pin-metal);
+  box-shadow: inset 0 1px 0 #fff, inset -1px 0 0 #ffffff75;
+}
+
+:root[data-theme="pinstripe"] :is(.brand, .toolbar) {
+  border-bottom-color: #919aa6;
+  box-shadow: inset 0 1px 0 #fff, 0 1px 3px #26313e18;
+}
+
+:root[data-theme="pinstripe"] .brand-mark {
+  font-size: 25px;
+}
+
+:root[data-theme="pinstripe"] .brand-sub {
+  letter-spacing: 0;
+}
+
+:root[data-theme="pinstripe"] .tb-title h1 {
+  font-size: 22px;
+}
+
+:root[data-theme="pinstripe"] .speed-big {
+  font-size: 27px;
+  font-weight: 600;
+  letter-spacing: -0.025em;
+}
+
+:root[data-theme="pinstripe"] .speed-num.up .speed-big {
+  font-size: 19px;
+}
+
+:root[data-theme="pinstripe"] .speedcard {
+  padding-top: 12px;
+}
+
+:root[data-theme="pinstripe"] .side-graph {
+  background: linear-gradient(#ffffff70, #ffffff15);
+  border-block: 1px solid #a4aeb954;
+}
+
+:root[data-theme="pinstripe"] .side-foot {
+  box-shadow: inset 0 1px 0 #ffffffc0;
+}
+
+:root[data-theme="pinstripe"] .filter {
+  border-radius: 4px;
+}
+
+:root[data-theme="pinstripe"] .filter-active {
+  border-radius: 4px;
+  background: var(--pin-selection);
+  box-shadow: inset 0 1px 0 #ffffff70, inset 0 0 0 1px #1b548e, 0 1px 2px #33455a30;
+}
+
+:root[data-theme="pinstripe"] .filter[aria-current="true"],
+:root[data-theme="pinstripe"] .filter[aria-current="true"] :is(.filter-icon, .filter-count) {
+  color: #fff;
+  text-shadow: 0 1px 1px #143d6f80;
+}
+
+/* An edge-to-edge blue selection over a quiet, alternating white list. */
+:root[data-theme="pinstripe"] .list-region {
+  background: #fff;
+}
+
+:root[data-theme="pinstripe"] :is(.thead, .gt-head, .pane-bar) {
+  background: linear-gradient(#fcfcfd, #e3e7ed);
+  box-shadow: inset 0 1px 0 #fff;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  border-bottom-color: #a8b0bb;
+}
+
+:root[data-theme="pinstripe"] .trow {
+  border-bottom-color: #dce2e9;
+}
+
+:root[data-theme="pinstripe"] .trow-wrap:nth-child(even) .trow {
+  background: #edf3f9;
+}
+
+:root[data-theme="pinstripe"] .trow:not([data-selected]):hover {
+  background: #dfebf7;
+}
+
+:root[data-theme="pinstripe"] .trow-sel {
+  inset: 0;
+  border-radius: 0;
+  background: var(--pin-selection);
+  box-shadow: inset 0 1px 0 #ffffff66, inset 0 -1px 0 #16487d;
+}
+
+:root[data-theme="pinstripe"] .trow[data-selected] {
+  --text: #fff;
+  --text-dim: #fff;
+  --text-faint: #fff;
+  --accent-text: #fff;
+  --up: #fff;
+  --ok: #fff;
+  --warn: #fff;
+  --err: #fff;
+  text-shadow: 0 1px 1px #17416e75;
+}
+
+:root[data-theme="pinstripe"] .trow[data-selected] .pill {
+  background: #ffffff14;
+  border-color: #ffffff99;
+}
+
+:root[data-theme="pinstripe"] .trow[data-focused]::before {
+  background: #fff;
+  top: 10px;
+  bottom: 10px;
+}
+
+:root[data-theme="pinstripe"] .trow[data-selected] .sdot {
+  background: #fff;
+}
+
+:root[data-theme="pinstripe"] .tname {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+:root[data-theme="pinstripe"] .pill {
+  border-radius: 99px;
+}
+
+/* Glass tubes: the moving diagonal sits under a stationary curved glint. */
+:root[data-theme="pinstripe"] .bar {
+  height: 10px;
+  border: 1px solid #8b98a6;
+  border-radius: 99px;
+  background: linear-gradient(#b7c1cd, #e9edf2 48%, #fafcff);
+  box-shadow: inset 0 1px 2px #263b5140, 0 1px 0 #fff;
+}
+
+:root[data-theme="pinstripe"] .modal .bar {
+  flex: 0 0 12px;
+  width: 100%;
+  height: 12px;
+}
+
+:root[data-theme="pinstripe"] .bar.sm {
+  height: 7px;
+}
+
+:root[data-theme="pinstripe"] .bar.xs {
+  height: 6px;
+}
+
+:root[data-theme="pinstripe"] .bar-fill,
+:root[data-theme="pinstripe"] .trow[data-tone="down"] .bar-fill {
+  background-image: linear-gradient(180deg, #ffffffa8, #ffffff35 25%, #ffffff00 43%, #003c8130 51%, #ffffff00 78%, #ffffff55), repeating-linear-gradient(-60deg, #1776cb 0 8px, #7bb9ee 8px 16px);
+  background-size: 100% 100%, 32px 100%;
+  background-repeat: repeat;
+  box-shadow: inset 0 0 0 1px #15589466;
+  border-radius: 99px;
+  animation: pinstripePole calc(var(--flow, 2.4s) * 1.2) linear infinite;
+}
+
+:root[data-theme="pinstripe"] .trow:not([data-status="metadata"]) .bar-fill {
+  right: auto;
+  width: calc(var(--p, 0) * 100%);
+  transform: none;
+  transition: width 0.6s linear;
+}
+
+:root[data-theme="pinstripe"] .bar-head {
+  display: none;
+}
+
+:root[data-theme="pinstripe"] .trow[data-status="downloading"] .bar {
+  box-shadow: inset 0 1px 2px #263b5140, 0 1px 0 #fff;
+}
+
+:root[data-theme="pinstripe"] .trow:is([data-tone="seed"], [data-tone="seed-dim"]) .bar-fill {
+  background: linear-gradient(#c7e8c7, #6daa77 35%, #3b7f4d 52%, #85b78b);
+  opacity: 1;
+  animation: none;
+}
+
+:root[data-theme="pinstripe"] .trow[data-tone="idle"] .bar-fill {
+  background: linear-gradient(#dfe3e9, #8c97a6 44%, #647080 52%, #a3abb6);
+  animation: none;
+}
+
+:root[data-theme="pinstripe"] .trow:is([data-tone="warn"], [data-status="checking"]) .bar-fill {
+  background-image: linear-gradient(#ffffffa0, #ffffff00 45%, #68400024 52%, #ffffff50), repeating-linear-gradient(-60deg, #d9993f 0 8px, #f5d18d 8px 16px);
+  background-size: 100% 100%, 32px 100%;
+  animation: pinstripePole 3.6s linear infinite;
+}
+
+:root[data-theme="pinstripe"] .trow[data-tone="err"] .bar-fill {
+  background: linear-gradient(#f6c2bb, #cd6a61 43%, #ad4038 53%, #df9b93);
+  animation: none;
+}
+
+:root[data-theme="pinstripe"] .trow[data-status="metadata"] .bar-fill {
+  width: 34%;
+  background: linear-gradient(#e4e2fc, #b6afe1 42%, #8178b3 52%, #c7c0eb);
+  animation: seek 1.8s ease-in-out infinite alternate;
+}
+
+:root[data-theme="pinstripe"] .trow[data-selected] .bar {
+  border-color: #16497b;
+  box-shadow: inset 0 1px 2px #123a6450, 0 1px 0 #ffffff45;
+}
+
+@keyframes pinstripePole {
+  to {
+    background-position: 0 0, 32px 0;
+  }
+}
+
+/* Bevelled quiet controls. Only the default gel button breathes. */
+:root[data-theme="pinstripe"] :is(.btn, .chip) {
+  border-radius: 99px;
+  border-color: #939da9;
+  background: linear-gradient(#fff, #f7f8fa 43%, #dce1e8 53%, #f4f6fa);
+  box-shadow: inset 0 1px 0 #fff, inset 0 -1px 1px #c0c8d3, 0 1px 2px #25384c26;
+  color: #26313e;
+  font-weight: 500;
+}
+
+:root[data-theme="pinstripe"] :is(.btn, .chip):hover {
+  border-color: #2878c3;
+  background: linear-gradient(#fff, #edf5fc 43%, #d0dfef 53%, #eaf3fc);
+  color: #073e75;
+}
+
+:root[data-theme="pinstripe"] .btn.primary {
+  background: var(--pin-blue);
+  border-color: #175397;
+  color: #fff;
+  text-shadow: 0 -1px 1px #00376c;
+  box-shadow: inset 0 1px 1px #ffffffc0, inset 0 -1px 1px #0d438980, 0 1px 2px #183b613d;
+  animation: pinstripeGel 4s ease-in-out infinite;
+}
+
+:root[data-theme="pinstripe"] .btn.primary:hover {
+  filter: none;
+  color: #fff;
+  border-color: #003c7e;
+}
+
+:root[data-theme="pinstripe"] :is(.btn, .chip):active {
+  scale: 1;
+  translate: 0 1px;
+  box-shadow: inset 0 1px 3px #13335766;
+}
+
+:root[data-theme="pinstripe"] .btn.ghost {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+  color: var(--text-dim);
+}
+
+:root[data-theme="pinstripe"] .btn.ghost:hover {
+  background: #ffffff55;
+  border-color: #a5aeb9;
+}
+
+:root[data-theme="pinstripe"] .btn.danger {
+  background: linear-gradient(#f5c6c0, #a8322b 27%, #8d231e 60%, #b94b40);
+  border-color: #822a23;
+  color: #fff;
+}
+
+:root[data-theme="pinstripe"] .btn.primary:disabled {
+  animation: none;
+}
+
+:root[data-theme="pinstripe"] .icon-btn:hover {
+  background: #ffffff80;
+  box-shadow: inset 0 1px 0 #fff, 0 1px 2px #34486025;
+}
+
+:root[data-theme="pinstripe"] .chip[aria-checked="true"] {
+  background: var(--pin-selection);
+  color: #fff;
+  border-color: #175397;
+  box-shadow: inset 0 1px 0 #ffffff70;
+}
+
+@keyframes pinstripeGel {
+  0%, 100% {
+    box-shadow: inset 0 1px 1px #ffffffc0, inset 0 -1px 1px #0d438980, 0 1px 2px #183b613d, 0 0 0 1px #559ee51a, 0 0 4px #3d8fe62b;
+  }
+  50% {
+    box-shadow: inset 0 1px 1px #ffffffc0, inset 0 -1px 1px #0d438980, 0 1px 2px #183b613d, 0 0 0 2px #559ee530, 0 0 12px #3d8fe675;
+  }
+}
+
+:root[data-theme="pinstripe"] :is(.input, .tb-search, .select) {
+  background-color: #fff;
+  border-color: #929eac;
+  box-shadow: inset 0 1px 3px #26364d26, 0 1px 0 #ffffffb0;
+}
+
+:root[data-theme="pinstripe"] .tb-search {
+  border-radius: 99px;
+}
+
+:root[data-theme="pinstripe"] ::placeholder {
+  color: var(--text-faint);
+  opacity: 1;
+}
+
+:root[data-theme="pinstripe"] :is(.input:focus, .tb-search:focus-within, .select:focus) {
+  border-color: #2878c3;
+  box-shadow: inset 0 1px 2px #26364d16, 0 0 0 3px #4b9ce84d;
+}
+
+:root[data-theme="pinstripe"] .check span {
+  border-color: #8d98a4;
+  border-radius: 3px;
+  background: linear-gradient(#fff, #e3e8ef);
+  box-shadow: inset 0 1px 1px #fff, 0 1px 0 #fff;
+}
+
+:root[data-theme="pinstripe"] .toggle-track {
+  background: linear-gradient(#a2acb8, #c9d1db);
+  box-shadow: inset 0 1px 2px #263b5166, 0 1px 0 #fff;
+}
+
+:root[data-theme="pinstripe"] .toggle-thumb {
+  background: linear-gradient(#fff, #f9fafb 40%, #c0c8d3);
+  box-shadow: 0 1px 2px #263b5166, inset 0 1px 0 #fff;
+}
+
+:root[data-theme="pinstripe"] .toggle input:checked + .toggle-track {
+  background: var(--pin-blue);
+  border-color: #175397;
+}
+
+:root[data-theme="pinstripe"] .toggle input:checked + .toggle-track .toggle-thumb {
+  background: linear-gradient(#fff, #f5f9ff 45%, #c0d4ec);
+}
+
+/* Detail panes keep the chrome small and the content crisp. */
+:root[data-theme="pinstripe"] .resizer {
+  background: linear-gradient(#d9dde3, #f8f9fa);
+  border-top-color: #929eac;
+}
+
+:root[data-theme="pinstripe"] .resizer span {
+  height: 2px;
+  background: #8491a1;
+  box-shadow: 0 1px 0 #fff;
+}
+
+:root[data-theme="pinstripe"] .detail {
+  background: var(--pin-stripes);
+}
+
+:root[data-theme="pinstripe"] .tabs {
+  background: var(--pin-metal);
+  border-bottom-color: #9ba3ae;
+}
+
+:root[data-theme="pinstripe"] .tab {
+  isolation: isolate;
+  color: #465363;
+}
+
+:root[data-theme="pinstripe"] .tab-underline {
+  inset: 6px 0;
+  height: auto;
+  z-index: -1;
+  border-radius: 5px;
+  border: 1px solid #8d99a7;
+  background: linear-gradient(#fff, #ecf0f5 45%, #d3dae4 55%, #f4f6f9);
+  box-shadow: inset 0 1px 0 #fff, 0 1px 1px #354c6625;
+}
+
+:root[data-theme="pinstripe"] .tab[aria-selected="true"] {
+  color: #173f6c;
+}
+
+:root[data-theme="pinstripe"] .ov-name {
+  font-size: 22px;
+}
+
+:root[data-theme="pinstripe"] .ov-pct {
+  font-size: 36px;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+}
+
+:root[data-theme="pinstripe"] .stats {
+  background: #fff;
+  border: 1px solid #b0b9c4;
+  border-radius: 5px;
+  overflow: hidden;
+  box-shadow: inset 0 1px 3px #263b5117, 0 1px 0 #fff;
+}
+
+:root[data-theme="pinstripe"] .stat {
+  border-color: #e0e5eb;
+}
+
+:root[data-theme="pinstripe"] .piecemap {
+  height: 18px;
+  border: 1px solid #9ba8b8;
+  border-radius: 4px;
+  box-shadow: inset 0 1px 2px #263b5140, 0 1px 0 #fff;
+}
+
+:root[data-theme="pinstripe"] .speed-graph {
+  background: linear-gradient(#fff, #edf4fc);
+  border: 1px solid #a9b4c1;
+  border-radius: 5px;
+}
+
+/* Sheets, small menus, and floating notifications are opaque and softly bevelled. */
+:root[data-theme="pinstripe"] .modal-scrim {
+  place-items: start center;
+  padding-top: min(6vh, 52px);
+  background: var(--scrim);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+:root[data-theme="pinstripe"] :is(.modal, .palette) {
+  max-height: calc(100dvh - min(6vh, 52px) - 20px);
+  border-radius: 0 0 10px 10px;
+  border-color: #8b96a3;
+  border-top-color: #fff;
+}
+
+:root[data-theme="pinstripe"] .modal-head {
+  background: linear-gradient(#ffffff99, #ffffff00);
+}
+
+:root[data-theme="pinstripe"] .modal-title {
+  font-size: 24px;
+  font-weight: 600;
+}
+
+:root[data-theme="pinstripe"] .modal-foot {
+  background: var(--pin-metal);
+  box-shadow: inset 0 1px 0 #fff;
+}
+
+:root[data-theme="pinstripe"] .set-nav-item[aria-current="true"],
+:root[data-theme="pinstripe"] .palette-item[aria-selected="true"],
+:root[data-theme="pinstripe"] .ctx-item.active {
+  --text: #fff;
+  --text-faint: #fff;
+  --accent-text: #fff;
+  color: #fff;
+  background: var(--pin-selection);
+  box-shadow: inset 0 1px 0 #ffffff75, inset 0 0 0 1px #235b95;
+}
+
+:root[data-theme="pinstripe"] .ctx-menu {
+  background: #f8f9fb;
+  border-radius: 6px;
+  box-shadow: 0 8px 22px #25395045, inset 0 1px 0 #fff;
+}
+
+:root[data-theme="pinstripe"] .ctx-item {
+  border-radius: 3px;
+}
+
+:root[data-theme="pinstripe"] .toast {
+  background: linear-gradient(#fff, #eef1f5);
+  border-color: #a1adbb;
+  border-radius: 9px;
+  box-shadow: 0 6px 20px #25395038, inset 0 1px 0 #fff;
+}
+
+:root[data-theme="pinstripe"] .toast-dot {
+  width: 9px;
+  height: 9px;
+  background: radial-gradient(circle at 35% 25%, #d7edff, #1466bb 60%, #00407e);
+  box-shadow: 0 1px 2px #25395050;
+}
+
+:root[data-theme="pinstripe"] .toast-ok .toast-dot {
+  background: radial-gradient(circle at 35% 25%, #e2f7d8, #4a8a50 60%, #245135);
+}
+
+:root[data-theme="pinstripe"] .toast-error .toast-dot {
+  background: radial-gradient(circle at 35% 25%, #ffe5df, #bd5144 60%, #842b25);
+}
+
+:root[data-theme="pinstripe"] .toast-title {
+  font-weight: 600;
+}
+
+:root[data-theme="pinstripe"] .toast-life {
+  height: 3px;
+  opacity: 0.8;
+  border-radius: 2px;
+}
+
+:root[data-theme="pinstripe"] .sb-item[data-link="online"] .sdot {
+  background: radial-gradient(circle at 35% 25%, #d9f6d3, #428553 65%);
+  box-shadow: 0 1px 1px #263b5150;
+}
+
+:root[data-theme="pinstripe"] .sb-turtle {
+  padding: 2px 6px;
+  border-radius: 99px;
+}
+
+:root[data-theme="pinstripe"] .sb-turtle[data-on] {
+  color: #6d4509;
+  border: 1px solid #a77b38;
+  background: linear-gradient(#fff2d6, #edc682);
+  box-shadow: inset 0 1px 0 #fff, 0 1px 1px #58422530;
+}
+
+/* The swatch previews its material even while another register is active. */
+.theme-pick[data-pick="pinstripe"] .swatch {
+  border-radius: 8px;
+  background-image: repeating-linear-gradient(#fff8 0 1px, #94a4b01a 1px 2px, transparent 2px 4px);
+  box-shadow: inset 0 1px 0 #fff, 0 2px 3px #263b5126;
+}
+
+.theme-pick[data-pick="pinstripe"] .swatch i {
+  height: 8px;
+  border-radius: 99px;
+  box-shadow: inset 0 1px 1px #ffffffc0, inset 0 -1px 1px #164b7d55, 0 1px 1px #263b5133;
+}
+
+.theme-pick[data-pick="pinstripe"] .swatch i:first-child {
+  background: linear-gradient(#d3edff, #78b5e8 22%, #1c65af 45%, #0853a2 60%, #579bd6) !important;
+}
+
+:root[data-theme="pinstripe"] .theme-picks {
+  flex-wrap: wrap;
+}
+
+:root[data-theme="pinstripe"] .theme-pick[aria-pressed="true"] .swatch {
+  outline: 2px solid #1466bb;
+  outline-offset: 3px;
+}
+
+:root[data-theme="pinstripe"] .empty-title {
+  font-size: 32px;
+}
+
+:root[data-theme="pinstripe"] .empty-title.sm {
+  font-size: 24px;
+}
+
+:root[data-theme="pinstripe"] .empty-mark {
+  color: #7a8c9f;
+  filter: drop-shadow(0 2px 0 #fff) drop-shadow(0 3px 2px #25395026);
+}
+
+:root[data-theme="pinstripe"] .empty,
+:root[data-theme="pinstripe"] .list-region:has(.empty) {
+  background: var(--pin-stripes);
+}
+
+:root[data-theme="pinstripe"] .launch-mark {
+  width: 80px;
+  color: #1466bb;
+  filter: drop-shadow(0 2px 0 #fff) drop-shadow(0 4px 3px #25395033);
+}
+
+:root[data-theme="pinstripe"] .launch-word {
+  font-size: 36px;
+  font-weight: 600;
+}
+
+:root[data-theme="pinstripe"] .launch-glow {
+  display: none;
+}
+
+:root[data-theme="pinstripe"] :is(.launch-stage, .launch-word span) {
+  filter: none !important;
+}
+
+:root[data-theme="pinstripe"] .recover-card {
+  padding: 28px;
+  border: 1px solid #a1adbb;
+  border-radius: 10px;
+  background: #f8f9fb;
+  box-shadow: var(--shadow);
+}
+
+:root[data-theme="pinstripe"] .recover-title {
+  font-size: 24px;
+}
+
+:root[data-theme="pinstripe"] .dropzone-inner {
+  border-radius: 12px;
+  border: 2px dashed #1466bb;
+  background: #ffffffa0;
+  box-shadow: inset 0 1px 0 #fff, 0 4px 16px #25395022;
+}
+
+:root[data-theme="pinstripe"] .dropzone-inner .display {
+  font-size: 36px;
+}
+
+:root[data-theme="pinstripe"] :focus-visible {
+  outline: 2px solid #1466bb;
+  outline-offset: 2px;
+}
+
+:root[data-theme="pinstripe"] :is(.table, .tab, .filter, .set-nav-item, .palette-item, .ctx-item, .th):focus-visible {
+  outline-offset: -3px;
+}
+
+:root[data-theme="pinstripe"] .check input:focus-visible + span,
+:root[data-theme="pinstripe"] .toggle input:focus-visible + .toggle-track {
+  outline: 2px solid #1466bb;
+  outline-offset: 3px;
+}
+
+@container list (min-width: 621px) and (max-width: 700px) {
+  :root[data-theme="pinstripe"] .table {
+    --cols: 32px minmax(162px, 1fr) minmax(100px, 140px) 102px 80px 76px;
+  }
+}
+
+@media (max-height: 720px) {
+  :root[data-theme="pinstripe"] .speedcard {
+    padding-top: 6px;
+  }
+  :root[data-theme="pinstripe"] .speed-num.down .speed-big {
+    font-size: 24px;
+  }
+  :root[data-theme="pinstripe"] .modal-head {
+    padding-top: 14px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root[data-theme="pinstripe"] :is(.btn.primary, .bar-fill) {
+    animation: none !important;
+  }
+  :root[data-theme="pinstripe"] :is(.modal, .palette, .ctx-menu, .toast) {
+    transform: none !important;
+  }
 }
 
 /* ── Moments (every register) ──────────────────────────────────────────────── */
@@ -3503,4 +4241,22 @@ body[data-resizing] .main {
   display: grid;
   gap: 8px;
   margin-top: 16px;
+}
+
+/* ── Create torrent dialog ───────────────────────────────────────────────── */
+.create-options {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 16px;
+}
+.create-path {
+  overflow-wrap: anywhere;
+  user-select: text;
+  -webkit-user-select: text;
+}
+.create-progress-head {
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
 }

@@ -33,6 +33,19 @@ pub struct Settings {
     pub encryption: Encryption,
     /// Also announce to well-known public trackers (never for private torrents).
     pub public_trackers: bool,
+    /// Alternative limits, bytes per second (0 = unlimited), in force while
+    /// `alt_speed` is on or `alt_schedule` covers the local time.
+    pub alt_download_limit: u64,
+    pub alt_upload_limit: u64,
+    pub alt_speed: bool,
+    pub alt_schedule: bool,
+    /// Schedule window in minutes after local midnight; `from > to` spans midnight.
+    pub alt_from: u16,
+    pub alt_to: u16,
+    /// Days the schedule starts on: bit 0 = Sunday … bit 6 = Saturday.
+    pub alt_days: u8,
+    /// `.torrent` files saved here are added by themselves (see `watch`).
+    pub watch_dir: Option<PathBuf>,
     /// Which defaults this file was written with (for migrations). Files from
     /// before versioning have none, so it defaults to 0 rather than current.
     #[serde(default)]
@@ -59,6 +72,14 @@ impl Default for Settings {
             auto_upload_limit: true,
             encryption: Encryption::Prefer,
             public_trackers: true,
+            alt_download_limit: 512 * 1024,
+            alt_upload_limit: 128 * 1024,
+            alt_speed: false,
+            alt_schedule: false,
+            alt_from: 9 * 60,
+            alt_to: 17 * 60,
+            alt_days: 0b011_1110,
+            watch_dir: None,
             version: Self::VERSION,
         }
     }
@@ -102,8 +123,35 @@ impl Settings {
         self
     }
 
+    /// The limits in force at minute `minute` after local midnight of weekday
+    /// `day` (0 = Sunday): (download, upload, whether the alternative ones).
+    pub fn limits_at(&self, day: u8, minute: u16) -> (u64, u64, bool) {
+        if self.alt_speed || (self.alt_schedule && self.schedule_covers(day % 7, minute % 1440)) {
+            (self.alt_download_limit, self.alt_upload_limit, true)
+        } else {
+            (self.download_limit, self.upload_limit, false)
+        }
+    }
+
+    fn schedule_covers(&self, day: u8, minute: u16) -> bool {
+        let on = |d: u8| self.alt_days & (1 << d) != 0;
+        let (from, to) = (self.alt_from % 1440, self.alt_to % 1440);
+        if from == to {
+            on(day)
+        } else if from < to {
+            on(day) && (from..to).contains(&minute)
+        } else {
+            // Spans midnight: the evening belongs to today, the early hours to
+            // the day the window started on, yesterday.
+            (minute >= from && on(day)) || (minute < to && on((day + 6) % 7))
+        }
+    }
+
     /// Clamp values that would wedge the engine.
     pub fn sanitized(mut self) -> Self {
+        self.alt_from %= 1440;
+        self.alt_to %= 1440;
+        self.alt_days &= 0x7f;
         self.max_peers_per_torrent = self.max_peers_per_torrent.clamp(1, 2000);
         self.max_peers_global = self
             .max_peers_global
@@ -113,5 +161,67 @@ impl Settings {
             self.seed_ratio_limit = 0.0;
         }
         self
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn scheduled(from: u16, to: u16, days: u8) -> Settings {
+        Settings {
+            download_limit: 1000,
+            upload_limit: 100,
+            alt_download_limit: 50,
+            alt_upload_limit: 5,
+            alt_schedule: true,
+            alt_from: from,
+            alt_to: to,
+            alt_days: days,
+            ..Settings::default()
+        }
+    }
+
+    #[test]
+    fn the_switch_turns_the_alternative_limits_on_at_any_time() {
+        let s = Settings {
+            alt_speed: true,
+            alt_download_limit: 50,
+            alt_upload_limit: 5,
+            ..Settings::default()
+        };
+        assert_eq!(s.limits_at(3, 0), (50, 5, true));
+    }
+
+    #[test]
+    fn a_daytime_schedule_covers_its_hours_on_its_days() {
+        let s = scheduled(9 * 60, 17 * 60, 0b011_1110); // weekdays 9–17
+        assert_eq!(s.limits_at(1, 9 * 60), (50, 5, true));
+        assert!(s.limits_at(1, 17 * 60 - 1).2);
+        assert_eq!(s.limits_at(1, 17 * 60), (1000, 100, false));
+        assert!(!s.limits_at(1, 8 * 60 + 59).2);
+        assert!(!s.limits_at(0, 12 * 60).2, "not on Sunday");
+    }
+
+    #[test]
+    fn an_overnight_schedule_belongs_to_the_day_it_starts() {
+        let s = scheduled(22 * 60, 6 * 60, 1 << 5); // Friday night 22:00 – Saturday 06:00
+        assert!(s.limits_at(5, 23 * 60).2, "Friday evening");
+        assert!(s.limits_at(6, 5 * 60).2, "Saturday early hours");
+        assert!(
+            !s.limits_at(6, 23 * 60).2,
+            "Saturday evening isn't scheduled"
+        );
+        assert!(
+            !s.limits_at(5, 5 * 60).2,
+            "Friday early hours belong to Thursday"
+        );
+    }
+
+    #[test]
+    fn equal_from_and_to_means_all_day() {
+        let s = scheduled(0, 0, 1 << 0);
+        assert!(s.limits_at(0, 0).2 && s.limits_at(0, 1439).2);
+        assert!(!s.limits_at(1, 600).2);
     }
 }

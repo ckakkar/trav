@@ -10,6 +10,9 @@ import {
   Copy,
   FileDown,
   FolderOpen,
+  FolderInput,
+  FilePlus2,
+  Gauge,
   Layers,
   ListOrdered,
   Magnet,
@@ -34,11 +37,18 @@ import {
   appVersion,
   call,
   checkUpdate,
+  ackUpdate,
+  onUpdateAvailable,
+  onUpToDate,
+  onUpdateCheckFailed,
+  pendingUpdate,
+  setAutoUpdate,
   copyText,
   onEngineEvent,
   onMenu as onMenuBar,
   onNativeDrop,
   onOpenRequest,
+  pickFolder,
   pickTorrentFiles,
   reveal,
   setKeepAwake,
@@ -49,10 +59,12 @@ import {
   type UpdateInfo,
 } from "@/lib/rpc";
 import { bytes, looksLikeMagnet } from "@/lib/format";
-import { FILTER_TESTS, isPausedLike, visibleTorrents, type FilterId } from "@/lib/torrents";
+import { FILTER_TESTS, isPausedLike, parentOf, visibleTorrents, type FilterId } from "@/lib/torrents";
 import { load, save } from "@/lib/storage";
 import { Sidebar, type FilterDef } from "./Sidebar";
 import { StatusBar } from "./StatusBar";
+import { LimitsDialog } from "./LimitsDialog";
+import { CreateDialog } from "./CreateDialog";
 import { Launch } from "./Launch";
 import { Mark } from "./Mark";
 import { TorrentTable, type Sort, type SortKey } from "./TorrentTable";
@@ -92,7 +104,7 @@ const FILTERS: FilterSpec[] = [
 const DEFAULT_PREFS: UiPrefs = { theme: "ink", notify: true, confirmRemove: true, scanlines: true, autoUpdate: true, keepAwake: true, menuBarSpeed: true };
 
 /** ⌘-shortcuts the Mac app's menu bar owns (handled there, not here). */
-const MENU_KEYS = new Set(["k", "o", ",", "u", "r", "i", ".", "/", "f", "1", "2", "3", "4", "5", "6", "7"]);
+const MENU_KEYS = new Set(["k", "o", ",", "u", "n", "r", "i", ".", "/", "f", "1", "2", "3", "4", "5", "6", "7"]);
 
 /** The launch sequence plays once per app start, when the window is on screen to see it. */
 function launchStage(): "launch" | "done" {
@@ -230,16 +242,31 @@ export default function App({ skipLaunch = false }: { skipLaunch?: boolean }) {
     },
     [toast, version],
   );
+  // The app checks by itself (see update.rs) and announces what it finds;
+  // acknowledging tells it the window is alive to show it.
+  useEffect(() => setAutoUpdate(prefs.autoUpdate && process.env.NODE_ENV !== "development"), [prefs.autoUpdate]);
   useEffect(() => {
-    // Development builds aren't released; only a manual check makes sense there.
-    if (!prefs.autoUpdate || process.env.NODE_ENV === "development") return;
-    const first = setTimeout(() => runUpdateCheck(false), 15_000);
-    const every = setInterval(() => runUpdateCheck(false), 3600_000);
-    return () => {
-      clearTimeout(first);
-      clearInterval(every);
+    // Shown: UpdateDialog acknowledges once it has rendered (a view that
+    // crashed showing it hasn't shown it). Put off by the user: answer now.
+    const offer = ({ info, manual }: { info: UpdateInfo; manual: boolean }) => {
+      if (manual || !deferred.current.has(info.version)) setUpdate(info);
+      else ackUpdate(info.version);
     };
-  }, [prefs.autoUpdate, runUpdateCheck]);
+    // An announcement sent before these listeners were up was lost: ask for it,
+    // now and once more after they've surely registered.
+    const replay = () => pendingUpdate().then((p) => p && offer(p)).catch(() => {});
+    replay();
+    const again = setTimeout(replay, 2000);
+    const offs = [
+      onUpdateAvailable(offer),
+      onUpToDate(() => toast("You’re up to date", { body: version ? `Trav ${version} is the latest version.` : undefined, tone: "ok" })),
+      onUpdateCheckFailed((m) => toast("Couldn’t check for updates", { body: m, tone: "error" })),
+    ];
+    return () => {
+      clearTimeout(again);
+      offs.forEach((off) => off());
+    };
+  }, [toast, version]);
 
   const act = useCallback(
     async (method: string, hashes: string[], extra?: Record<string, unknown>) => {
@@ -357,6 +384,8 @@ export default function App({ skipLaunch = false }: { skipLaunch?: boolean }) {
   useEffect(
     () =>
       onEngineEvent((e: EngineEvent) => {
+        // Hashing progress comes ten times a second and changes nothing in the library.
+        if (e.type === "createProgress") return;
         if (e.type === "torrentCompleted") {
           toast("Download complete", { body: e.name, tone: "ok" });
         } else if (e.type === "torrentError") toast("Torrent error", { body: `${e.name}: ${e.message}`, tone: "error" });
@@ -489,6 +518,8 @@ export default function App({ skipLaunch = false }: { skipLaunch?: boolean }) {
         return void openTorrentPicker();
       case "add-magnet":
         return openMagnet();
+      case "create-torrent":
+        return setCreateOpen(true);
       case "settings":
         return setSettingsOpen(true);
       case "palette":
@@ -499,8 +530,6 @@ export default function App({ skipLaunch = false }: { skipLaunch?: boolean }) {
         return setCollapsed((c) => !c);
       case "theme":
         return cycleTheme();
-      case "check-updates":
-        return void runUpdateCheck(true);
       case "pause-all":
         return void call("pauseAll").then(refresh).catch(fail);
       case "resume-all":
@@ -565,6 +594,55 @@ export default function App({ skipLaunch = false }: { skipLaunch?: boolean }) {
   };
 
   // ── Context menu & palette entries ────────────────────────────────────────
+  const [createOpen, setCreateOpen] = useState(false);
+
+  // ── Speed limits ──────────────────────────────────────────────────────────
+  const [limitsFor, setLimitsFor] = useState<{ hashes: string[]; name: string; download: number; upload: number } | null>(null);
+  const openLimits = useCallback(
+    (hashes: string[]) => {
+      const first = byHash.get(hashes[0]);
+      if (!first) return;
+      setLimitsFor({ hashes, name: first.name, download: first.downloadLimit, upload: first.uploadLimit });
+    },
+    [byHash],
+  );
+  /** The status bar's turtle: the alternative limits on or off. */
+  const setAltSpeed = useCallback(
+    async (on: boolean) => {
+      try {
+        const s = await call<{ altSpeed: boolean; altSchedule: boolean }>("getSettings");
+        if (!on && !s.altSpeed && s.altSchedule) {
+          toast("On by schedule", { body: "Change the schedule in Settings › Bandwidth." });
+          return;
+        }
+        await call("setSettings", { altSpeed: on });
+        refresh();
+        toast(on ? "Alternative speed limits on" : "Alternative speed limits off");
+      } catch (e) {
+        fail(e);
+      }
+    },
+    [refresh, toast, fail],
+  );
+
+  /** Move a torrent's files to a folder the user picks; the engine answers once they're there. */
+  const moveData = useCallback(
+    async (hash: string) => {
+      const t = byHash.get(hash);
+      const dest = await pickFolder(t?.savePath).catch(() => null);
+      if (!dest || !t || dest === t.savePath) return;
+      refresh();
+      try {
+        await call("move", { hash, path: dest });
+        toast("Moved", { body: `${t.name} is now in ${dest}`, tone: "ok" });
+      } catch (e) {
+        fail(e, "Couldn’t move the files");
+      }
+      refresh();
+    },
+    [byHash, refresh, toast, fail],
+  );
+
   const menuItems = (hash: string): MenuEntry[] => {
     const hashes = selected.has(hash) ? [...selected] : [hash];
     const t = byHash.get(hash);
@@ -587,6 +665,8 @@ export default function App({ skipLaunch = false }: { skipLaunch?: boolean }) {
       { label: "Move to bottom", icon: <ChevronsDown size={14} />, disabled: many, onSelect: () => call("setQueuePosition", { hash, position: 1e6 }).then(refresh).catch(fail) },
       "sep",
       { label: "Show in Finder", icon: <FolderOpen size={14} />, hint: "↵", disabled: many, onSelect: () => revealHash(hash) },
+      { label: "Move data…", icon: <FolderInput size={14} />, disabled: many || t?.status === "moving", onSelect: () => moveData(hash) },
+      { label: "Speed limits…", icon: <Gauge size={14} />, onSelect: () => openLimits(hashes) },
       {
         label: "Copy magnet link",
         icon: <Copy size={14} />,
@@ -613,6 +693,7 @@ export default function App({ skipLaunch = false }: { skipLaunch?: boolean }) {
     () => [
       { id: "add", label: "Add torrent file…", hint: "⌘O", icon: <FileDown size={14} />, run: openTorrentPicker },
       { id: "magnet", label: "Add magnet link…", hint: "⌘V", icon: <Magnet size={14} />, run: openMagnet },
+      { id: "create", label: "Create torrent…", hint: "⌘N", icon: <FilePlus2 size={14} />, run: () => setCreateOpen(true) },
       { id: "resume-all", label: "Resume all", icon: <Play size={14} />, run: () => call("resumeAll").then(refresh).catch(fail) },
       { id: "pause-all", label: "Pause all", icon: <Pause size={14} />, run: () => call("pauseAll").then(refresh).catch(fail) },
       { id: "settings", label: "Settings", hint: "⌘,", icon: <Settings2 size={14} />, run: () => setSettingsOpen(true) },
@@ -764,13 +845,44 @@ export default function App({ skipLaunch = false }: { skipLaunch?: boolean }) {
               setPriorities: (hash, priorities) => call("setFilePriorities", { hash, priorities }).then(refresh).catch(fail),
               addPeers: (hash, peers) => call("addPeers", { hash, peers }).then(() => toast("Peers queued")).catch(fail),
               reannounce: (hash) => act("reannounce", [hash]).then(() => toast("Reannouncing")),
+              move: moveData,
+              limits: (hash) => openLimits([hash]),
               toast,
             }}
           />
         </div>
       </main>
 
-      <StatusBar stats={stats} link={link} onLimits={() => setSettingsOpen(true)} />
+      <StatusBar stats={stats} link={link} onLimits={() => setSettingsOpen(true)} onAltSpeed={setAltSpeed} />
+
+      <CreateDialog
+        open={createOpen}
+        onClose={() => setCreateOpen(false)}
+        onCreated={(created, seed, sourcePath) => {
+          // The dialog stays open on its success state; seeding starts behind it.
+          if (!seed) return;
+          call<{ infoHash: string }>("add", { path: created.out, savePath: parentOf(sourcePath) })
+            .then(() => {
+              refresh();
+              toast("Seeding", { body: created.name, tone: "ok" });
+            })
+            .catch((e) => fail(e, "Couldn’t start seeding"));
+        }}
+      />
+
+      <LimitsDialog
+        target={limitsFor}
+        onClose={() => setLimitsFor(null)}
+        onSave={(hashes, download, upload) => {
+          setLimitsFor(null);
+          call("setLimits", { hashes, download, upload })
+            .then(() => {
+              refresh();
+              toast(download || upload ? "Speed limits set" : "Speed limits removed", { tone: "ok" });
+            })
+            .catch(fail);
+        }}
+      />
 
 
       <AnimatePresence>

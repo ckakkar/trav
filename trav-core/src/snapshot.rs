@@ -14,12 +14,16 @@ pub enum TorrentStatus {
     Seeding,
     /// All selected files done, seeding stopped (ratio limit or nothing to share).
     Finished,
+    /// Its files are being moved to another folder.
+    Moving,
     Error,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct GlobalStats {
+    /// The alternative limits are in force (switched on, or by the schedule).
+    pub alt_speed: bool,
     pub download_rate: u64,
     pub upload_rate: u64,
     pub session_downloaded: u64,
@@ -70,6 +74,9 @@ pub struct TorrentSummary {
     pub sequential: bool,
     pub private: bool,
     pub availability: f64,
+    /// This torrent's own limits, bytes per second (0 = none).
+    pub download_limit: u64,
+    pub upload_limit: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

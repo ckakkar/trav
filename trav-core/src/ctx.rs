@@ -41,6 +41,8 @@ pub(crate) struct Ctx {
     pub store: Store,
     pub tracker_key: u32,
     pub connectable: AtomicBool,
+    /// The alternative limits are in force (switched on, or by the schedule).
+    pub alt_active: AtomicBool,
     pub session_down: AtomicU64,
     pub session_up: AtomicU64,
     pub upnp_status: RwLock<Option<String>>,
@@ -52,6 +54,9 @@ pub(crate) struct Ctx {
     pub public_trackers: RwLock<Vec<String>>,
     /// Where each torrent keeps its data (see [`Ctx::claim`]).
     pub claims: Mutex<HashMap<InfoHash, Claim>>,
+    /// Where a torrent being moved is going: held from before the first file
+    /// moves, so two moves can never pick the same place (see [`Ctx::reserve`]).
+    pub reservations: Mutex<HashMap<InfoHash, Claim>>,
 }
 
 /// A torrent's file or folder, by [`fs_key`], and its name.
@@ -76,16 +81,52 @@ impl Ctx {
     /// The torrent other than `ih` whose data is at `content`, inside it or
     /// around it: two torrents writing one place would overwrite each other.
     pub fn claimed_by(&self, ih: &InfoHash, content: &Path) -> Option<String> {
-        holder(&self.claims.lock(), ih, &fs_key(content)).map(|c| c.name.clone())
+        let key = fs_key(content);
+        let claims = self.claims.lock();
+        let reservations = self.reservations.lock();
+        holder(&claims, ih, &key)
+            .or_else(|| holder(&reservations, ih, &key))
+            .map(|c| c.name.clone())
+    }
+
+    /// Hold `content` for `ih`'s move there, unless another torrent's data is
+    /// (or is going) there; then that torrent's name.
+    pub fn reserve(&self, ih: InfoHash, content: &Path, name: &str) -> Result<(), String> {
+        let key = fs_key(content);
+        let claims = self.claims.lock();
+        let mut reservations = self.reservations.lock();
+        if let Some(c) = holder(&claims, &ih, &key).or_else(|| holder(&reservations, &ih, &key)) {
+            return Err(c.name.clone());
+        }
+        let name = name.to_string();
+        reservations.insert(ih, Claim { key, name });
+        Ok(())
+    }
+
+    pub fn unreserve(&self, ih: &InfoHash) {
+        self.reservations.lock().remove(ih);
+    }
+
+    /// Whether `path` is (inside) some torrent's data, or where one is moving.
+    pub fn owns_path(&self, path: &Path) -> bool {
+        let key = fs_key(path);
+        let claims = self.claims.lock();
+        let reservations = self.reservations.lock();
+        claims
+            .values()
+            .chain(reservations.values())
+            .any(|c| key_within(&c.key, &key))
     }
 
     /// Reserve `content` for `ih`; if another torrent has it, that torrent's name.
     pub fn claim(&self, ih: InfoHash, content: &Path, name: &str) -> Result<(), String> {
         let key = fs_key(content);
         let mut claims = self.claims.lock();
-        if let Some(c) = holder(&claims, &ih, &key) {
+        let reservations = self.reservations.lock();
+        if let Some(c) = holder(&claims, &ih, &key).or_else(|| holder(&reservations, &ih, &key)) {
             return Err(c.name.clone());
         }
+        drop(reservations);
         let name = name.to_string();
         claims.insert(ih, Claim { key, name });
         Ok(())

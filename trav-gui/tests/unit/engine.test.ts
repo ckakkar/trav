@@ -7,6 +7,7 @@ const snap = (hashes: string[], rate = 100): EngineSnapshot => ({
   seq: 1,
   torrents: hashes.map((h) => torrent({ infoHash: h, downloadRate: rate })),
   stats: {
+    altSpeed: false,
     downloadRate: rate * hashes.length,
     uploadRate: 0,
     sessionDownloaded: 0,

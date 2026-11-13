@@ -7,6 +7,8 @@ import { DIALOG, useRegister } from "@/lib/motion";
 
 export const ease = [0.17, 0.84, 0.44, 1] as const;
 
+const FOCUSABLE = 'a[href], button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])';
+
 export function Modal({
   open,
   onClose,
@@ -39,6 +41,18 @@ export function Modal({
       if (e.key === "Escape") {
         e.stopPropagation();
         close.current();
+      } else if (e.key === "Tab" && panel.current) {
+        // Keep focus inside the dialog: Tab from the last control wraps to the first.
+        const items = [...panel.current.querySelectorAll<HTMLElement>(FOCUSABLE)].filter((el) => !el.closest("[inert]") && el.offsetParent !== null);
+        if (!items.length) return;
+        const first = items[0];
+        const last = items[items.length - 1];
+        const at = document.activeElement;
+        const inside = at instanceof HTMLElement && panel.current.contains(at);
+        if (!inside || (e.shiftKey && at === first) || (!e.shiftKey && at === last)) {
+          e.preventDefault();
+          (e.shiftKey ? last : first).focus();
+        }
       }
     };
     window.addEventListener("keydown", onKey, true);

@@ -10,6 +10,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use crate::engine::{AddTorrent, EngineHandle, TorrentSource};
+use crate::message::Event;
 use crate::settings::Settings;
 
 #[derive(Deserialize, Default)]
@@ -35,6 +36,10 @@ struct Target {
     position: usize,
     priorities: Vec<u8>,
     peers: Vec<String>,
+    path: Option<String>,
+    /// Bytes per second, 0 = none ("setLimits").
+    download: u64,
+    upload: u64,
 }
 
 impl Target {
@@ -159,6 +164,22 @@ pub async fn dispatch(h: &EngineHandle, method: &str, params: Value) -> Result<V
                 .map_err(|e| e.to_string())?;
             ok()
         }
+        "setLimits" => {
+            let t: Target = parse(params)?;
+            for hash in t.all() {
+                h.set_limits(&hash, t.download, t.upload)
+                    .map_err(|e| e.to_string())?;
+            }
+            ok()
+        }
+        "move" => {
+            let t: Target = parse(params)?;
+            let path = t.path.clone().ok_or("missing path")?;
+            h.move_storage(t.one()?, PathBuf::from(path))
+                .await
+                .map_err(|e| e.to_string())?;
+            ok()
+        }
         "setQueuePosition" => {
             let t: Target = parse(params)?;
             h.set_queue_position(t.one()?, t.position)
@@ -174,6 +195,38 @@ pub async fn dispatch(h: &EngineHandle, method: &str, params: Value) -> Result<V
                 .collect();
             h.add_peers(t.one()?, peers).map_err(|e| e.to_string())?;
             ok()
+        }
+        "createTorrent" => {
+            let opts: crate::create::CreateOptions = parse(params)?;
+            // Registered before the work starts so a cancel can never miss it;
+            // the guard unregisters when the job ends, however it ends.
+            let job = crate::create::register(&opts.id).map_err(|e| e.to_string())?;
+            let h = h.clone();
+            let created = tokio::task::spawn_blocking(move || {
+                let job = job;
+                let id = opts.id.clone();
+                let mut progress = |hashed: u64, total: u64| {
+                    h.emit(Event::CreateProgress {
+                        id: id.clone(),
+                        hashed,
+                        total,
+                    })
+                };
+                crate::create::create(&opts, &mut progress, job.cancel_flag())
+            })
+            .await
+            .map_err(|e| e.to_string())?
+            .map_err(|e| e.to_string())?;
+            Ok(to_json(&created))
+        }
+        "cancelCreate" => {
+            #[derive(Deserialize, Default)]
+            #[serde(default)]
+            struct Job {
+                id: String,
+            }
+            let job: Job = parse(params)?;
+            Ok(json!(crate::create::cancel(&job.id)))
         }
         "getSettings" => Ok(to_json(&h.settings())),
         "setSettings" => {

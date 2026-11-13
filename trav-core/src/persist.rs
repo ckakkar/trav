@@ -23,6 +23,9 @@ pub struct ResumeData {
     pub sequential: bool,
     pub queue_position: usize,
     pub trackers: Vec<Vec<String>>,
+    /// This torrent's own limits, bytes per second (0 = none).
+    pub download_limit: u64,
+    pub upload_limit: u64,
 }
 
 pub struct Store {

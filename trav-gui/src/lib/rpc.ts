@@ -109,6 +109,24 @@ export interface UpdateInfo {
 /** Ask GitHub for a newer release; null when up to date. */
 export const checkUpdate = () => invoke<UpdateInfo | null>("check_update");
 
+/**
+ * Updates found by the app's own checks (hourly, and the menu's "Check for
+ * Updates…"). Each must be acknowledged with `ackUpdate`, or the app assumes
+ * the window has failed and offers the update in a native dialog instead.
+ */
+export const onUpdateAvailable = (cb: (u: { info: UpdateInfo; manual: boolean }) => void) =>
+  subscribe<{ info: UpdateInfo; manual: boolean }>("trav://update-available", cb);
+export const onUpToDate = (cb: () => void) => subscribe<null>("trav://update-none", () => cb());
+export const onUpdateCheckFailed = (cb: (message: string) => void) => subscribe<string>("trav://update-failed", cb);
+export const ackUpdate = (version: string) => invoke("update_ack", { version }).catch(() => {});
+/** An announcement the window hasn't answered (one sent before it was listening). */
+export const pendingUpdate = () => invoke<{ info: UpdateInfo; manual: boolean } | null>("update_pending");
+
+/** Whether the app checks for updates by itself. */
+export function setAutoUpdate(enabled: boolean) {
+  invoke("set_auto_update", { enabled }).catch(() => {});
+}
+
 /** Download and install the update found by `checkUpdate`, then relaunch. */
 export async function installUpdate(onProgress: (downloaded: number, total: number | null) => void): Promise<void> {
   const off = subscribe<{ downloaded: number; total: number | null }>("trav://update-progress", (p) =>

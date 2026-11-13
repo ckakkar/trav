@@ -1,11 +1,12 @@
-// Three registers: Ink (night instrument), Paper (risograph print), Phosphor (terminal).
+// Four registers: night instrument, risograph print, terminal, and glossy pinstripe.
 
-export type Theme = "ink" | "paper" | "phosphor";
+export type Theme = "ink" | "paper" | "phosphor" | "pinstripe";
 
 export const THEMES: { id: Theme; label: string; bg: string; line: string; accent: string; text: string }[] = [
   { id: "ink", label: "Ink", bg: "#04070d", line: "#1c2537", accent: "#56c7ff", text: "#e3eaf4" },
   { id: "paper", label: "Paper", bg: "#f9f8f4", line: "#1d2873", accent: "#ff3d8a", text: "#1d2873" },
   { id: "phosphor", label: "Phosphor", bg: "#000000", line: "#123a20", accent: "#6af59a", text: "#45cf6c" },
+  { id: "pinstripe", label: "Pinstripe", bg: "#f1f2f4", line: "#9ba3ae", accent: "#1466bb", text: "#26313e" },
 ];
 
 /** Every theme arrives as a bloom from where you clicked (the window's center without a pointer). */

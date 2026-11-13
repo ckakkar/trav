@@ -34,6 +34,11 @@ use crate::utp::UtpSocket;
 
 const SNAPSHOT_INTERVAL: Duration = Duration::from_millis(500);
 const SAVE_INTERVAL: Duration = Duration::from_secs(20);
+/// How often the watch folder is scanned (a file is taken on its second sighting).
+const WATCH_INTERVAL: Duration = Duration::from_secs(2);
+/// At most this many files marked invalid are kept an eye on (to restore one
+/// whose writer had only paused).
+const WATCH_REVISIT_MAX: usize = 256;
 
 /// Where a torrent comes from.
 #[derive(Debug, Clone)]
@@ -125,13 +130,14 @@ impl Engine {
         info!("Trav engine starting; state in {}", store.root().display());
         let store_root = &store.root().to_path_buf();
 
+        let (eff_down, eff_up, alt) = effective_limits(&settings);
         let (events, _) = broadcast::channel(256);
         let ctx = Arc::new(Ctx {
             peer_id: generate_peer_id(),
             listen_port: AtomicU16::new(0),
             public_port: AtomicU16::new(0),
-            down: RateLimiter::new(settings.download_limit),
-            up: RateLimiter::new(settings.upload_limit),
+            down: RateLimiter::new(eff_down),
+            up: RateLimiter::new(eff_up),
             settings: RwLock::new(settings),
             dht: RwLock::new(None),
             utp: RwLock::new(None),
@@ -143,6 +149,7 @@ impl Engine {
             store,
             tracker_key: rand::random(),
             connectable: AtomicBool::new(false),
+            alt_active: AtomicBool::new(alt),
             session_down: AtomicU64::new(0),
             session_up: AtomicU64::new(0),
             upnp_status: RwLock::new(None),
@@ -150,6 +157,7 @@ impl Engine {
             auto_upload_cap: AtomicU64::new(0),
             public_trackers: RwLock::new(crate::public_trackers::load(store_root)),
             claims: parking_lot::Mutex::new(HashMap::new()),
+            reservations: parking_lot::Mutex::new(HashMap::new()),
         });
 
         let (snapshot_tx, snapshot_rx) = watch::channel(Arc::new(EngineSnapshot::empty()));
@@ -168,6 +176,7 @@ impl Engine {
         s.start_dht().await;
         s.spawn_tracker_list_refresh();
         s.spawn_lsd();
+        s.spawn_watch();
         crate::upnp::spawn(Arc::downgrade(&s.ctx));
         s.load_persisted().await;
         s.apply_queue();
@@ -187,6 +196,10 @@ impl Engine {
                 s.apply_queue();
                 if n.is_multiple_of(4) {
                     s.govern_uploads();
+                }
+                // The alternative-limit schedule takes effect within 10 s.
+                if n.is_multiple_of(20) {
+                    s.apply_limits();
                 }
                 s.publish();
                 if n.is_multiple_of(
@@ -366,6 +379,87 @@ impl Session {
         });
     }
 
+    /// The watch folder: every few seconds, add the `.torrent` files that have
+    /// finished arriving there, and mark them so they're added only once.
+    fn spawn_watch(self: &Arc<Self>) {
+        let weak = Arc::downgrade(self);
+        tokio::spawn(async move {
+            let mut seen = crate::watch::Seen::default();
+            // Files that failed for a reason that may pass, and when to retry.
+            let mut retry: HashMap<PathBuf, std::time::Instant> = HashMap::new();
+            // Files marked invalid this session: where they went, and how they
+            // looked then. One that changes afterwards was still being written
+            // (a writer that paused), so it goes back to be looked at again.
+            let mut invalid: HashMap<PathBuf, crate::watch::Marked> = HashMap::new();
+            let mut tick = tokio::time::interval(WATCH_INTERVAL);
+            loop {
+                tick.tick().await;
+                let Some(s) = weak.upgrade() else { break };
+                if !s.running.load(Ordering::Relaxed) {
+                    break;
+                }
+                let Some(dir) = s.ctx.settings.read().watch_dir.clone() else {
+                    continue;
+                };
+                // First, so a file put back is seen in this scan.
+                if !invalid.is_empty() {
+                    let marks = std::mem::take(&mut invalid);
+                    invalid = tokio::task::spawn_blocking(move || crate::watch::revisit(marks))
+                        .await
+                        .unwrap_or_default();
+                }
+                let found = tokio::task::spawn_blocking(move || {
+                    let ready = crate::watch::ready(&dir, &mut seen);
+                    (ready, seen)
+                })
+                .await;
+                let Ok((ready, back)) = found else { break };
+                seen = back;
+                let h = EngineHandle {
+                    s: s.clone(),
+                    snapshot_rx: s.snapshot_tx.subscribe(),
+                };
+                retry.retain(|_, at| *at > std::time::Instant::now());
+                for path in ready {
+                    // Never touch a torrent's own files (a watch folder that is
+                    // also the download folder can hold payloads named .torrent).
+                    if retry.contains_key(&path) || s.ctx.owns_path(&path) {
+                        continue;
+                    }
+                    let suffix = match h
+                        .add(AddTorrent::new(TorrentSource::File(path.clone())))
+                        .await
+                    {
+                        Ok(hash) => {
+                            info!("watch folder: added {} ({hash})", path.display());
+                            "added"
+                        }
+                        // Already in the list is as good as added.
+                        Err(Error::Engine(m)) if m.contains("already in the list") => "added",
+                        Err(e @ (Error::Metainfo(_) | Error::Bencode(_))) => {
+                            warn!("watch folder: {} isn't a torrent: {e}", path.display());
+                            "invalid"
+                        }
+                        Err(e) => {
+                            // Could be passing (a full disk, a locked file): try again in a minute.
+                            warn!("watch folder: couldn't add {}: {e}", path.display());
+                            retry.insert(path, std::time::Instant::now() + Duration::from_secs(60));
+                            continue;
+                        }
+                    };
+                    let p = path.clone();
+                    let marked =
+                        tokio::task::spawn_blocking(move || crate::watch::mark(&p, suffix)).await;
+                    if let (Ok(Some(m)), "invalid") = (marked, suffix)
+                        && invalid.len() < WATCH_REVISIT_MAX
+                    {
+                        invalid.insert(m.path.clone(), m);
+                    }
+                }
+            }
+        });
+    }
+
     /// Local peer discovery: announce our torrents on the LAN every few
     /// minutes (new ones within seconds) and add the peers others announce.
     fn spawn_lsd(self: &Arc<Self>) {
@@ -518,6 +612,8 @@ impl Session {
                     sequential: r.sequential,
                     queue_pos: r.queue_position,
                     trackers: r.trackers,
+                    download_limit: r.download_limit,
+                    upload_limit: r.upload_limit,
                 },
             );
             self.torrents.write().insert(ih, t);
@@ -547,13 +643,29 @@ impl Session {
         }
     }
 
+    /// Put the limits in force for now, regular or alternative (uploads
+    /// governed automatically are left to `govern_uploads`).
+    fn apply_limits(&self) {
+        let (down, up, alt, auto) = {
+            let s = self.ctx.settings.read();
+            let (down, up, alt) = effective_limits(&s);
+            (down, up, alt, s.auto_upload_limit && up == 0)
+        };
+        self.ctx.down.set_rate(down);
+        if !auto {
+            self.ctx.up.set_rate(up);
+        }
+        self.ctx.alt_active.store(alt, Ordering::Relaxed);
+    }
+
     /// Every 2 s: set the automatic upload limit from measured queueing delay
-    /// (see `governor`), unless the user set a limit or turned it off.
+    /// (see `governor`), unless a limit is in force or it's turned off.
     fn govern_uploads(&self) {
         let samples = std::mem::take(&mut *self.ctx.rtt_samples.lock());
         let (auto, fixed) = {
             let s = self.ctx.settings.read();
-            (s.auto_upload_limit && s.upload_limit == 0, s.upload_limit)
+            let (_, up, _) = effective_limits(&s);
+            (s.auto_upload_limit && up == 0, up)
         };
         let mut g = self.governor.lock();
         if !auto {
@@ -592,19 +704,20 @@ impl Session {
                 .then(a.added_at.cmp(&b.added_at))
         });
         let settings = self.ctx.settings.read().clone();
+        let (eff_down, eff_up, alt) = effective_limits(&settings);
         let stats = GlobalStats {
+            alt_speed: alt,
             download_rate: torrents.iter().map(|t| t.download_rate).sum(),
             upload_rate: torrents.iter().map(|t| t.upload_rate).sum(),
             session_downloaded: self.ctx.session_down.load(Ordering::Relaxed),
             session_uploaded: self.ctx.session_up.load(Ordering::Relaxed),
-            download_limit: settings.download_limit,
-            upload_limit: if settings.upload_limit > 0 {
-                settings.upload_limit
+            download_limit: eff_down,
+            upload_limit: if eff_up > 0 {
+                eff_up
             } else {
                 self.ctx.auto_upload_cap.load(Ordering::Relaxed)
             },
-            upload_auto: settings.upload_limit == 0
-                && self.ctx.auto_upload_cap.load(Ordering::Relaxed) > 0,
+            upload_auto: eff_up == 0 && self.ctx.auto_upload_cap.load(Ordering::Relaxed) > 0,
             connected_peers: self.ctx.connections.load(Ordering::Relaxed),
             dht_nodes: self.ctx.dht().map(|d| d.node_count()).unwrap_or(0),
             listen_port: self.ctx.listen_port.load(Ordering::Relaxed),
@@ -648,6 +761,26 @@ impl Session {
             .cloned()
             .ok_or_else(|| Error::Engine("no such torrent".into()))
     }
+}
+
+/// Weekday (0 = Sunday) and minutes after midnight, in local time.
+fn local_day_minute() -> (u8, u16) {
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as libc::time_t)
+        .unwrap_or(0);
+    // SAFETY: localtime_r only writes the `tm` it is given.
+    let mut tm: libc::tm = unsafe { std::mem::zeroed() };
+    if unsafe { libc::localtime_r(&secs, &mut tm) }.is_null() {
+        return (0, 0);
+    }
+    (tm.tm_wday as u8, (tm.tm_hour * 60 + tm.tm_min) as u16)
+}
+
+/// The limits in force now: (download, upload, whether the alternative ones).
+fn effective_limits(s: &Settings) -> (u64, u64, bool) {
+    let (day, minute) = local_day_minute();
+    s.limits_at(day, minute)
 }
 
 /// One socket for IPv6 and IPv4-mapped peers (V6ONLY defaults to on under Windows).
@@ -760,6 +893,8 @@ impl EngineHandle {
                 sequential: req.sequential,
                 queue_pos,
                 trackers: Vec::new(),
+                download_limit: 0,
+                upload_limit: 0,
             },
         );
         if let Some(r) = t.take_resume(true) {
@@ -816,6 +951,39 @@ impl EngineHandle {
         Ok(())
     }
 
+    /// Move a torrent's files into `dest`, its new save folder. Answers once
+    /// they are there, or, if the move failed, back where they were.
+    pub async fn move_storage(&self, hash: &str, dest: PathBuf) -> Result<()> {
+        if !dest.is_absolute() {
+            return Err(Error::Engine(format!(
+                "not a full path: {}",
+                dest.display()
+            )));
+        }
+        let t = self.s.get(hash)?;
+        let (tx, rx) = oneshot::channel();
+        t.send(Cmd::Move { dest, done: tx });
+        rx.await
+            .map_err(|_| Error::Engine("the torrent was removed during the move".into()))?
+            .map_err(Error::Engine)?;
+        if let Some(r) = t.take_resume(true) {
+            let _ = self.s.ctx.store.save_resume(&t.info_hash, &r);
+        }
+        self.s.publish();
+        Ok(())
+    }
+
+    /// Set a torrent's own limits, bytes per second (0 = none).
+    pub fn set_limits(&self, hash: &str, download: u64, upload: u64) -> Result<()> {
+        let t = self.s.get(hash)?;
+        t.set_limits(download, upload);
+        if let Some(r) = t.take_resume(true) {
+            let _ = self.s.ctx.store.save_resume(&t.info_hash, &r);
+        }
+        self.s.publish();
+        Ok(())
+    }
+
     pub fn set_sequential(&self, hash: &str, on: bool) -> Result<()> {
         self.s.get(hash)?.send(Cmd::SetSequential(on));
         Ok(())
@@ -863,6 +1031,7 @@ impl EngineHandle {
         });
         let _ = tokio::time::timeout(Duration::from_secs(10), rx).await;
         self.s.ctx.release(&ih);
+        self.s.ctx.unreserve(&ih);
         self.s.ctx.store.remove(&ih);
         self.s.ctx.emit(Event::TorrentRemoved {
             info_hash: hex::encode(ih),
@@ -879,8 +1048,7 @@ impl EngineHandle {
     pub async fn update_settings(&self, new: Settings) -> Result<()> {
         let new = new.sanitized();
         let old = std::mem::replace(&mut *self.s.ctx.settings.write(), new.clone());
-        self.s.ctx.down.set_rate(new.download_limit);
-        self.s.ctx.up.set_rate(new.upload_limit);
+        self.s.apply_limits();
         self.s.ctx.store.save("settings.json", &new)?;
         if old.listen_port != new.listen_port {
             self.s.bind_listener().await;
@@ -914,6 +1082,11 @@ impl EngineHandle {
 
     pub fn events(&self) -> broadcast::Receiver<Event> {
         self.s.ctx.events.subscribe()
+    }
+
+    /// Tell every interface something happened (e.g. progress of a job).
+    pub(crate) fn emit(&self, e: Event) {
+        self.s.ctx.emit(e);
     }
 
     pub fn listen_port(&self) -> u16 {
@@ -954,6 +1127,9 @@ impl EngineHandle {
         }
         let _ =
             tokio::time::timeout(Duration::from_secs(5), futures::future::join_all(waits)).await;
+        // Again, now that every torrent has stopped: a move that finished
+        // while stopping changed where its files are.
+        self.s.save_all(true);
         if let Some(h) = self.s.listener.lock().take() {
             h.abort();
         }

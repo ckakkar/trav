@@ -110,6 +110,13 @@ pub fn build(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
             )?,
             &item(app, "add-magnet", "Add Magnet Link…", Some("CmdOrCtrl+U"))?,
             &sep()?,
+            &item(
+                app,
+                "create-torrent",
+                "Create Torrent…",
+                Some("CmdOrCtrl+N"),
+            )?,
+            &sep()?,
             &PredefinedMenuItem::close_window(app, None)?,
         ],
     )?;
@@ -281,6 +288,12 @@ pub fn on_event(app: &AppHandle, id: &str) {
     };
     if id == "quit" {
         crate::quit(app, false);
+        return;
+    }
+    // Checked natively, so it works even when the window has failed.
+    if id == "check-updates" {
+        crate::show(app);
+        crate::update::check_now(app);
         return;
     }
     let url = match id {
