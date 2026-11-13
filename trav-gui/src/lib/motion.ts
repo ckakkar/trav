@@ -2,16 +2,17 @@
 
 // Each register moves like its material. Ink glides and comes into focus;
 // Paper is set down with a little snap, like a sheet off the press; Phosphor
-// draws itself line by line and collapses like a CRT switching off.
+// draws itself line by line and collapses like a CRT switching off. Pinstripe
+// lowers sheets from the title bar, then lets small controls glide into place.
 
 import { useSyncExternalStore } from "react";
 import type { TargetAndTransition, Transition } from "motion/react";
 
-export type Register = "ink" | "paper" | "phosphor";
+export type Register = "ink" | "paper" | "phosphor" | "pinstripe";
 
 function current(): Register {
   const t = typeof document === "undefined" ? "ink" : document.documentElement.dataset.theme;
-  return t === "paper" || t === "phosphor" ? t : "ink";
+  return t === "paper" || t === "phosphor" || t === "pinstripe" ? t : "ink";
 }
 
 function subscribe(cb: () => void) {
@@ -51,6 +52,12 @@ export const DIALOG: Record<Register, Choreo> = {
     exit: { opacity: 0, y: 14, rotate: 0.6, transition: { duration: 0.14, ease: "easeIn" } },
     transition: paperSnap,
   },
+  pinstripe: {
+    initial: { opacity: 1, y: "-100%" },
+    animate: { opacity: 1, y: 0 },
+    exit: { opacity: 0, y: "-100%", transition: { duration: 0.24, ease: [0.4, 0, 0.6, 1] } },
+    transition: { duration: 0.4, ease: [0.18, 0.78, 0.28, 1] },
+  },
   phosphor: {
     initial: { opacity: 0, clipPath: "inset(0 0 100% 0)" },
     animate: { opacity: 1, clipPath: "inset(0 0 0% 0)" },
@@ -72,6 +79,12 @@ export const MENU: Record<Register, Choreo> = {
     animate: { opacity: 1, clipPath: "inset(0 0 0% 0)" },
     exit: { opacity: 0, transition: { duration: 0.08 } },
     transition: { duration: 0.16, ease: out },
+  },
+  pinstripe: {
+    initial: { opacity: 0, scale: 0.96 },
+    animate: { opacity: 1, scale: 1 },
+    exit: { opacity: 0, scale: 0.98, transition: { duration: 0.12 } },
+    transition: { type: "spring", stiffness: 460, damping: 30, mass: 0.7 },
   },
   phosphor: {
     initial: { opacity: 0, clipPath: "inset(0 0 100% 0)" },
@@ -95,6 +108,12 @@ export const TOAST: Record<Register, Choreo> = {
     exit: { opacity: 0, y: 10, transition: { duration: 0.14 } },
     transition: paperSnap,
   },
+  pinstripe: {
+    initial: { opacity: 0, x: 32 },
+    animate: { opacity: 1, x: 0 },
+    exit: { opacity: 0, x: 20, transition: { duration: 0.18 } },
+    transition: { type: "spring", stiffness: 270, damping: 28, mass: 1 },
+  },
   phosphor: {
     initial: { opacity: 0, clipPath: "inset(0 100% 0 0)" },
     animate: { opacity: 1, clipPath: "inset(0 0% 0 0)" },
@@ -107,5 +126,6 @@ export const TOAST: Record<Register, Choreo> = {
 export const SLIDE: Record<Register, Transition> = {
   ink: { type: "spring", stiffness: 520, damping: 40, mass: 0.9 },
   paper: { duration: 0.26, ease: [0.6, 0.05, 0.2, 1] },
+  pinstripe: { type: "spring", stiffness: 230, damping: 28, mass: 1.1 },
   phosphor: { duration: 0.12, ease: "linear" },
 };
