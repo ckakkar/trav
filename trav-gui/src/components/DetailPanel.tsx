@@ -29,6 +29,7 @@ export interface DetailActions {
   setPriorities: (hash: string, p: number[]) => void;
   addPeers: (hash: string, peers: string[]) => void;
   reannounce: (hash: string) => void;
+  move: (hash: string) => void;
   toast: (title: string, opts?: { body?: string; tone?: "info" | "ok" | "error" }) => void;
 }
 
@@ -210,6 +211,9 @@ function Overview({ d, actions }: { d: TorrentDetails; actions: DetailActions })
           </span>
           <button className="icon-btn sm" title="Show in Finder" aria-label="Show in Finder" onClick={() => reveal(path).catch((e) => actions.toast("Can't open folder", { body: String(e), tone: "error" }))}>
             <FolderOpen size={13} />
+          </button>
+          <button className="chip" disabled={s.status === "moving"} onClick={() => actions.move(s.infoHash)}>
+            {s.status === "moving" ? "Moving…" : "Move…"}
           </button>
         </Stat>
         {d.comment && (

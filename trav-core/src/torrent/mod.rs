@@ -91,6 +91,8 @@ enum Phase {
     Metadata,
     Active,
     Finished,
+    /// Its files are being moved to another folder (`Cmd::Move`).
+    Moving,
     Error(String),
 }
 
@@ -306,6 +308,8 @@ pub(crate) struct State {
     punching: HashMap<IpAddr, Instant>,
     queue_pos: usize,
     dirty: bool,
+    /// A move in progress: resolves to the folder the files ended up in.
+    moving: Option<tokio::task::JoinHandle<Result<PathBuf, String>>>,
 }
 
 pub(crate) enum Cmd {
@@ -355,6 +359,16 @@ pub(crate) enum Cmd {
         write_err: Option<String>,
     },
     MetadataDone(Vec<u8>),
+    /// Move the files to another folder; answers once they're there (or back).
+    Move {
+        dest: PathBuf,
+        done: oneshot::Sender<Result<(), String>>,
+    },
+    MoveDone {
+        dest: PathBuf,
+        res: Result<(), String>,
+        done: oneshot::Sender<Result<(), String>>,
+    },
 }
 
 pub(crate) struct TorrentInit {
@@ -442,6 +456,7 @@ impl Torrent {
             punching: HashMap::new(),
             queue_pos: init.queue_pos,
             dirty: true,
+            moving: None,
         };
         let t = Arc::new(Self {
             info_hash,
@@ -524,7 +539,7 @@ impl Torrent {
                 }
             }
             Cmd::Recheck => {
-                if st.meta.is_some() {
+                if st.meta.is_some() && st.phase != Phase::Moving {
                     st.pending_have = None;
                     st.picker = None;
                     self.enter_inactive(&mut st);
@@ -665,6 +680,8 @@ impl Torrent {
                 write_err,
             } => self.on_piece_done(&mut st, piece, ok, contributors, write_err),
             Cmd::MetadataDone(raw) => self.on_metadata(&mut st, raw),
+            Cmd::Move { dest, done } => self.start_move(&mut st, dest, done),
+            Cmd::MoveDone { dest, res, done } => self.finish_move(&mut st, dest, res, done),
             Cmd::Shutdown { .. } => unreachable!("handled in run loop"),
         }
         // Activation, completion and reannounce make announces due "now": send
@@ -684,7 +701,7 @@ impl Torrent {
                 st.check_cancel.store(true, Ordering::Relaxed);
                 st.phase = Phase::Paused;
             }
-            Phase::Checking => return,
+            Phase::Checking | Phase::Moving => return,
             _ => {}
         }
         let was_active = st.phase.is_active();
@@ -850,7 +867,7 @@ impl Torrent {
     /// Stop for good. `user_paused` is left alone: it is the user's choice,
     /// and resume data saved after this must still say whether to run.
     async fn shutdown(self: &Arc<Self>, delete_files: bool) {
-        let storage = {
+        let (storage, moving, meta) = {
             let mut st = self.st.lock();
             if st.phase.is_active() {
                 self.enter_inactive(&mut st);
@@ -859,7 +876,16 @@ impl Torrent {
                 st.check_cancel.store(true, Ordering::Relaxed);
             }
             st.phase = Phase::Paused;
-            st.storage.clone()
+            (st.storage.clone(), st.moving.take(), st.meta.clone())
+        };
+        // A move in flight finishes first, so deleting removes the files from
+        // wherever they ended up (and quitting never strands half a move).
+        let storage = match (moving, meta) {
+            (Some(task), Some(meta)) => match task.await {
+                Ok(Ok(dest)) => Storage::new(&dest, &meta.info).ok().map(Arc::new),
+                _ => storage,
+            },
+            _ => storage,
         };
         // Disk work off the reactor, and without holding the state lock. Once
         // retired, pieces still in flight can't write (or recreate) files.
@@ -874,6 +900,123 @@ impl Torrent {
             })
             .await;
         }
+    }
+
+    // ── Moving data ─────────────────────────────────────────────────────────
+
+    fn start_move(
+        self: &Arc<Self>,
+        st: &mut State,
+        dest: PathBuf,
+        done: oneshot::Sender<Result<(), String>>,
+    ) {
+        if dest == st.save_path {
+            let _ = done.send(Ok(()));
+            return;
+        }
+        let busy = match st.phase {
+            Phase::Checking => Some("wait for the check to finish first"),
+            Phase::Moving => Some("it is already being moved"),
+            _ => None,
+        };
+        if let Some(msg) = busy {
+            let _ = done.send(Err(msg.to_string()));
+            return;
+        }
+        let (Some(meta), Some(storage)) = (st.meta.clone(), st.storage.clone()) else {
+            // Nothing on disk yet (a magnet still fetching its file list, or
+            // files that couldn't be laid out): just use the new folder.
+            st.save_path = dest;
+            st.dirty = true;
+            if st.storage.is_none()
+                && let Some(meta) = st.meta.clone()
+            {
+                if matches!(st.phase, Phase::Error(_)) {
+                    st.phase = Phase::Paused;
+                }
+                self.open_storage(st, &meta.info);
+                self.update_phase(st);
+            }
+            let _ = done.send(Ok(()));
+            return;
+        };
+        let taken = match crate::path_safety::jail_join(&dest, [meta.info.name.as_str()]) {
+            Ok(root) => self
+                .ctx
+                .claimed_by(&self.info_hash, &root)
+                .map(|other| format!("“{other}” already keeps its files at {}", root.display())),
+            Err(e) => Some(e.to_string()),
+        };
+        if let Some(msg) = taken {
+            let _ = done.send(Err(msg));
+            return;
+        }
+        if st.phase.is_active() {
+            self.enter_inactive(st);
+        }
+        st.phase = Phase::Moving;
+        st.dirty = true;
+        info!("{}: moving to {}", st.name, dest.display());
+        let from = st.save_path.clone();
+        let files: Vec<PathBuf> = storage
+            .files()
+            .iter()
+            .filter(|f| !f.pad)
+            .map(|f| f.path.clone())
+            .collect();
+        let content_root = storage.content_root().to_path_buf();
+        let me = self.clone();
+        st.moving = Some(tokio::spawn(async move {
+            let to = dest.clone();
+            let res = tokio::task::spawn_blocking(move || {
+                // Pieces still in flight must not land in the old folder.
+                storage.retire();
+                storage.close();
+                let res = crate::relocate::relocate(&files, &from, &to);
+                if res.is_ok() {
+                    crate::relocate::prune_tree(&content_root);
+                }
+                res
+            })
+            .await
+            .unwrap_or_else(|e| Err(format!("the move stopped: {e}")));
+            me.send(Cmd::MoveDone {
+                dest: dest.clone(),
+                res: res.clone(),
+                done,
+            });
+            res.map(|()| dest)
+        }));
+    }
+
+    fn finish_move(
+        self: &Arc<Self>,
+        st: &mut State,
+        dest: PathBuf,
+        res: Result<(), String>,
+        done: oneshot::Sender<Result<(), String>>,
+    ) {
+        st.moving = None;
+        let Some(meta) = st.meta.clone() else {
+            let _ = done.send(res);
+            return;
+        };
+        // The old storage was retired for the move: lay the files out afresh,
+        // in the new folder or (after a failure, everything put back) the old.
+        st.storage = None;
+        st.phase = Phase::Paused;
+        match &res {
+            Ok(()) => {
+                info!("{}: moved to {}", st.name, dest.display());
+                self.ctx.release(&self.info_hash);
+                st.save_path = dest;
+            }
+            Err(e) => warn!("{}: move failed: {e}", st.name),
+        }
+        st.dirty = true;
+        self.open_storage(st, &meta.info);
+        self.update_phase(st);
+        let _ = done.send(res);
     }
 
     // ── Metadata ─────────────────────────────────────────────────────────────
@@ -1748,6 +1891,7 @@ impl Torrent {
             Phase::Checking => TorrentStatus::Checking,
             Phase::Metadata => TorrentStatus::Metadata,
             Phase::Finished => TorrentStatus::Finished,
+            Phase::Moving => TorrentStatus::Moving,
             Phase::Error(_) => TorrentStatus::Error,
             Phase::Active => {
                 if st.picker.as_ref().is_some_and(Picker::wanted_complete) {

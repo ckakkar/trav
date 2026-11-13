@@ -10,6 +10,7 @@ import {
   Copy,
   FileDown,
   FolderOpen,
+  FolderInput,
   Layers,
   ListOrdered,
   Magnet,
@@ -44,6 +45,7 @@ import {
   onMenu as onMenuBar,
   onNativeDrop,
   onOpenRequest,
+  pickFolder,
   pickTorrentFiles,
   reveal,
   setKeepAwake,
@@ -572,6 +574,24 @@ export default function App({ skipLaunch = false }: { skipLaunch?: boolean }) {
   };
 
   // ── Context menu & palette entries ────────────────────────────────────────
+  /** Move a torrent's files to a folder the user picks; the engine answers once they're there. */
+  const moveData = useCallback(
+    async (hash: string) => {
+      const t = byHash.get(hash);
+      const dest = await pickFolder(t?.savePath).catch(() => null);
+      if (!dest || !t || dest === t.savePath) return;
+      refresh();
+      try {
+        await call("move", { hash, path: dest });
+        toast("Moved", { body: `${t.name} is now in ${dest}`, tone: "ok" });
+      } catch (e) {
+        fail(e, "Couldn’t move the files");
+      }
+      refresh();
+    },
+    [byHash, refresh, toast, fail],
+  );
+
   const menuItems = (hash: string): MenuEntry[] => {
     const hashes = selected.has(hash) ? [...selected] : [hash];
     const t = byHash.get(hash);
@@ -594,6 +614,7 @@ export default function App({ skipLaunch = false }: { skipLaunch?: boolean }) {
       { label: "Move to bottom", icon: <ChevronsDown size={14} />, disabled: many, onSelect: () => call("setQueuePosition", { hash, position: 1e6 }).then(refresh).catch(fail) },
       "sep",
       { label: "Show in Finder", icon: <FolderOpen size={14} />, hint: "↵", disabled: many, onSelect: () => revealHash(hash) },
+      { label: "Move data…", icon: <FolderInput size={14} />, disabled: many || t?.status === "moving", onSelect: () => moveData(hash) },
       {
         label: "Copy magnet link",
         icon: <Copy size={14} />,
@@ -771,6 +792,7 @@ export default function App({ skipLaunch = false }: { skipLaunch?: boolean }) {
               setPriorities: (hash, priorities) => call("setFilePriorities", { hash, priorities }).then(refresh).catch(fail),
               addPeers: (hash, peers) => call("addPeers", { hash, peers }).then(() => toast("Peers queued")).catch(fail),
               reannounce: (hash) => act("reannounce", [hash]).then(() => toast("Reannouncing")),
+              move: moveData,
               toast,
             }}
           />

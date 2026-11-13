@@ -816,6 +816,28 @@ impl EngineHandle {
         Ok(())
     }
 
+    /// Move a torrent's files into `dest`, its new save folder. Answers once
+    /// they are there, or, if the move failed, back where they were.
+    pub async fn move_storage(&self, hash: &str, dest: PathBuf) -> Result<()> {
+        if !dest.is_absolute() {
+            return Err(Error::Engine(format!(
+                "not a full path: {}",
+                dest.display()
+            )));
+        }
+        let t = self.s.get(hash)?;
+        let (tx, rx) = oneshot::channel();
+        t.send(Cmd::Move { dest, done: tx });
+        rx.await
+            .map_err(|_| Error::Engine("the torrent was removed during the move".into()))?
+            .map_err(Error::Engine)?;
+        if let Some(r) = t.take_resume(true) {
+            let _ = self.s.ctx.store.save_resume(&t.info_hash, &r);
+        }
+        self.s.publish();
+        Ok(())
+    }
+
     pub fn set_sequential(&self, hash: &str, on: bool) -> Result<()> {
         self.s.get(hash)?.send(Cmd::SetSequential(on));
         Ok(())

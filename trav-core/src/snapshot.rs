@@ -14,6 +14,8 @@ pub enum TorrentStatus {
     Seeding,
     /// All selected files done, seeding stopped (ratio limit or nothing to share).
     Finished,
+    /// Its files are being moved to another folder.
+    Moving,
     Error,
 }
 

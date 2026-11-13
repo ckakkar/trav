@@ -22,6 +22,7 @@ pub mod peer;
 pub mod persist;
 pub mod picker;
 mod public_trackers;
+pub mod relocate;
 pub mod rpc;
 mod rtt;
 pub mod settings;

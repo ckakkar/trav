@@ -24,6 +24,7 @@ const LIBRARY: TorrentSummary[] = [
   torrent({ infoHash: "5".repeat(40), name: "Sintel 1080p", status: "paused", progress: 0.62 }),
   torrent({ infoHash: "6".repeat(40), name: "enwiki dump", status: "queued", progress: 0 }),
   torrent({ infoHash: "7".repeat(40), name: "Fedora Live", status: "error", progress: 0.18, error: "disk write failed: no space left on device" }),
+  torrent({ infoHash: "8".repeat(40), name: "Archive being moved", status: "moving", progress: 0.9 }),
 ];
 
 function snapshot(torrents: TorrentSummary[]): EngineSnapshot {

@@ -35,6 +35,7 @@ struct Target {
     position: usize,
     priorities: Vec<u8>,
     peers: Vec<String>,
+    path: Option<String>,
 }
 
 impl Target {
@@ -156,6 +157,14 @@ pub async fn dispatch(h: &EngineHandle, method: &str, params: Value) -> Result<V
         "setFilePriorities" => {
             let t: Target = parse(params)?;
             h.set_file_priorities(t.one()?, t.priorities.clone())
+                .map_err(|e| e.to_string())?;
+            ok()
+        }
+        "move" => {
+            let t: Target = parse(params)?;
+            let path = t.path.clone().ok_or("missing path")?;
+            h.move_storage(t.one()?, PathBuf::from(path))
+                .await
                 .map_err(|e| e.to_string())?;
             ok()
         }

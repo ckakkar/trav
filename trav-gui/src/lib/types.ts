@@ -4,6 +4,7 @@ export type TorrentStatus =
   | "paused"
   | "queued"
   | "checking"
+  | "moving"
   | "metadata"
   | "downloading"
   | "seeding"
