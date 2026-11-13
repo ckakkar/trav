@@ -1,12 +1,17 @@
 /* ──────────────────────────────────────────────────────────────────────────
    Trav Nova — design system
-   Four registers, each its own material rather than a recoloring:
+   Seven registers, each its own material rather than a recoloring:
    Ink     — night instrument: blue-black depth, floating panels, light that
              glows with the transfer.
    Paper   — risograph print: navy ink on white, fluorescent pink overprint,
              square corners, condensed poster type, nothing glows.
    Phosphor — the terminal of kkrwhofrags.xyz: green on black, CRT scanlines.
    Pinstripe — silver hardware, a finely striped window, blue gel and glass tubes.
+   Bevel   — a mid-90s desktop: gray faces lit from the top left, navy title
+             bars, blocky progress, a teal desktop behind.
+   Bitmap  — one bit: black, white and dither, striped title bars, inversion.
+   Hologram — a heads-up display: light on a dark grid, corner brackets,
+             notched controls, iridescent fills, a slow scan.
    Structure (type roles, label case, radii, bar weight) is tokenised so a
    register can change shape, not only color.
    ────────────────────────────────────────────────────────────────────────── */
@@ -203,6 +208,175 @@
   --pin-blue: linear-gradient(180deg, #d3edff 0%, #78b5e8 18%, #236ab2 24%, #0853a2 52%, #1b66b1 78%, #579bd6 100%);
   --pin-selection: linear-gradient(180deg, #79a7d3 0, #387ab9 2px, #2f70b1 55%, #205a99);
   color-scheme: light;
+}
+
+:root[data-theme="bevel"] {
+  --font-sans: Tahoma, Verdana, Geneva, sans-serif;
+  --font-code: "Courier New", Courier, monospace;
+  --font-data: var(--font-sans);
+  --font-label: var(--font-sans);
+  --font-display: var(--font-sans);
+  --display-weight: 700;
+  --display-tracking: 0;
+  --display-stretch: 100%;
+  --data-size: 11px;
+  --label-size: 11px;
+  --label-weight: 400;
+  --label-case: none;
+  --label-tracking: 0;
+  --radius: 0px;
+  --radius-lg: 0px;
+  --bar-h: 14px;
+  --ease: linear;
+  --canvas: #008080;
+  --bg: #c0c0c0;
+  --bg-raised: #c0c0c0;
+  --bg-inset: #fff;
+  --bg-hover: #c0c0c0;
+  --line: #808080;
+  --line-soft: #a8a8a8;
+  --text: #000;
+  --text-dim: #3c3c3c;
+  --text-faint: #4a4a4a;
+  --accent: #000080;
+  --accent-hi: #1084d0;
+  --accent-text: #000080;
+  --accent-soft: #00008014;
+  --accent-line: #000080;
+  --accent-ink: #fff;
+  --up: #800080;
+  --ok: #006b00;
+  --warn: #6e4a00;
+  --err: #8b0000;
+  --scrim: transparent;
+  --shadow: none;
+  --graph: pixel;
+  --map-have: #000080;
+  --map-flight: #008080;
+  --map-empty: #fff;
+  --map-flash: #1084d0;
+  /* Light from the top left: raised faces, sunken wells, a pressed button. */
+  --bv-raised: inset -1px -1px #0a0a0a, inset 1px 1px #fff, inset -2px -2px #808080, inset 2px 2px #dfdfdf;
+  --bv-window: inset -1px -1px #0a0a0a, inset 1px 1px #dfdfdf, inset -2px -2px #808080, inset 2px 2px #fff;
+  --bv-sunken: inset -1px -1px #fff, inset 1px 1px #808080, inset -2px -2px #dfdfdf, inset 2px 2px #0a0a0a;
+  --bv-pressed: inset 1px 1px #0a0a0a, inset -1px -1px #fff, inset 2px 2px #808080, inset -2px -2px #dfdfdf;
+  --bv-panel: inset -1px -1px #fff, inset 1px 1px #808080;
+  --bv-title: linear-gradient(90deg, #000080, #1084d0);
+  --bv-dither: repeating-conic-gradient(#c0c0c0 0 25%, #fff 0 50%) 0 0 / 2px 2px;
+  color-scheme: light;
+}
+
+:root[data-theme="bitmap"] {
+  --font-sans: Geneva, "Lucida Grande", sans-serif;
+  --font-code: Monaco, "Courier New", monospace;
+  --font-data: Monaco, "Courier New", monospace;
+  --font-label: Geneva, sans-serif;
+  --font-display: Silom, Geneva, sans-serif;
+  --display-weight: 400;
+  --display-tracking: 0;
+  --display-stretch: 100%;
+  --data-size: 10.5px;
+  --label-size: 11px;
+  --label-weight: 700;
+  --label-case: none;
+  --label-tracking: 0;
+  --radius: 0px;
+  --radius-lg: 0px;
+  --bar-h: 12px;
+  --ease: linear;
+  --canvas: #fff;
+  --bg: #fff;
+  --bg-raised: #fff;
+  --bg-inset: #fff;
+  --bg-hover: #fff;
+  --line: #000;
+  --line-soft: #000;
+  --text: #000;
+  --text-dim: #000;
+  --text-faint: #000;
+  --accent: #000;
+  --accent-hi: #000;
+  --accent-text: #000;
+  --accent-soft: #fff;
+  --accent-line: #000;
+  --accent-ink: #fff;
+  --up: #000;
+  --ok: #000;
+  --warn: #000;
+  --err: #000;
+  --scrim: transparent;
+  --shadow: 2px 2px 0 #000;
+  --graph: pixel;
+  --map-have: #000;
+  --map-flight: #808080;
+  --map-empty: #fff;
+  --map-flash: #000;
+  /* One bit: black, white, and the patterns between them. */
+  --bm-50: repeating-conic-gradient(#000 0 25%, #fff 0 50%) 0 0 / 2px 2px;
+  --bm-25: conic-gradient(#000 0 25%, #fff 0) 0 0 / 2px 2px;
+  --bm-stripes: repeating-linear-gradient(#000 0 1px, #fff 1px 2px);
+  color-scheme: light;
+}
+
+:root[data-theme="hologram"] {
+  --font-sans: "Avenir Next", Avenir, -apple-system, sans-serif;
+  --font-code: Menlo, ui-monospace, monospace;
+  --font-data: "DIN Alternate", "Avenir Next", sans-serif;
+  --font-label: "Avenir Next", Avenir, sans-serif;
+  --font-display: Futura, "Avenir Next", sans-serif;
+  --display-weight: 500;
+  --display-tracking: 0.08em;
+  --display-stretch: 100%;
+  --data-size: 12px;
+  --label-size: 9.5px;
+  --label-weight: 600;
+  --label-case: uppercase;
+  --label-tracking: 0.2em;
+  --radius: 0px;
+  --radius-lg: 0px;
+  --bar-h: 6px;
+  --ease: cubic-bezier(0.2, 0.9, 0.1, 1);
+  --canvas: #05030c;
+  --bg: #0a0717;
+  --bg-raised: #0e0a21;
+  --bg-inset: #060410;
+  --bg-hover: #150f32;
+  --line: #2e2660;
+  --line-soft: #1c1740;
+  --text: #eeebff;
+  --text-dim: #aaa3d8;
+  --text-faint: #7f78b0;
+  --accent: #ff5fd2;
+  --accent-hi: #ffd0f3;
+  --accent-text: #ff8ee0;
+  --accent-soft: #ff5fd21a;
+  --accent-line: #ff5fd266;
+  --accent-ink: #05030c;
+  --up: #6ef3ff;
+  --ok: #7dffc0;
+  --warn: #ffd36e;
+  --err: #ff6680;
+  --scrim: #05030cb8;
+  --shadow: 0 0 0 1px #6ef3ff1f, 0 28px 70px -24px #000, 0 0 60px -18px #8a5cff59;
+  --graph: glow;
+  --map-have: #ff5fd2;
+  --map-flight: #6ef3ff;
+  --map-empty: #1c1740;
+  --map-flash: #fff;
+  /* Iridescence, and the HUD's corner brackets (cyan above, magenta below). */
+  --holo: linear-gradient(100deg, #6ef3ff, #a58bff 32%, #ff5fd2 64%, #ffd36e 88%, #6ef3ff);
+  --holo-line: linear-gradient(90deg, #6ef3ff00, #6ef3ffaa 20%, #b18cff 50%, #ff5fd2aa 80%, #ff5fd200);
+  --hud:
+    linear-gradient(#6ef3ff, #6ef3ff) top left / 12px 1px no-repeat,
+    linear-gradient(#6ef3ff, #6ef3ff) top left / 1px 12px no-repeat,
+    linear-gradient(#6ef3ff, #6ef3ff) top right / 12px 1px no-repeat,
+    linear-gradient(#6ef3ff, #6ef3ff) top right / 1px 12px no-repeat,
+    linear-gradient(#ff5fd2, #ff5fd2) bottom left / 12px 1px no-repeat,
+    linear-gradient(#ff5fd2, #ff5fd2) bottom left / 1px 12px no-repeat,
+    linear-gradient(#ff5fd2, #ff5fd2) bottom right / 12px 1px no-repeat,
+    linear-gradient(#ff5fd2, #ff5fd2) bottom right / 1px 12px no-repeat;
+  --notch: polygon(7px 0, 100% 0, 100% calc(100% - 7px), calc(100% - 7px) 100%, 0 100%, 0 7px);
+  color-scheme: dark;
 }
 
 * {
@@ -1503,6 +1677,13 @@ body[data-resizing] .main {
     display: none;
   }
 }
+/* Between 621 and 700 px the columns above add up to about 678 px: tighten
+   them so the last one isn't clipped (a 900 px window lands here). */
+@container list (min-width: 621px) and (max-width: 700px) {
+  .table {
+    --cols: 32px minmax(162px, 1fr) minmax(100px, 140px) 102px 80px 76px;
+  }
+}
 @container list (max-width: 620px) {
   .table {
     --cols: 30px minmax(150px, 1fr) minmax(90px, 120px) 84px;
@@ -2227,6 +2408,7 @@ body[data-resizing] .main {
 }
 .theme-picks {
   display: flex;
+  flex-wrap: wrap;
   gap: 10px;
 }
 .theme-pick {
@@ -3406,12 +3588,6 @@ body[data-resizing] .main {
   outline-offset: 3px;
 }
 
-@container list (min-width: 621px) and (max-width: 700px) {
-  :root[data-theme="pinstripe"] .table {
-    --cols: 32px minmax(162px, 1fr) minmax(100px, 140px) 102px 80px 76px;
-  }
-}
-
 @media (max-height: 720px) {
   :root[data-theme="pinstripe"] .speedcard {
     padding-top: 6px;
@@ -3430,6 +3606,1929 @@ body[data-resizing] .main {
   }
   :root[data-theme="pinstripe"] :is(.modal, .palette, .ctx-menu, .toast) {
     transform: none !important;
+  }
+}
+
+/* ── Bevel: a mid-90s desktop ─────────────────────────────────────────────── */
+/* Silver-gray faces lit from the top left, white wells sunk into them, navy
+   title bars, blocky progress, crisp unsmoothed type. Nothing glides. */
+:root[data-theme="bevel"] body {
+  -webkit-font-smoothing: none;
+  /* Unsmoothed glyphs at fractional advances collide; space and unkern them. */
+  letter-spacing: 0.3px;
+  font-kerning: none;
+  text-rendering: optimizeSpeed;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
+
+:root[data-theme="bevel"] :is(.app, .detail, .recover) {
+  background: #c0c0c0;
+}
+
+:root[data-theme="bevel"] :is(.sidebar, .toolbar, .statusbar, .tabs, .pane-bar) {
+  background: #c0c0c0;
+}
+
+/* Etched separators: a gray line with a white one beside it. */
+:root[data-theme="bevel"] .sidebar {
+  border-right: 0;
+  box-shadow: inset -1px 0 #fff, inset -2px 0 #808080;
+}
+
+:root[data-theme="bevel"] :is(.brand, .toolbar) {
+  border-bottom: 0;
+  box-shadow: inset 0 -1px #fff, inset 0 -2px #808080;
+}
+
+:root[data-theme="bevel"] .brand-mark {
+  font-size: 22px;
+  font-weight: 700;
+}
+
+:root[data-theme="bevel"] .tb-title h1 {
+  font-size: 18px;
+}
+
+:root[data-theme="bevel"] .speed-big {
+  font-size: 22px;
+  font-weight: 700;
+}
+
+:root[data-theme="bevel"] .speed-num.up .speed-big {
+  font-size: 16px;
+}
+
+:root[data-theme="bevel"] .filter {
+  border-radius: 0;
+  color: #000;
+}
+
+:root[data-theme="bevel"] .filter-active {
+  border-radius: 0;
+  background: #000080;
+  box-shadow: none;
+}
+
+:root[data-theme="bevel"] .filter[aria-current="true"],
+:root[data-theme="bevel"] .filter[aria-current="true"] :is(.filter-icon, .filter-count) {
+  color: #fff;
+}
+
+/* The performance monitor: green traces on black, in a sunken well. */
+:root[data-theme="bevel"] :is(.side-graph, .speed-graph) {
+  --accent: #00ff00;
+  --up: #ffff00;
+  --line-soft: #007000;
+  --text-faint: #00c000;
+  border: 2px solid;
+  border-color: #808080 #fff #fff #808080;
+  background-color: #000;
+  background-image: linear-gradient(#004000 1px, transparent 1px), linear-gradient(90deg, #004000 1px, transparent 1px);
+  background-size: 12px 12px;
+}
+
+:root[data-theme="bevel"] .side-graph {
+  width: calc(100% - 24px);
+  margin: 2px 12px;
+}
+
+/* The list is a white well; the column headers are buttons. */
+:root[data-theme="bevel"] .list-region {
+  background: #fff;
+  border: 2px solid;
+  border-color: #808080 #fff #fff #808080;
+}
+
+:root[data-theme="bevel"] .thead {
+  height: 22px;
+  background: #c0c0c0;
+  border-bottom: 0;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+:root[data-theme="bevel"] .th {
+  margin-inline: -6px;
+  padding-inline: 6px;
+  background: #c0c0c0;
+  box-shadow: var(--bv-raised);
+  color: #000;
+}
+
+:root[data-theme="bevel"] .th:active {
+  box-shadow: var(--bv-pressed);
+}
+
+:root[data-theme="bevel"] .th.sorted svg {
+  color: #000;
+}
+
+:root[data-theme="bevel"] .gt-head {
+  background: #c0c0c0;
+  box-shadow: inset 0 -1px #808080;
+}
+
+:root[data-theme="bevel"] .trow {
+  border-bottom-color: transparent;
+}
+
+:root[data-theme="bevel"] .trow:not([data-selected]):hover {
+  background: transparent;
+}
+
+:root[data-theme="bevel"] .trow-sel {
+  inset: 0;
+  border-radius: 0;
+  background: #000080;
+}
+
+:root[data-theme="bevel"] .trow[data-selected] {
+  --text: #fff;
+  --text-dim: #fff;
+  --text-faint: #fff;
+  --accent-text: #fff;
+  --up: #fff;
+  --ok: #fff;
+  --warn: #fff;
+  --err: #fff;
+}
+
+:root[data-theme="bevel"] .trow[data-focused]::before {
+  inset: 1px;
+  width: auto;
+  border-radius: 0;
+  background: none;
+  border: 1px dotted #000;
+  pointer-events: none;
+}
+
+:root[data-theme="bevel"] .trow[data-selected][data-focused]::before {
+  border-color: #fff;
+}
+
+:root[data-theme="bevel"] .trow[data-selected] .sdot {
+  background: #fff;
+}
+
+:root[data-theme="bevel"] .pill {
+  border-radius: 0;
+}
+
+:root[data-theme="bevel"] .sdot {
+  border-radius: 0;
+}
+
+/* Progress comes in whole blocks inside a sunken well. */
+:root[data-theme="bevel"] .bar {
+  height: 14px;
+  border-radius: 0;
+  background: #fff;
+  box-shadow: var(--bv-panel);
+}
+
+:root[data-theme="bevel"] .bar-fill {
+  inset: 2px;
+  border-radius: 0;
+  background: repeating-linear-gradient(90deg, #000080 0 7px, transparent 7px 9px);
+}
+
+:root[data-theme="bevel"] .trow .bar-fill {
+  right: auto;
+  width: calc((100% - 4px) * var(--p, 0));
+  width: round(down, (100% - 4px) * var(--p, 0), 9px);
+  transform: none;
+  transition: none;
+}
+
+:root[data-theme="bevel"] .bar-head {
+  display: none;
+}
+
+:root[data-theme="bevel"] .trow[data-status="downloading"] .bar {
+  box-shadow: var(--bv-panel);
+}
+
+:root[data-theme="bevel"] .trow:is([data-tone="seed"], [data-tone="seed-dim"]) .bar-fill {
+  background: repeating-linear-gradient(90deg, #008000 0 7px, transparent 7px 9px);
+  opacity: 1;
+}
+
+:root[data-theme="bevel"] .trow[data-tone="idle"] .bar-fill {
+  background: repeating-linear-gradient(90deg, #808080 0 7px, transparent 7px 9px);
+}
+
+:root[data-theme="bevel"] .trow:is([data-tone="warn"], [data-status="checking"]) .bar-fill {
+  background: repeating-linear-gradient(90deg, #008080 0 7px, transparent 7px 9px);
+}
+
+:root[data-theme="bevel"] .trow[data-tone="err"] .bar-fill {
+  background: repeating-linear-gradient(90deg, #800000 0 7px, transparent 7px 9px);
+}
+
+/* Fetching info: three blocks walk the well, a step at a time. */
+:root[data-theme="bevel"] .trow[data-status="metadata"] .bar-fill {
+  width: 25px;
+  background: repeating-linear-gradient(90deg, #000080 0 7px, transparent 7px 9px);
+  animation: bevelWalk 2.4s steps(12, end) infinite;
+}
+
+@keyframes bevelWalk {
+  from {
+    left: 2px;
+  }
+  to {
+    left: calc(100% - 27px);
+  }
+}
+
+:root[data-theme="bevel"] :is(.bar.sm, .bar.xs) {
+  height: 8px;
+}
+
+:root[data-theme="bevel"] :is(.bar.sm, .bar.xs, .update-progress .bar) .bar-fill {
+  inset: 1px;
+  background: #000080;
+}
+
+:root[data-theme="bevel"] .modal .bar {
+  flex: 0 0 18px;
+  width: 100%;
+  height: 18px;
+}
+
+/* Raised buttons that press in; the default one wears a black ring. */
+:root[data-theme="bevel"] :is(.btn, .chip) {
+  height: 24px;
+  border: 0;
+  border-radius: 0;
+  background: #c0c0c0;
+  box-shadow: var(--bv-raised);
+  color: #000;
+  font-size: 11px;
+  font-weight: 400;
+}
+
+:root[data-theme="bevel"] :is(.btn, .chip):hover {
+  background: #c0c0c0;
+  border-color: transparent;
+  color: #000;
+}
+
+:root[data-theme="bevel"] :is(.btn, .chip):active {
+  scale: 1;
+  box-shadow: var(--bv-pressed);
+  padding-top: 2px;
+}
+
+:root[data-theme="bevel"] .btn.primary {
+  background: #c0c0c0;
+  color: #000;
+  box-shadow: 0 0 0 1px #000, var(--bv-raised);
+}
+
+:root[data-theme="bevel"] .btn.primary:hover {
+  filter: none;
+  background: #c0c0c0;
+  color: #000;
+}
+
+:root[data-theme="bevel"] .btn.primary:active {
+  box-shadow: 0 0 0 1px #000, var(--bv-pressed);
+}
+
+:root[data-theme="bevel"] .btn.ghost {
+  background: transparent;
+  box-shadow: none;
+}
+
+:root[data-theme="bevel"] .btn.ghost:hover {
+  box-shadow: var(--bv-raised);
+}
+
+:root[data-theme="bevel"] .btn.danger {
+  color: #800000;
+}
+
+:root[data-theme="bevel"] :is(.btn, .chip):disabled {
+  opacity: 1;
+  color: #808080;
+  text-shadow: 1px 1px #fff;
+}
+
+:root[data-theme="bevel"] .chip[aria-checked="true"] {
+  background: var(--bv-dither);
+  box-shadow: var(--bv-pressed);
+  color: #000;
+}
+
+:root[data-theme="bevel"] .icon-btn {
+  border-radius: 0;
+}
+
+:root[data-theme="bevel"] .icon-btn:hover {
+  background: #c0c0c0;
+  box-shadow: var(--bv-raised);
+}
+
+:root[data-theme="bevel"] .icon-btn:active {
+  box-shadow: var(--bv-pressed);
+}
+
+/* White fields sunk into the face. */
+:root[data-theme="bevel"] :is(.input, .tb-search, .select, .palette-input) {
+  border: 0;
+  border-radius: 0;
+  background-color: #fff;
+  box-shadow: var(--bv-sunken);
+  color: #000;
+}
+
+:root[data-theme="bevel"] :is(.input:focus, .tb-search:focus-within, .select:focus) {
+  box-shadow: var(--bv-sunken);
+  outline: 1px dotted #000;
+  outline-offset: -4px;
+}
+
+:root[data-theme="bevel"] ::placeholder {
+  color: #808080;
+  opacity: 1;
+}
+
+:root[data-theme="bevel"] .check span {
+  border: 0;
+  border-radius: 0;
+  background: #fff;
+  box-shadow: var(--bv-sunken);
+}
+
+:root[data-theme="bevel"] .check input:checked + span {
+  background: #000 content-box;
+  padding: 3px;
+  box-shadow: var(--bv-sunken), inset 0 0 0 3px #fff;
+}
+
+:root[data-theme="bevel"] .toggle-track {
+  width: 32px;
+  border: 0;
+  border-radius: 0;
+  background: #fff;
+  box-shadow: var(--bv-sunken);
+}
+
+:root[data-theme="bevel"] .toggle-thumb {
+  top: 2px;
+  width: 13px;
+  height: 13px;
+  border-radius: 0;
+  background: #c0c0c0;
+  box-shadow: var(--bv-raised);
+}
+
+:root[data-theme="bevel"] .toggle input:checked + .toggle-track {
+  background: #000080;
+}
+
+:root[data-theme="bevel"] .toggle input:checked + .toggle-track .toggle-thumb {
+  background: #c0c0c0;
+  transform: translateX(15px);
+}
+
+/* Tabs: the selected one stands up out of the page. */
+:root[data-theme="bevel"] .tabs {
+  border-bottom: 0;
+  box-shadow: inset 0 -1px #fff;
+}
+
+:root[data-theme="bevel"] .tab {
+  isolation: isolate;
+  color: #000;
+}
+
+:root[data-theme="bevel"] .tab-underline {
+  inset: 4px -2px -1px;
+  z-index: -1;
+  height: auto;
+  border-radius: 0;
+  background: #c0c0c0;
+  box-shadow: inset 1px 1px #fff, inset 2px 2px #dfdfdf, inset -1px 0 #0a0a0a, inset -2px 0 #808080;
+}
+
+:root[data-theme="bevel"] .resizer {
+  background: #c0c0c0;
+  border-top: 0;
+  box-shadow: inset 0 1px #fff, inset 0 -1px #808080;
+}
+
+:root[data-theme="bevel"] .resizer span {
+  background: #808080;
+  box-shadow: 0 1px #fff;
+}
+
+:root[data-theme="bevel"] .ov-name {
+  font-size: 18px;
+}
+
+:root[data-theme="bevel"] .ov-pct {
+  font-size: 28px;
+  font-weight: 700;
+}
+
+:root[data-theme="bevel"] :is(.stats, .piecemap) {
+  border: 2px solid;
+  border-color: #808080 #fff #fff #808080;
+  border-radius: 0;
+  background: #fff;
+}
+
+:root[data-theme="bevel"] .stat {
+  border-color: #dfdfdf;
+}
+
+/* Windows: a raised frame, a navy title bar, no dimming behind. */
+:root[data-theme="bevel"] .modal-scrim {
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+:root[data-theme="bevel"] :is(.modal, .palette) {
+  padding: 3px;
+  border: 0;
+  border-radius: 0;
+  background: #c0c0c0;
+  box-shadow: var(--bv-window);
+}
+
+:root[data-theme="bevel"] .modal-head {
+  align-items: center;
+  padding: 3px 3px 3px 6px;
+  background: var(--bv-title);
+  color: #fff;
+}
+
+:root[data-theme="bevel"] .modal-head .eyebrow {
+  display: none;
+}
+
+:root[data-theme="bevel"] .modal-title {
+  font-size: 12px;
+  line-height: 18px;
+  color: #fff;
+}
+
+:root[data-theme="bevel"] .modal-head .icon-btn {
+  width: 18px;
+  height: 16px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  background: #c0c0c0;
+  box-shadow: var(--bv-raised);
+  color: #000;
+}
+
+:root[data-theme="bevel"] .modal-head .icon-btn svg {
+  width: 10px;
+  height: 10px;
+  stroke-width: 3;
+}
+
+:root[data-theme="bevel"] .modal-body {
+  padding-top: 14px;
+}
+
+:root[data-theme="bevel"] .modal-foot {
+  border-top: 0;
+  background: #c0c0c0;
+  box-shadow: inset 0 1px #808080, inset 0 2px #fff;
+}
+
+:root[data-theme="bevel"] .set-nav {
+  background: #fff;
+  border: 2px solid;
+  border-color: #808080 #fff #fff #808080;
+}
+
+:root[data-theme="bevel"] :is(.set-nav-item, .palette-item, .ctx-item) {
+  border-radius: 0;
+}
+
+:root[data-theme="bevel"] .set-nav-item[aria-current="true"],
+:root[data-theme="bevel"] .palette-item[aria-selected="true"],
+:root[data-theme="bevel"] .ctx-item.active {
+  --text: #fff;
+  --text-dim: #fff;
+  --text-faint: #fff;
+  --accent-text: #fff;
+  color: #fff;
+  background: #000080;
+  box-shadow: none;
+}
+
+:root[data-theme="bevel"] .ctx-menu {
+  padding: 3px;
+  border: 0;
+  border-radius: 0;
+  background: #c0c0c0;
+  box-shadow: var(--bv-window);
+}
+
+:root[data-theme="bevel"] .ctx-sep {
+  background: #808080;
+  box-shadow: 0 1px #fff;
+}
+
+/* Notifications are the yellow tooltips of the era. */
+:root[data-theme="bevel"] .toast {
+  border: 1px solid #000;
+  border-radius: 0;
+  background: #ffffe1;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  color: #000;
+}
+
+:root[data-theme="bevel"] .toast-dot {
+  border-radius: 0;
+}
+
+:root[data-theme="bevel"] .toast-life {
+  border-radius: 0;
+  background: #000080;
+}
+
+/* The status bar is a row of sunken panels. */
+:root[data-theme="bevel"] .statusbar {
+  gap: 3px;
+  padding: 3px;
+  border-top: 0;
+  box-shadow: inset 0 1px #fff;
+  color: #000;
+  font-size: 11px;
+}
+
+:root[data-theme="bevel"] .sb-item {
+  align-self: stretch;
+  padding: 0 7px;
+  box-shadow: var(--bv-panel);
+}
+
+:root[data-theme="bevel"] .sb-turtle[data-on] {
+  background: var(--bv-dither);
+  box-shadow: var(--bv-pressed);
+  color: #000;
+}
+
+/* An empty list shows the teal desktop through it. */
+:root[data-theme="bevel"] .list-region:has(.empty),
+:root[data-theme="bevel"] .list-region .empty {
+  --text: #fff;
+  --text-dim: #fff;
+  --text-faint: #e6ffff;
+  background: #008080;
+  color: #fff;
+}
+
+:root[data-theme="bevel"] .empty-title {
+  font-size: 30px;
+  font-weight: 700;
+}
+
+:root[data-theme="bevel"] .empty-title.sm {
+  font-size: 20px;
+}
+
+:root[data-theme="bevel"] .empty-mark {
+  color: #fff;
+}
+
+:root[data-theme="bevel"] .launch {
+  background: #008080;
+  --text: #fff;
+  --text-faint: #e6ffff;
+}
+
+:root[data-theme="bevel"] .launch-mark {
+  color: #fff;
+  filter: none;
+}
+
+:root[data-theme="bevel"] .launch-word {
+  font-size: 34px;
+  font-weight: 700;
+}
+
+:root[data-theme="bevel"] .launch-glow {
+  display: none;
+}
+
+:root[data-theme="bevel"] :is(.launch-stage, .launch-word span) {
+  filter: none !important;
+}
+
+:root[data-theme="bevel"] .recover-card {
+  padding: 24px;
+  border: 0;
+  border-radius: 0;
+  background: #c0c0c0;
+  box-shadow: var(--bv-window);
+}
+
+:root[data-theme="bevel"] .dropzone-inner {
+  border: 2px dashed #000;
+  border-radius: 0;
+  background: #c0c0c0;
+}
+
+:root[data-theme="bevel"] :focus-visible {
+  outline: 1px dotted #000;
+  outline-offset: -4px;
+}
+
+:root[data-theme="bevel"] .check input:focus-visible + span,
+:root[data-theme="bevel"] .toggle input:focus-visible + .toggle-track {
+  outline: 1px dotted #000;
+  outline-offset: 2px;
+}
+
+:root[data-theme="bevel"] .table:focus-visible {
+  outline-offset: -2px;
+}
+
+:root[data-theme="bevel"] ::-webkit-scrollbar {
+  width: 16px;
+  height: 16px;
+}
+
+:root[data-theme="bevel"] ::-webkit-scrollbar-track {
+  background: var(--bv-dither);
+}
+
+:root[data-theme="bevel"] ::-webkit-scrollbar-thumb {
+  border: 0;
+  border-radius: 0;
+  background: #c0c0c0;
+  box-shadow: var(--bv-window);
+}
+
+:root[data-theme="bevel"] ::-webkit-scrollbar-corner {
+  background: #c0c0c0;
+}
+
+.theme-pick[data-pick="bevel"] .swatch {
+  border: 0;
+  border-radius: 0;
+  box-shadow: inset -1px -1px #0a0a0a, inset 1px 1px #fff, inset -2px -2px #808080, inset 2px 2px #dfdfdf;
+}
+
+.theme-pick[data-pick="bevel"] .swatch i {
+  height: 6px;
+  border-radius: 0;
+}
+
+.theme-pick[data-pick="bevel"] .swatch i:first-child {
+  background: linear-gradient(90deg, #000080, #1084d0) !important;
+}
+
+/* ── Bitmap: a one-bit desktop ────────────────────────────────────────────── */
+/* Black, white and dither. Striped title bars, inverted selection, square
+   shadows, rounded buttons with a thick ring on the default one. */
+:root[data-theme="bitmap"] body {
+  -webkit-font-smoothing: none;
+  font-kerning: none;
+  text-rendering: optimizeSpeed;
+}
+
+:root[data-theme="bitmap"] :is(.app, .detail, .recover, .sidebar, .toolbar, .statusbar, .tabs, .pane-bar, .list-region) {
+  background: #fff;
+}
+
+:root[data-theme="bitmap"] .sidebar {
+  border-right: 1px solid #000;
+}
+
+/* The main window's title bar, with its name in a white box. */
+:root[data-theme="bitmap"] .brand {
+  background: var(--bm-stripes);
+  background-clip: content-box;
+  padding-block: 9px;
+  border-bottom: 1px solid #000;
+  justify-content: center;
+}
+
+:root[data-theme="bitmap"] .sidebar[data-mac] .brand {
+  padding-top: 30px;
+}
+
+:root[data-theme="bitmap"] :is(.brand-mark, .brand-sub) {
+  padding: 0 6px;
+  background: #fff;
+  white-space: nowrap;
+}
+
+:root[data-theme="bitmap"] .brand-mark {
+  font-size: 20px;
+}
+
+:root[data-theme="bitmap"] .toolbar {
+  border-bottom: 1px solid #000;
+}
+
+:root[data-theme="bitmap"] .tb-title h1 {
+  font-size: 18px;
+}
+
+:root[data-theme="bitmap"] .speed-big {
+  font-size: 22px;
+}
+
+:root[data-theme="bitmap"] .speed-num.up .speed-big {
+  font-size: 16px;
+}
+
+:root[data-theme="bitmap"] :is(.side-graph, .speed-graph) {
+  border: 1px solid #000;
+}
+
+:root[data-theme="bitmap"] .side-graph {
+  width: calc(100% - 24px);
+  margin: 2px 12px;
+}
+
+:root[data-theme="bitmap"] .filter {
+  border-radius: 0;
+}
+
+:root[data-theme="bitmap"] .filter-active {
+  border-radius: 0;
+  background: #000;
+  box-shadow: none;
+}
+
+:root[data-theme="bitmap"] .filter[aria-current="true"],
+:root[data-theme="bitmap"] .filter[aria-current="true"] :is(.filter-icon, .filter-count) {
+  color: #fff;
+}
+
+:root[data-theme="bitmap"] .thead {
+  background: #fff;
+  border-bottom: 1px solid #000;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+:root[data-theme="bitmap"] .th.sorted {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+:root[data-theme="bitmap"] :is(.gt-head, .pane-bar) {
+  border-bottom: 1px solid #000;
+}
+
+:root[data-theme="bitmap"] .trow {
+  border-bottom: 1px dotted #000;
+}
+
+:root[data-theme="bitmap"] .trow:not([data-selected]):hover {
+  background: transparent;
+}
+
+/* Selection inverts. */
+:root[data-theme="bitmap"] .trow-sel {
+  inset: 0;
+  border-radius: 0;
+  background: #000;
+}
+
+:root[data-theme="bitmap"] .trow[data-selected] {
+  --text: #fff;
+  --text-dim: #fff;
+  --text-faint: #fff;
+  --accent-text: #fff;
+  --up: #fff;
+  --ok: #fff;
+  --warn: #fff;
+  --err: #fff;
+}
+
+:root[data-theme="bitmap"] .trow[data-focused]::before {
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  border-radius: 0;
+  background: var(--bm-50);
+}
+
+:root[data-theme="bitmap"] :is(.pill, .sdot) {
+  border-radius: 0;
+}
+
+:root[data-theme="bitmap"] .trow[data-selected] :is(.pill, .sdot) {
+  border-color: #fff;
+}
+
+:root[data-theme="bitmap"] .trow[data-selected] .sdot {
+  background: #fff;
+}
+
+/* Progress: a black fill; patterns say what kind. */
+:root[data-theme="bitmap"] .bar {
+  height: 12px;
+  border: 1px solid #000;
+  border-radius: 0;
+  background: #fff;
+}
+
+:root[data-theme="bitmap"] .bar-fill {
+  border-radius: 0;
+  background: #000;
+}
+
+:root[data-theme="bitmap"] .trow .bar-fill {
+  right: auto;
+  width: calc(var(--p, 0) * 100%);
+  transform: none;
+  transition: width 0.6s steps(4, end);
+}
+
+:root[data-theme="bitmap"] .bar-head {
+  display: none;
+}
+
+:root[data-theme="bitmap"] .trow[data-status="downloading"] .bar {
+  box-shadow: none;
+}
+
+:root[data-theme="bitmap"] .trow:is([data-tone="seed"], [data-tone="seed-dim"]) .bar-fill {
+  background: var(--bm-50);
+  opacity: 1;
+}
+
+:root[data-theme="bitmap"] .trow[data-tone="idle"] .bar-fill {
+  background: var(--bm-25);
+}
+
+:root[data-theme="bitmap"] .trow:is([data-tone="warn"], [data-status="checking"]) .bar-fill {
+  background: repeating-linear-gradient(-45deg, #000 0 2px, #fff 2px 5px);
+  background-size: 14.14px 14.14px;
+  animation: bitmapCrawl 1.2s steps(5) infinite;
+}
+
+:root[data-theme="bitmap"] .trow[data-tone="err"] .bar-fill {
+  background: repeating-linear-gradient(90deg, #000 0 1px, #fff 1px 3px);
+}
+
+:root[data-theme="bitmap"] .trow[data-status="metadata"] .bar-fill {
+  width: 30%;
+  background: repeating-linear-gradient(-45deg, #000 0 2px, #fff 2px 5px);
+}
+
+:root[data-theme="bitmap"] .trow[data-selected] .bar {
+  border-color: #fff;
+}
+
+@keyframes bitmapCrawl {
+  to {
+    background-position: 14.14px 0;
+  }
+}
+
+:root[data-theme="bitmap"] :is(.bar.sm, .bar.xs) {
+  height: 8px;
+}
+
+:root[data-theme="bitmap"] .modal .bar {
+  flex: 0 0 16px;
+  width: 100%;
+  height: 16px;
+}
+
+/* Round-cornered buttons; the default one has a heavy outer ring. */
+:root[data-theme="bitmap"] :is(.btn, .chip) {
+  border: 1px solid #000;
+  border-radius: 6px;
+  background: #fff;
+  box-shadow: none;
+  color: #000;
+  font-weight: 700;
+}
+
+:root[data-theme="bitmap"] :is(.btn, .chip):hover {
+  border-color: #000;
+  background: #fff;
+  color: #000;
+}
+
+:root[data-theme="bitmap"] :is(.btn, .chip):active,
+:root[data-theme="bitmap"] .chip[aria-checked="true"] {
+  scale: 1;
+  background: #000;
+  color: #fff;
+}
+
+:root[data-theme="bitmap"] .btn.primary {
+  margin: 3px;
+  background: #fff;
+  color: #000;
+  box-shadow: 0 0 0 1px #fff, 0 0 0 4px #000;
+}
+
+:root[data-theme="bitmap"] .btn.primary:hover {
+  filter: none;
+  background: #fff;
+  color: #000;
+}
+
+:root[data-theme="bitmap"] .btn.primary:active {
+  background: #000;
+  color: #fff;
+}
+
+:root[data-theme="bitmap"] .btn.ghost {
+  border-color: transparent;
+}
+
+:root[data-theme="bitmap"] .btn.ghost:hover {
+  border-color: #000;
+}
+
+:root[data-theme="bitmap"] :is(.btn, .chip):disabled {
+  opacity: 1;
+  color: #000;
+  border-style: dotted;
+  font-weight: 400;
+}
+
+:root[data-theme="bitmap"] .icon-btn {
+  border-radius: 0;
+}
+
+:root[data-theme="bitmap"] .icon-btn:hover {
+  background: #000;
+  color: #fff;
+}
+
+:root[data-theme="bitmap"] :is(.input, .tb-search, .select, .palette-input) {
+  border: 1px solid #000;
+  border-radius: 0;
+  background-color: #fff;
+  box-shadow: none;
+  color: #000;
+}
+
+:root[data-theme="bitmap"] :is(.input:focus, .tb-search:focus-within, .select:focus) {
+  box-shadow: inset 0 0 0 1px #000;
+}
+
+:root[data-theme="bitmap"] ::placeholder {
+  color: #000;
+  opacity: 0.55;
+}
+
+/* Checkboxes are crossed, as they were. */
+:root[data-theme="bitmap"] .check span {
+  border: 1px solid #000;
+  border-radius: 0;
+  background: #fff;
+}
+
+:root[data-theme="bitmap"] .check input:checked + span {
+  border-color: #000;
+  background:
+    linear-gradient(45deg, transparent calc(50% - 0.8px), #000 calc(50% - 0.8px) calc(50% + 0.8px), transparent calc(50% + 0.8px)),
+    linear-gradient(-45deg, transparent calc(50% - 0.8px), #000 calc(50% - 0.8px) calc(50% + 0.8px), transparent calc(50% + 0.8px)),
+    #fff;
+  box-shadow: none;
+}
+
+:root[data-theme="bitmap"] .toggle-track {
+  border: 1px solid #000;
+  border-radius: 4px;
+  background: #fff;
+}
+
+:root[data-theme="bitmap"] .toggle-thumb {
+  border-radius: 2px;
+  background: #000;
+}
+
+:root[data-theme="bitmap"] .toggle input:checked + .toggle-track {
+  border-color: #000;
+  background: var(--bm-50);
+}
+
+:root[data-theme="bitmap"] .toggle input:checked + .toggle-track .toggle-thumb {
+  background: #000;
+  box-shadow: 0 0 0 2px #fff;
+}
+
+/* Tabs: the selected one is a black tab. */
+:root[data-theme="bitmap"] .tabs {
+  border-bottom: 1px solid #000;
+}
+
+:root[data-theme="bitmap"] .tab {
+  isolation: isolate;
+  color: #000;
+}
+
+:root[data-theme="bitmap"] .tab[aria-selected="true"] {
+  --text-faint: #fff;
+  color: #fff;
+}
+
+:root[data-theme="bitmap"] .tab-underline {
+  inset: 6px 0 -1px;
+  z-index: -1;
+  height: auto;
+  border-radius: 6px 6px 0 0;
+  background: #000;
+}
+
+:root[data-theme="bitmap"] .resizer {
+  background: var(--bm-50);
+  border-top: 1px solid #000;
+}
+
+:root[data-theme="bitmap"] .resizer span {
+  background: #fff;
+  box-shadow: 0 0 0 1px #000;
+}
+
+:root[data-theme="bitmap"] .ov-name {
+  font-size: 19px;
+  font-weight: 700;
+}
+
+:root[data-theme="bitmap"] .ov-pct {
+  font-size: 30px;
+}
+
+:root[data-theme="bitmap"] :is(.stats, .piecemap) {
+  border: 1px solid #000;
+  border-radius: 0;
+}
+
+:root[data-theme="bitmap"] .stats {
+  box-shadow: 2px 2px 0 #000;
+}
+
+:root[data-theme="bitmap"] .stat {
+  border-color: transparent;
+}
+
+/* Windows: a black frame, a square shadow, a striped title bar. */
+:root[data-theme="bitmap"] .modal-scrim {
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+:root[data-theme="bitmap"] :is(.modal, .palette, .ctx-menu, .toast, .recover-card) {
+  border: 1px solid #000;
+  border-radius: 0;
+  background: #fff;
+  box-shadow: 2px 2px 0 #000;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+:root[data-theme="bitmap"] .modal-head {
+  align-items: center;
+  gap: 8px;
+  margin: 3px 3px 0;
+  padding: 2px 6px;
+  background: var(--bm-stripes);
+  border-bottom: 1px solid #000;
+}
+
+:root[data-theme="bitmap"] .modal-head > div {
+  flex: 1;
+  align-items: center;
+}
+
+:root[data-theme="bitmap"] .modal-head .eyebrow {
+  display: none;
+}
+
+:root[data-theme="bitmap"] .modal-title {
+  padding: 0 8px;
+  background: #fff;
+  font-size: 14px;
+  line-height: 18px;
+}
+
+/* The close box sits at the left of the title bar. */
+:root[data-theme="bitmap"] .modal-head .icon-btn {
+  order: -1;
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border: 1px solid #000;
+  border-radius: 0;
+  background: #fff;
+  box-shadow: 0 0 0 2px #fff;
+  color: #000;
+}
+
+:root[data-theme="bitmap"] .modal-head .icon-btn svg {
+  width: 9px;
+  height: 9px;
+  opacity: 0;
+}
+
+:root[data-theme="bitmap"] .modal-head .icon-btn:is(:hover, :focus-visible) svg {
+  opacity: 1;
+}
+
+:root[data-theme="bitmap"] .modal-foot {
+  border-top: 1px solid #000;
+  background: #fff;
+}
+
+:root[data-theme="bitmap"] .set-nav {
+  background: #fff;
+  border-right: 1px solid #000;
+}
+
+:root[data-theme="bitmap"] :is(.set-nav-item, .palette-item, .ctx-item) {
+  border-radius: 0;
+}
+
+:root[data-theme="bitmap"] .set-nav-item[aria-current="true"],
+:root[data-theme="bitmap"] .palette-item[aria-selected="true"],
+:root[data-theme="bitmap"] .ctx-item.active {
+  --text: #fff;
+  --text-dim: #fff;
+  --text-faint: #fff;
+  --accent-text: #fff;
+  color: #fff;
+  background: #000;
+  box-shadow: none;
+}
+
+:root[data-theme="bitmap"] .ctx-sep {
+  height: 0;
+  background: none;
+  border-top: 1px dotted #000;
+}
+
+:root[data-theme="bitmap"] .toast-dot {
+  border-radius: 0;
+  background: #000;
+}
+
+:root[data-theme="bitmap"] .toast-life {
+  border-radius: 0;
+  background: #000;
+}
+
+:root[data-theme="bitmap"] .statusbar {
+  border-top: 1px solid #000;
+  color: #000;
+}
+
+:root[data-theme="bitmap"] .sb-item[data-link="online"] .sdot {
+  background: #000;
+  box-shadow: none;
+}
+
+:root[data-theme="bitmap"] .sb-turtle[data-on] {
+  padding: 0 6px;
+  background: #000;
+  color: #fff;
+}
+
+/* The desktop pattern shows through an empty list and behind the launch. */
+:root[data-theme="bitmap"] .list-region:has(.empty),
+:root[data-theme="bitmap"] .launch {
+  background: var(--bm-50);
+}
+
+:root[data-theme="bitmap"] .list-region .empty {
+  background: none;
+}
+
+:root[data-theme="bitmap"] .list-region .empty > * {
+  padding: 22px 30px;
+  border: 1px solid #000;
+  background: #fff;
+  box-shadow: 2px 2px 0 #000;
+}
+
+:root[data-theme="bitmap"] .empty-title {
+  font-size: 30px;
+}
+
+:root[data-theme="bitmap"] .empty-title.sm {
+  font-size: 20px;
+}
+
+:root[data-theme="bitmap"] .empty-mark {
+  color: #000;
+}
+
+:root[data-theme="bitmap"] .launch-stage {
+  padding: 30px 46px;
+  border: 1px solid #000;
+  background: #fff;
+  box-shadow: 2px 2px 0 #000;
+}
+
+:root[data-theme="bitmap"] .launch-mark {
+  color: #000;
+  filter: none;
+}
+
+:root[data-theme="bitmap"] .launch-word {
+  font-size: 34px;
+}
+
+:root[data-theme="bitmap"] .launch-glow {
+  display: none;
+}
+
+:root[data-theme="bitmap"] :is(.launch-stage, .launch-word span) {
+  filter: none !important;
+}
+
+:root[data-theme="bitmap"] .recover-card {
+  padding: 24px;
+}
+
+:root[data-theme="bitmap"] .dropzone-inner {
+  border: 2px dashed #000;
+  border-radius: 0;
+  background: #fff;
+  box-shadow: 2px 2px 0 #000;
+}
+
+:root[data-theme="bitmap"] :focus-visible {
+  outline: 2px solid #000;
+  outline-offset: 2px;
+}
+
+:root[data-theme="bitmap"] :is(.table, .tab, .filter, .set-nav-item, .palette-item, .ctx-item, .th):focus-visible {
+  outline-offset: -3px;
+}
+
+:root[data-theme="bitmap"] .trow[data-selected] :focus-visible,
+:root[data-theme="bitmap"] :is(.filter[aria-current="true"], .tab[aria-selected="true"]):focus-visible {
+  outline-color: #fff;
+}
+
+:root[data-theme="bitmap"] .check input:focus-visible + span,
+:root[data-theme="bitmap"] .toggle input:focus-visible + .toggle-track {
+  outline: 2px solid #000;
+  outline-offset: 2px;
+}
+
+:root[data-theme="bitmap"] ::-webkit-scrollbar {
+  width: 16px;
+  height: 16px;
+}
+
+:root[data-theme="bitmap"] ::-webkit-scrollbar-track {
+  background: var(--bm-50);
+  box-shadow: inset 1px 0 #000;
+}
+
+:root[data-theme="bitmap"] ::-webkit-scrollbar-thumb {
+  border: 1px solid #000;
+  border-radius: 0;
+  background: #fff;
+}
+
+:root[data-theme="bitmap"] ::-webkit-scrollbar-corner {
+  background: #fff;
+}
+
+.theme-pick[data-pick="bitmap"] .swatch {
+  border-radius: 0;
+  border-color: #000 !important;
+  background-image: repeating-linear-gradient(#000 0 1px, #fff 1px 2px) !important;
+  background-size: 100% 10px !important;
+  background-repeat: no-repeat !important;
+  box-shadow: 2px 2px 0 #000;
+}
+
+.theme-pick[data-pick="bitmap"] .swatch i {
+  height: 6px;
+  border-radius: 0;
+}
+
+.theme-pick[data-pick="bitmap"] .swatch i:last-child {
+  background: repeating-conic-gradient(#000 0 25%, #fff 0 50%) 0 0 / 2px 2px !important;
+  box-shadow: 0 0 0 1px #000;
+}
+
+/* ── Hologram: a heads-up display ─────────────────────────────────────────── */
+/* Light projected on a dark grid: notched controls, corner brackets instead of
+   boxes, wide-tracked capitals, iridescent fills that shimmer, a slow scan. */
+:root[data-theme="hologram"] body {
+  font-variant-numeric: tabular-nums;
+}
+
+:root[data-theme="hologram"] .app {
+  background:
+    radial-gradient(70% 55% at 78% -8%, #3b1f8a59, transparent 70%),
+    radial-gradient(50% 40% at 8% 108%, #0d6f8a33, transparent 70%),
+    linear-gradient(#ffffff07 1px, transparent 1px) 0 0 / 32px 32px,
+    linear-gradient(90deg, #ffffff07 1px, transparent 1px) 0 0 / 32px 32px,
+    #05030c;
+}
+
+/* The scan: a faint band of light passes down the window every few seconds. */
+:root[data-theme="hologram"] .app::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  pointer-events: none;
+  background: linear-gradient(180deg, transparent 0, #6ef3ff09 46%, #6ef3ff17 50%, #6ef3ff09 54%, transparent 100%) 0 0 / 100% 240px no-repeat;
+  animation: holoScan 9s linear infinite;
+}
+
+@keyframes holoScan {
+  from {
+    background-position: 0 -240px;
+  }
+  to {
+    background-position: 0 calc(100vh + 240px);
+  }
+}
+
+:root[data-theme="hologram"] :is(.sidebar, .detail, .list-region) {
+  background: transparent;
+}
+
+:root[data-theme="hologram"] .sidebar {
+  border-right: 1px solid var(--line-soft);
+  background: linear-gradient(180deg, #0e0a2199, #06041099);
+  box-shadow: inset -1px 0 #6ef3ff14;
+}
+
+:root[data-theme="hologram"] :is(.brand, .toolbar, .tabs) {
+  border-bottom: 1px solid transparent;
+  border-image: var(--holo-line) 1;
+}
+
+:root[data-theme="hologram"] .toolbar {
+  background: #05030c66;
+}
+
+:root[data-theme="hologram"] :is(.brand-mark, .tb-title h1, .modal-title, .empty-title, .launch-word, .recover-title, .dropzone-inner .display) {
+  text-transform: uppercase;
+}
+
+:root[data-theme="hologram"] .brand-mark {
+  font-size: 21px;
+  letter-spacing: 0.32em;
+  background: var(--holo);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+:root[data-theme="hologram"] .tb-title h1 {
+  font-size: 19px;
+  letter-spacing: 0.16em;
+}
+
+:root[data-theme="hologram"] :is(.speed-big, .ov-pct) {
+  font-family: var(--font-data);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+:root[data-theme="hologram"] .speed-big {
+  font-size: 30px;
+  color: var(--accent-hi);
+  text-shadow: 0 0 18px #ff5fd277;
+}
+
+:root[data-theme="hologram"] .speed-num.up .speed-big {
+  font-size: 20px;
+  color: #c8fbff;
+  text-shadow: 0 0 14px #6ef3ff66;
+}
+
+:root[data-theme="hologram"] .filter {
+  border-radius: 0;
+}
+
+:root[data-theme="hologram"] .filter-active {
+  border-radius: 0;
+  background: linear-gradient(90deg, #ff5fd236, #a58bff14 60%, transparent);
+  box-shadow: inset 2px 0 #ff5fd2, -6px 0 14px -6px #ff5fd2;
+}
+
+:root[data-theme="hologram"] .filter[aria-current="true"] {
+  color: #fff;
+}
+
+:root[data-theme="hologram"] :is(.filter-label, .filter-count) {
+  letter-spacing: 0.06em;
+}
+
+/* The list: hairlines and light, no boxes. */
+:root[data-theme="hologram"] .thead {
+  background: #07051099;
+  border-bottom-color: var(--line);
+}
+
+:root[data-theme="hologram"] .trow {
+  border-bottom-color: #ffffff09;
+}
+
+:root[data-theme="hologram"] .trow:not([data-selected]):hover {
+  background: linear-gradient(90deg, #6ef3ff0d, transparent 70%);
+}
+
+:root[data-theme="hologram"] .trow-sel {
+  inset: 0;
+  border-radius: 0;
+  background: linear-gradient(90deg, #ff5fd22e, #a58bff12 55%, transparent);
+  box-shadow: inset 2px 0 #ff5fd2, inset 0 1px #ff5fd233, inset 0 -1px #ff5fd233;
+}
+
+:root[data-theme="hologram"] .trow[data-focused]::before {
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  border-radius: 0;
+  background: linear-gradient(#6ef3ff, #ff5fd2);
+  box-shadow: 0 0 8px #ff5fd2;
+}
+
+:root[data-theme="hologram"] .tname {
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+:root[data-theme="hologram"] .pill {
+  border-radius: 0;
+  clip-path: polygon(4px 0, 100% 0, 100% calc(100% - 4px), calc(100% - 4px) 100%, 0 100%, 0 4px);
+}
+
+:root[data-theme="hologram"] .sdot {
+  border-radius: 0;
+  rotate: 45deg;
+  scale: 0.85;
+}
+
+/* Meters: a segmented track, an iridescent fill that shimmers along. */
+:root[data-theme="hologram"] .bar {
+  height: 6px;
+  border-radius: 0;
+  background: #ffffff0f;
+  box-shadow: inset 0 0 0 1px #ffffff0d;
+}
+
+:root[data-theme="hologram"] .bar::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(90deg, transparent 0 6px, #05030c 6px 8px);
+}
+
+:root[data-theme="hologram"] .bar-fill {
+  border-radius: 0;
+  background: linear-gradient(90deg, #6ef3ff, #a58bff, #ff5fd2, #ffd36e, #6ef3ff) 0 0 / 300% 100%;
+  animation: holoShimmer 5s linear infinite;
+}
+
+:root[data-theme="hologram"] .bar-head {
+  width: 14px;
+  border-radius: 0;
+  background: linear-gradient(90deg, transparent, #fff);
+}
+
+:root[data-theme="hologram"] .trow[data-status="downloading"] .bar {
+  box-shadow: inset 0 0 0 1px #ffffff0d, 0 0 14px -4px #ff5fd2aa;
+}
+
+:root[data-theme="hologram"] .trow:is([data-tone="seed"], [data-tone="seed-dim"]) .bar-fill {
+  background: #7dffc0;
+  animation: none;
+}
+
+:root[data-theme="hologram"] .trow[data-tone="seed-dim"] .bar-fill {
+  opacity: 0.55;
+}
+
+:root[data-theme="hologram"] .trow[data-tone="idle"] .bar-fill {
+  background: #7f78b0;
+  animation: none;
+}
+
+:root[data-theme="hologram"] .trow:is([data-tone="warn"], [data-status="checking"]) .bar-fill {
+  background: repeating-linear-gradient(-60deg, #ffd36e 0 5px, #ffd36e55 5px 10px) 0 0 / 20px 100%;
+  animation: holoShimmer 1.6s linear infinite;
+}
+
+:root[data-theme="hologram"] .trow[data-tone="err"] .bar-fill {
+  background: #ff6680;
+  animation: none;
+}
+
+:root[data-theme="hologram"] :is(.bar.sm, .bar.xs) {
+  height: 4px;
+}
+
+:root[data-theme="hologram"] :is(.bar.sm, .bar.xs)::after {
+  display: none;
+}
+
+:root[data-theme="hologram"] .modal .bar {
+  flex: 0 0 8px;
+  width: 100%;
+  height: 8px;
+}
+
+@keyframes holoShimmer {
+  to {
+    background-position: 100% 0;
+  }
+}
+
+/* Notched controls with tracked capitals; the primary one is iridescent. */
+:root[data-theme="hologram"] :is(.btn, .chip) {
+  border-color: #6ef3ff4d;
+  border-radius: 0;
+  clip-path: var(--notch);
+  background: #6ef3ff0a;
+  color: #dff9ff;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+:root[data-theme="hologram"] :is(.btn, .chip):hover {
+  border-color: #6ef3ffb3;
+  background: #6ef3ff1a;
+  color: #fff;
+}
+
+:root[data-theme="hologram"] .btn.primary {
+  border-color: transparent;
+  background: linear-gradient(100deg, #6ef3ff, #a58bff, #ff5fd2, #ffd36e, #6ef3ff) 0 0 / 300% 100%;
+  color: #05030c;
+  font-weight: 700;
+  animation: holoShimmer 6s linear infinite;
+}
+
+:root[data-theme="hologram"] .btn.primary:hover {
+  filter: brightness(1.12);
+  color: #05030c;
+}
+
+:root[data-theme="hologram"] .btn.primary:disabled {
+  animation: none;
+  filter: saturate(0.3) brightness(0.7);
+}
+
+:root[data-theme="hologram"] .btn.ghost {
+  border-color: transparent;
+  background: transparent;
+}
+
+:root[data-theme="hologram"] .btn.danger {
+  border-color: #ff668080;
+  background: #ff66801a;
+  color: #ffb3c0;
+}
+
+:root[data-theme="hologram"] .chip[aria-checked="true"] {
+  border-color: #ff5fd2;
+  background: #ff5fd22e;
+  color: #fff;
+}
+
+:root[data-theme="hologram"] .icon-btn {
+  border-radius: 0;
+}
+
+:root[data-theme="hologram"] .icon-btn:hover {
+  background: #6ef3ff17;
+  color: #fff;
+}
+
+:root[data-theme="hologram"] :is(.input, .tb-search, .select) {
+  border-color: var(--line);
+  border-radius: 0;
+  background-color: #06041099;
+}
+
+:root[data-theme="hologram"] :is(.input:focus, .tb-search:focus-within, .select:focus) {
+  border-color: #6ef3ff;
+  box-shadow: 0 0 0 1px #6ef3ff40, 0 0 18px -4px #6ef3ff99;
+}
+
+:root[data-theme="hologram"] .check span {
+  border-color: #6ef3ff80;
+  border-radius: 0;
+}
+
+:root[data-theme="hologram"] .check input:checked + span {
+  border-color: #ff5fd2;
+  background: #ff5fd2;
+  box-shadow: inset 0 0 0 2px var(--bg), 0 0 10px #ff5fd2aa;
+}
+
+:root[data-theme="hologram"] .toggle-track {
+  border-radius: 0;
+  border-color: #6ef3ff4d;
+  background: #06041099;
+}
+
+:root[data-theme="hologram"] .toggle-thumb {
+  border-radius: 0;
+  rotate: 45deg;
+  scale: 0.8;
+  background: #7f78b0;
+}
+
+:root[data-theme="hologram"] .toggle input:checked + .toggle-track {
+  border-color: #ff5fd2;
+  background: #ff5fd21f;
+}
+
+:root[data-theme="hologram"] .toggle input:checked + .toggle-track .toggle-thumb {
+  /* The diamond is rotated, so a transform would slide it diagonally: move
+     it with left (a translate property gets folded into transform when built). */
+  left: 15px;
+  transform: none;
+  background: #ff5fd2;
+  box-shadow: 0 0 10px #ff5fd2;
+}
+
+:root[data-theme="hologram"] .toggle-thumb {
+  transition: left 0.3s var(--ease), background-color 0.25s var(--ease);
+}
+
+/* Detail: bracketed readouts. */
+:root[data-theme="hologram"] .tab-underline {
+  left: 6px;
+  right: 6px;
+  height: 2px;
+  border-radius: 0;
+  background: var(--holo);
+  box-shadow: 0 0 12px #ff5fd2bb;
+}
+
+:root[data-theme="hologram"] .tab[aria-selected="true"] {
+  color: #fff;
+  text-shadow: 0 0 12px #ff5fd288;
+}
+
+:root[data-theme="hologram"] .resizer {
+  background: transparent;
+  border-top: 1px solid transparent;
+  border-image: var(--holo-line) 1;
+}
+
+:root[data-theme="hologram"] .ov-name {
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+:root[data-theme="hologram"] .ov-pct {
+  font-size: 44px;
+  background: var(--holo);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+:root[data-theme="hologram"] .stats {
+  border: 1px solid #ffffff10;
+  border-radius: 0;
+  background: var(--hud), #0e0a2166;
+  background-origin: border-box;
+}
+
+:root[data-theme="hologram"] .stat {
+  border-color: #ffffff0d;
+}
+
+:root[data-theme="hologram"] .piecemap {
+  border-radius: 0;
+  box-shadow: 0 0 0 1px #ffffff12, 0 0 20px -8px #ff5fd277;
+}
+
+:root[data-theme="hologram"] .speed-graph {
+  border: 1px solid #ffffff10;
+  background:
+    var(--hud),
+    linear-gradient(#ffffff08 1px, transparent 1px) 0 0 / 24px 24px,
+    linear-gradient(90deg, #ffffff08 1px, transparent 1px) 0 0 / 24px 24px;
+  background-origin: border-box;
+}
+
+/* Panels materialise from light: bracketed, translucent, iridescent edges. */
+:root[data-theme="hologram"] .modal-scrim {
+  background: var(--scrim);
+  backdrop-filter: blur(6px) saturate(1.3);
+  -webkit-backdrop-filter: blur(6px) saturate(1.3);
+}
+
+:root[data-theme="hologram"] :is(.modal, .palette, .ctx-menu, .recover-card) {
+  border: 1px solid #6ef3ff2b;
+  border-radius: 0;
+  background: var(--hud), #0b0819f0;
+  background-origin: border-box;
+  box-shadow: var(--shadow);
+}
+
+:root[data-theme="hologram"] :is(.modal-head, .modal-foot) {
+  background: transparent;
+}
+
+:root[data-theme="hologram"] .modal-head {
+  border-bottom: 1px solid transparent;
+  border-image: var(--holo-line) 1;
+}
+
+:root[data-theme="hologram"] .modal-foot {
+  border-top-color: #ffffff12;
+}
+
+:root[data-theme="hologram"] .modal-title {
+  font-size: 22px;
+  letter-spacing: 0.14em;
+}
+
+:root[data-theme="hologram"] .eyebrow {
+  color: #6ef3ff;
+}
+
+:root[data-theme="hologram"] .set-nav {
+  background: #06041066;
+  border-right-color: #ffffff10;
+}
+
+:root[data-theme="hologram"] :is(.set-nav-item, .palette-item, .ctx-item) {
+  border-radius: 0;
+}
+
+:root[data-theme="hologram"] .set-nav-item[aria-current="true"],
+:root[data-theme="hologram"] .palette-item[aria-selected="true"],
+:root[data-theme="hologram"] .ctx-item.active {
+  color: #fff;
+  background: linear-gradient(90deg, #ff5fd233, transparent);
+  box-shadow: inset 2px 0 #ff5fd2;
+}
+
+:root[data-theme="hologram"] .toast {
+  border: 1px solid #6ef3ff2b;
+  border-radius: 0;
+  clip-path: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px);
+  background: linear-gradient(100deg, #6ef3ff14, #ff5fd214), #0b0819f2;
+}
+
+:root[data-theme="hologram"] .toast-dot {
+  border-radius: 0;
+  rotate: 45deg;
+  box-shadow: 0 0 10px currentColor;
+}
+
+:root[data-theme="hologram"] .toast-title {
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-size: 11px;
+}
+
+:root[data-theme="hologram"] .toast-life {
+  border-radius: 0;
+  background: var(--holo);
+}
+
+:root[data-theme="hologram"] .statusbar {
+  border-top: 1px solid transparent;
+  border-image: var(--holo-line) 1;
+  background: #05030ccc;
+  letter-spacing: 0.08em;
+}
+
+:root[data-theme="hologram"] .sb-item[data-link="online"] .sdot {
+  background: #7dffc0;
+  box-shadow: 0 0 8px #7dffc0;
+}
+
+:root[data-theme="hologram"] .sb-turtle[data-on] {
+  color: #ffd36e;
+  text-shadow: 0 0 10px #ffd36e99;
+}
+
+:root[data-theme="hologram"] .empty-title {
+  font-size: 40px;
+  letter-spacing: 0.18em;
+  background: var(--holo);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+:root[data-theme="hologram"] .empty-title.sm {
+  font-size: 26px;
+}
+
+:root[data-theme="hologram"] .empty-mark {
+  color: #ff5fd2;
+  filter: drop-shadow(0 0 14px #ff5fd288);
+}
+
+:root[data-theme="hologram"] .launch {
+  background:
+    radial-gradient(60% 50% at 50% 40%, #3b1f8a66, transparent 70%),
+    linear-gradient(#ffffff08 1px, transparent 1px) 0 0 / 32px 32px,
+    linear-gradient(90deg, #ffffff08 1px, transparent 1px) 0 0 / 32px 32px,
+    #05030c;
+}
+
+:root[data-theme="hologram"] .launch-word {
+  /* Solid light, not clipped iridescence: the letters animate one by one,
+     and WebKit doesn't clip a parent's gradient through them. */
+  font-size: 40px;
+  letter-spacing: 0.4em;
+  color: #f6edff;
+  text-shadow: -1px 0 #6ef3ffaa, 1px 0 #ff5fd2aa, 0 0 22px #ff5fd288;
+}
+
+:root[data-theme="hologram"] .dropzone-inner {
+  border: 1px dashed #6ef3ffaa;
+  border-radius: 0;
+  background: var(--hud), #0b0819e0;
+  background-origin: border-box;
+  box-shadow: 0 0 40px -10px #ff5fd277;
+}
+
+:root[data-theme="hologram"] :focus-visible {
+  outline: 1px solid #6ef3ff;
+  outline-offset: 2px;
+  box-shadow: 0 0 12px -2px #6ef3ff;
+}
+
+:root[data-theme="hologram"] :is(.table, .tab, .filter, .set-nav-item, .palette-item, .ctx-item, .th):focus-visible {
+  outline-offset: -2px;
+  box-shadow: none;
+}
+
+:root[data-theme="hologram"] .check input:focus-visible + span,
+:root[data-theme="hologram"] .toggle input:focus-visible + .toggle-track {
+  outline: 1px solid #6ef3ff;
+  outline-offset: 3px;
+}
+
+:root[data-theme="hologram"] ::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+:root[data-theme="hologram"] ::-webkit-scrollbar-thumb {
+  border: 0;
+  border-radius: 0;
+  background: linear-gradient(#6ef3ff66, #ff5fd266);
+}
+
+.theme-pick[data-pick="hologram"] .swatch {
+  border-radius: 0;
+  border-color: #6ef3ff55 !important;
+  background-image:
+    linear-gradient(#6ef3ff, #6ef3ff), linear-gradient(#6ef3ff, #6ef3ff),
+    linear-gradient(#ff5fd2, #ff5fd2), linear-gradient(#ff5fd2, #ff5fd2),
+    linear-gradient(#ffffff0a 1px, transparent 1px) !important;
+  background-size: 9px 1px, 1px 9px, 9px 1px, 1px 9px, 8px 8px !important;
+  background-position: 0 0, 0 0, 100% 100%, 100% 100%, 0 0 !important;
+  background-repeat: no-repeat, no-repeat, no-repeat, no-repeat, repeat !important;
+  background-origin: border-box !important;
+}
+
+.theme-pick[data-pick="hologram"] .swatch i {
+  height: 4px;
+  border-radius: 0;
+}
+
+.theme-pick[data-pick="hologram"] .swatch i:first-child {
+  background: linear-gradient(100deg, #6ef3ff, #a58bff, #ff5fd2, #ffd36e) !important;
+  box-shadow: 0 0 8px #ff5fd2aa;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root[data-theme="hologram"] .app::after {
+    display: none;
+  }
+  :root[data-theme="hologram"] :is(.btn.primary, .bar-fill) {
+    animation: none !important;
   }
 }
 

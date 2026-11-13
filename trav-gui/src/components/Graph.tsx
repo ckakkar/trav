@@ -56,7 +56,8 @@ export function Graph({
         up: cssVar(c, "--up"),
         line: cssVar(c, "--line-soft"),
         faint: cssVar(c, "--text-faint"),
-        // How the register draws: "glow" (Ink), "print" (Paper, overprinting inks), "plain".
+        // How the register draws: "glow" (Ink), "print" (Paper, overprinting inks),
+        // "pixel" (Bevel, Bitmap: straight 1px steps over a dithered fill), "plain".
         style: cssVar(c, "--graph"),
       };
     };
@@ -81,9 +82,30 @@ export function Graph({
     const mo = new MutationObserver(readColors);
     mo.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
 
-    function path(points: [number, number][]) {
+    /** A 50% checkerboard of `color`, one CSS pixel per square: a fill that dithers. */
+    const dithers = new Map<string, CanvasPattern | null>();
+    function dither(color: string) {
+      if (!dithers.has(color)) {
+        const tile = document.createElement("canvas");
+        tile.width = tile.height = 2;
+        const t = tile.getContext("2d");
+        if (t) {
+          t.fillStyle = color;
+          t.fillRect(0, 0, 1, 1);
+          t.fillRect(1, 1, 1, 1);
+        }
+        dithers.set(color, t ? ctx.createPattern(tile, "repeat") : null);
+      }
+      return dithers.get(color) ?? color;
+    }
+
+    function path(points: [number, number][], straight = false) {
       ctx.beginPath();
       ctx.moveTo(points[0][0], points[0][1]);
+      if (straight) {
+        for (const [px, py] of points.slice(1)) ctx.lineTo(Math.round(px) + 0.5, Math.round(py) + 0.5);
+        return;
+      }
       for (let i = 1; i < points.length - 1; i++) {
         const mx = (points[i][0] + points[i + 1][0]) / 2;
         const my = (points[i][1] + points[i + 1][1]) / 2;
@@ -140,14 +162,19 @@ export function Graph({
       if (vis.length >= 2) {
         const print = colors.style === "print";
         const glow = colors.style === "glow";
+        const pixel = colors.style === "pixel";
+        ctx.imageSmoothingEnabled = !pixel;
         for (const series of ["up", "down"] as const) {
           const color = series === "down" ? colors.down : colors.up;
           const pts: [number, number][] = vis.map((s) => [x(s.t), y(s[series])]);
-          path(pts);
+          path(pts, pixel);
           ctx.lineTo(pts[pts.length - 1][0], bottom);
           ctx.lineTo(pts[0][0], bottom);
           ctx.closePath();
-          if (print) {
+          if (pixel) {
+            // Only the download is filled, in a dither of its own color.
+            ctx.fillStyle = series === "down" ? dither(color) : "transparent";
+          } else if (print) {
             // Flat ink that overprints: pink over blue turns violet where they meet.
             ctx.globalCompositeOperation = "multiply";
             ctx.fillStyle = withAlpha(color, series === "down" ? 0.32 : 0.22);
@@ -158,9 +185,9 @@ export function Graph({
             ctx.fillStyle = g;
           }
           ctx.fill();
-          path(pts);
+          path(pts, pixel);
           ctx.strokeStyle = color;
-          ctx.lineWidth = print ? (series === "down" ? 2 : 1.5) : series === "down" ? 1.6 : 1.3;
+          ctx.lineWidth = pixel ? 1 : print ? (series === "down" ? 2 : 1.5) : series === "down" ? 1.6 : 1.3;
           ctx.setLineDash(series === "up" && !print ? [3, 3] : []);
           if (glow) {
             ctx.shadowColor = color;
@@ -176,7 +203,8 @@ export function Graph({
         const lx = Math.min(w - 3, x(last.t));
         const ly = y(last.down);
         ctx.fillStyle = colors.down;
-        if (print) ctx.fillRect(lx - 2.5, ly - 2.5, 5, 5);
+        if (pixel) ctx.fillRect(Math.round(lx) - 2, Math.round(ly) - 2, 4, 4);
+        else if (print) ctx.fillRect(lx - 2.5, ly - 2.5, 5, 5);
         else {
           if (glow) {
             ctx.fillStyle = withAlpha(colors.down, 0.25);
