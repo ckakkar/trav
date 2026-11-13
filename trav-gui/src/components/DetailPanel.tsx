@@ -30,6 +30,7 @@ export interface DetailActions {
   addPeers: (hash: string, peers: string[]) => void;
   reannounce: (hash: string) => void;
   move: (hash: string) => void;
+  limits: (hash: string) => void;
   toast: (title: string, opts?: { body?: string; tone?: "info" | "ok" | "error" }) => void;
 }
 
@@ -196,6 +197,12 @@ function Overview({ d, actions }: { d: TorrentDetails; actions: DetailActions })
           {s.peers} <span className="faint">of {s.swarmPeers ?? "?"}</span>
         </Stat>
         <Stat label="Availability">{s.availability.toFixed(2)}</Stat>
+        <Stat label="Speed limits">
+          <span>{s.downloadLimit || s.uploadLimit ? `↓ ${s.downloadLimit ? rate(s.downloadLimit) : "∞"} · ↑ ${s.uploadLimit ? rate(s.uploadLimit) : "∞"}` : "none"}</span>
+          <button className="chip" onClick={() => actions.limits(s.infoHash)}>
+            Change…
+          </button>
+        </Stat>
         <Stat label="Pieces">{d.numPieces ? `${d.numPieces} × ${bytes(d.pieceLength, 0)}` : "—"}</Stat>
         <Stat label="Wasted">
           {bytes(d.wasted)}

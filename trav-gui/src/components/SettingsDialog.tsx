@@ -23,6 +23,15 @@ export interface UiPrefs {
 }
 
 const SECTIONS = ["Downloads", "Bandwidth", "Network", "Interface", "App"] as const;
+
+const DAYS = ["S", "M", "T", "W", "T", "F", "S"];
+const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+/** Minutes after midnight ↔ "HH:MM" for time inputs. */
+const hhmm = (m: number) => `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+function minutes(value: string, fallback: number) {
+  const [h, m] = value.split(":").map(Number);
+  return Number.isFinite(h) && Number.isFinite(m) ? (h * 60 + m) % 1440 : fallback;
+}
 type Section = (typeof SECTIONS)[number];
 
 function Row({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
@@ -186,6 +195,41 @@ export function SettingsDialog({
               <Row label="Upload slots per torrent" hint="peers unchoked at once">
                 <Num value={s.uploadSlots} onChange={(v) => set("uploadSlots", v)} min={1} max={200} />
               </Row>
+              <Row label="Alternative download limit" hint="in force while the turtle in the status bar is on · 0 = unlimited">
+                <Num value={kb(s.altDownloadLimit)} onChange={(v) => set("altDownloadLimit", v * 1024)} suffix="KB/s" />
+              </Row>
+              <Row label="Alternative upload limit" hint="0 = no fixed limit">
+                <Num value={kb(s.altUploadLimit)} onChange={(v) => set("altUploadLimit", v * 1024)} suffix="KB/s" />
+              </Row>
+              <Row label="Use them on a schedule" hint="switch the alternative limits on and off by themselves">
+                <Toggle checked={s.altSchedule} onChange={(v) => set("altSchedule", v)} label="" />
+              </Row>
+              {s.altSchedule && (
+                <Row label="When" hint={s.altFrom > s.altTo ? "runs past midnight into the next day" : s.altFrom === s.altTo ? "all day" : undefined}>
+                  <div className="schedule">
+                    <div className="field-row">
+                      <input className="input mono" type="time" aria-label="From" value={hhmm(s.altFrom)} onChange={(e) => set("altFrom", minutes(e.target.value, s.altFrom))} />
+                      <span className="faint">to</span>
+                      <input className="input mono" type="time" aria-label="To" value={hhmm(s.altTo)} onChange={(e) => set("altTo", minutes(e.target.value, s.altTo))} />
+                    </div>
+                    <div className="seg days" role="group" aria-label="Days">
+                      {DAYS.map((d, i) => (
+                        <button
+                          key={i}
+                          type="button"
+                          className="chip"
+                          role="checkbox"
+                          aria-checked={(s.altDays & (1 << i)) !== 0}
+                          aria-label={DAY_NAMES[i]}
+                          onClick={() => set("altDays", s.altDays ^ (1 << i))}
+                        >
+                          {d}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </Row>
+              )}
               <div className="presets">
                 {[0, 512, 1024, 5 * 1024, 20 * 1024].map((v) => (
                   <button key={v} className="chip" onClick={() => set("downloadLimit", v * 1024)}>

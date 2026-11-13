@@ -10,6 +10,8 @@ All notable changes to this project are documented here. The format follows
 - Trav checks for updates itself, from the app rather than the window, and if the window doesn't respond to an update it finds (it has crashed, or never loaded), offers it in a native dialog. A broken release can always be replaced; 0.3.48's couldn't.
 
 ### Added
+- Speed limits per torrent (right-click › Speed limits…, or Overview), on top of the overall ones, kept across restarts.
+- Alternative speed limits: a second pair of overall limits, switched on with the turtle in the status bar or on a schedule (hours and days, including overnight) in Settings › Bandwidth. The automatic upload limit works with whichever limit is in force.
 - Move Data…: move a torrent's files to another folder, from the right-click menu or the Save path in Overview. Files are renamed in place on the same disk and copied (then removed) across disks; nothing is ever overwritten, a failure puts back what had moved, and the torrent carries on from the new folder.
 
 ### Changed

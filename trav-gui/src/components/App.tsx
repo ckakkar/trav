@@ -11,6 +11,7 @@ import {
   FileDown,
   FolderOpen,
   FolderInput,
+  Gauge,
   Layers,
   ListOrdered,
   Magnet,
@@ -60,6 +61,7 @@ import { FILTER_TESTS, isPausedLike, visibleTorrents, type FilterId } from "@/li
 import { load, save } from "@/lib/storage";
 import { Sidebar, type FilterDef } from "./Sidebar";
 import { StatusBar } from "./StatusBar";
+import { LimitsDialog } from "./LimitsDialog";
 import { Launch } from "./Launch";
 import { Mark } from "./Mark";
 import { TorrentTable, type Sort, type SortKey } from "./TorrentTable";
@@ -574,6 +576,35 @@ export default function App({ skipLaunch = false }: { skipLaunch?: boolean }) {
   };
 
   // ── Context menu & palette entries ────────────────────────────────────────
+  // ── Speed limits ──────────────────────────────────────────────────────────
+  const [limitsFor, setLimitsFor] = useState<{ hashes: string[]; name: string; download: number; upload: number } | null>(null);
+  const openLimits = useCallback(
+    (hashes: string[]) => {
+      const first = byHash.get(hashes[0]);
+      if (!first) return;
+      setLimitsFor({ hashes, name: first.name, download: first.downloadLimit, upload: first.uploadLimit });
+    },
+    [byHash],
+  );
+  /** The status bar's turtle: the alternative limits on or off. */
+  const setAltSpeed = useCallback(
+    async (on: boolean) => {
+      try {
+        const s = await call<{ altSpeed: boolean; altSchedule: boolean }>("getSettings");
+        if (!on && !s.altSpeed && s.altSchedule) {
+          toast("On by schedule", { body: "Change the schedule in Settings › Bandwidth." });
+          return;
+        }
+        await call("setSettings", { altSpeed: on });
+        refresh();
+        toast(on ? "Alternative speed limits on" : "Alternative speed limits off");
+      } catch (e) {
+        fail(e);
+      }
+    },
+    [refresh, toast, fail],
+  );
+
   /** Move a torrent's files to a folder the user picks; the engine answers once they're there. */
   const moveData = useCallback(
     async (hash: string) => {
@@ -615,6 +646,7 @@ export default function App({ skipLaunch = false }: { skipLaunch?: boolean }) {
       "sep",
       { label: "Show in Finder", icon: <FolderOpen size={14} />, hint: "↵", disabled: many, onSelect: () => revealHash(hash) },
       { label: "Move data…", icon: <FolderInput size={14} />, disabled: many || t?.status === "moving", onSelect: () => moveData(hash) },
+      { label: "Speed limits…", icon: <Gauge size={14} />, onSelect: () => openLimits(hashes) },
       {
         label: "Copy magnet link",
         icon: <Copy size={14} />,
@@ -793,13 +825,28 @@ export default function App({ skipLaunch = false }: { skipLaunch?: boolean }) {
               addPeers: (hash, peers) => call("addPeers", { hash, peers }).then(() => toast("Peers queued")).catch(fail),
               reannounce: (hash) => act("reannounce", [hash]).then(() => toast("Reannouncing")),
               move: moveData,
+              limits: (hash) => openLimits([hash]),
               toast,
             }}
           />
         </div>
       </main>
 
-      <StatusBar stats={stats} link={link} onLimits={() => setSettingsOpen(true)} />
+      <StatusBar stats={stats} link={link} onLimits={() => setSettingsOpen(true)} onAltSpeed={setAltSpeed} />
+
+      <LimitsDialog
+        target={limitsFor}
+        onClose={() => setLimitsFor(null)}
+        onSave={(hashes, download, upload) => {
+          setLimitsFor(null);
+          call("setLimits", { hashes, download, upload })
+            .then(() => {
+              refresh();
+              toast(download || upload ? "Speed limits set" : "Speed limits removed", { tone: "ok" });
+            })
+            .catch(fail);
+        }}
+      />
 
 
       <AnimatePresence>

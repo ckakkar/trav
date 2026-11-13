@@ -32,7 +32,7 @@ function snapshot(torrents: TorrentSummary[]): EngineSnapshot {
     seq: 1,
     torrents,
     stats: {
-      downloadRate: 3_000_000, uploadRate: 490_000, sessionDownloaded: 4e9, sessionUploaded: 8e8, downloadLimit: 0,
+      altSpeed: false, downloadRate: 3_000_000, uploadRate: 490_000, sessionDownloaded: 4e9, sessionUploaded: 8e8, downloadLimit: 0,
       uploadLimit: 1_200_000, uploadAuto: true, connectedPeers: 97, dhtNodes: 318, listenPort: 51413, connectable: true,
       freeSpace: 184e9, upnp: "mapped by UPnP",
     },

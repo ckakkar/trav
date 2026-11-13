@@ -41,6 +41,8 @@ pub(crate) struct Ctx {
     pub store: Store,
     pub tracker_key: u32,
     pub connectable: AtomicBool,
+    /// The alternative limits are in force (switched on, or by the schedule).
+    pub alt_active: AtomicBool,
     pub session_down: AtomicU64,
     pub session_up: AtomicU64,
     pub upnp_status: RwLock<Option<String>>,

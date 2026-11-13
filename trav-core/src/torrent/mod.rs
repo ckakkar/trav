@@ -26,7 +26,7 @@ use tracing::{debug, info, warn};
 
 use crate::bitfield::Bitfield;
 use crate::ctx::Ctx;
-use crate::limiter::RateMeter;
+use crate::limiter::{RateLimiter, RateMeter};
 use crate::magnet::Magnet;
 use crate::message::Event;
 use crate::metainfo::{Info, InfoHash, Metainfo};
@@ -385,6 +385,8 @@ pub(crate) struct TorrentInit {
     pub sequential: bool,
     pub queue_pos: usize,
     pub trackers: Vec<Vec<String>>,
+    pub download_limit: u64,
+    pub upload_limit: u64,
 }
 
 pub(crate) struct Torrent {
@@ -392,6 +394,10 @@ pub(crate) struct Torrent {
     pub(crate) ctx: Arc<Ctx>,
     pub(crate) st: Mutex<State>,
     tx: mpsc::UnboundedSender<Cmd>,
+    /// This torrent's own limits, on top of the session's (0 = none). Outside
+    /// the state lock so peers can wait on them.
+    pub(crate) down_limit: RateLimiter,
+    pub(crate) up_limit: RateLimiter,
 }
 
 impl Torrent {
@@ -463,6 +469,8 @@ impl Torrent {
             ctx,
             st: Mutex::new(st),
             tx,
+            down_limit: RateLimiter::new(init.download_limit),
+            up_limit: RateLimiter::new(init.upload_limit),
         });
         {
             let mut st = t.st.lock();
@@ -1924,12 +1932,25 @@ impl Torrent {
 
     pub(crate) fn summary(&self) -> TorrentSummary {
         let st = self.st.lock();
-        summarize(&self.info_hash, &st)
+        self.with_limits(summarize(&self.info_hash, &st))
+    }
+
+    fn with_limits(&self, mut s: TorrentSummary) -> TorrentSummary {
+        s.download_limit = self.down_limit.rate();
+        s.upload_limit = self.up_limit.rate();
+        s
+    }
+
+    /// Set this torrent's own limits (bytes per second, 0 = none).
+    pub(crate) fn set_limits(&self, down: u64, up: u64) {
+        self.down_limit.set_rate(down);
+        self.up_limit.set_rate(up);
+        self.st.lock().dirty = true;
     }
 
     pub(crate) fn details(&self) -> TorrentDetails {
         let st = self.st.lock();
-        let summary = summarize(&self.info_hash, &st);
+        let summary = self.with_limits(summarize(&self.info_hash, &st));
         let b64 = base64::engine::general_purpose::STANDARD;
         let meta = st.meta.as_ref();
         let (pieces, in_progress) = match (&st.picker, meta) {
@@ -2123,6 +2144,8 @@ impl Torrent {
             completed_at: st.completed_at,
             sequential: st.sequential,
             queue_position: st.queue_pos,
+            download_limit: self.down_limit.rate(),
+            upload_limit: self.up_limit.rate(),
             trackers: st.extra_trackers.clone(),
         })
     }
@@ -2189,6 +2212,8 @@ fn summarize(ih: &InfoHash, st: &State) -> TorrentSummary {
             .as_ref()
             .map(Picker::distributed_copies)
             .unwrap_or(0.0),
+        download_limit: 0,
+        upload_limit: 0,
     }
 }
 

@@ -365,6 +365,7 @@ async fn deliver(t: &Arc<Torrent>, key: PeerKey, held: &mut Held, buf: &mut Byte
         }
         let data = buf.split_to(r.len as usize).freeze();
         t.ctx.down.acquire(data.len()).await;
+        t.down_limit.acquire(data.len()).await;
         held.reqs.pop_front();
         t.ctx
             .session_down

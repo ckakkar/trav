@@ -2,10 +2,22 @@
 
 import type { GlobalStats } from "@/lib/types";
 import type { Link } from "@/lib/engine";
+import { Turtle } from "lucide-react";
 import { bytes, rate } from "@/lib/format";
 import { Tween } from "@/lib/tween";
 
-export function StatusBar({ stats, link, onLimits }: { stats: GlobalStats | null; link: Link; onLimits: () => void }) {
+export function StatusBar({
+  stats,
+  link,
+  onLimits,
+  onAltSpeed,
+}: {
+  stats: GlobalStats | null;
+  link: Link;
+  onLimits: () => void;
+  /** Switch the alternative limits on or off. */
+  onAltSpeed: (on: boolean) => void;
+}) {
   const linkLabel = { connecting: "connecting", online: "engine", offline: "offline" }[link];
   return (
     <footer className="statusbar mono">
@@ -23,6 +35,16 @@ export function StatusBar({ stats, link, onLimits }: { stats: GlobalStats | null
           <span className="sb-item">peers {stats.connectedPeers}</span>
           {stats.freeSpace != null && <span className="sb-item">free {bytes(stats.freeSpace)}</span>}
           <span className="sb-spacer" />
+          <button
+            className="sb-item sb-btn sb-turtle"
+            data-on={stats.altSpeed || undefined}
+            aria-pressed={stats.altSpeed}
+            onClick={() => onAltSpeed(!stats.altSpeed)}
+            title={stats.altSpeed ? "Alternative speed limits are on (click to turn off)" : "Turn on the alternative speed limits"}
+            aria-label="Alternative speed limits"
+          >
+            <Turtle size={13} />
+          </button>
           <button className="sb-item sb-btn" onClick={onLimits} title="Bandwidth limits">
             <span className="accent-text">↓</span> <Tween value={stats.downloadRate} format={rate} />
             {stats.downloadLimit > 0 && <span className="faint"> / {rate(stats.downloadLimit)}</span>}

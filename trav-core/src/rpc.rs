@@ -36,6 +36,9 @@ struct Target {
     priorities: Vec<u8>,
     peers: Vec<String>,
     path: Option<String>,
+    /// Bytes per second, 0 = none ("setLimits").
+    download: u64,
+    upload: u64,
 }
 
 impl Target {
@@ -158,6 +161,14 @@ pub async fn dispatch(h: &EngineHandle, method: &str, params: Value) -> Result<V
             let t: Target = parse(params)?;
             h.set_file_priorities(t.one()?, t.priorities.clone())
                 .map_err(|e| e.to_string())?;
+            ok()
+        }
+        "setLimits" => {
+            let t: Target = parse(params)?;
+            for hash in t.all() {
+                h.set_limits(&hash, t.download, t.upload)
+                    .map_err(|e| e.to_string())?;
+            }
             ok()
         }
         "move" => {

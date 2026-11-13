@@ -630,6 +630,7 @@ impl Conn {
     async fn on_piece(&mut self, index: u32, begin: u32, block: Bytes) -> Result<()> {
         let len = block.len();
         self.t.ctx.down.acquire(len).await;
+        self.t.down_limit.acquire(len).await;
         if let Some(i) = self
             .pending
             .iter()
@@ -1054,6 +1055,7 @@ async fn uploader(
             }
         };
         t.ctx.up.acquire(data.len()).await;
+        t.up_limit.acquire(data.len()).await;
         let n = data.len() as u64;
         if out
             .send(PeerMessage::Piece {

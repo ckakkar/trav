@@ -2696,6 +2696,35 @@ body[data-resizing] .main {
   outline-offset: -3px;
 }
 
+/* ── Speed limits ────────────────────────────────────────────────────────── */
+.limits-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+.limits-fields .num-input .input {
+  width: 100%;
+}
+.schedule {
+  display: grid;
+  gap: 8px;
+  justify-items: end;
+}
+.schedule .input[type="time"] {
+  width: 104px;
+}
+.days .chip {
+  min-width: 26px;
+  justify-content: center;
+}
+/* The turtle lights up while the alternative limits are in force. */
+.sb-turtle[data-on] {
+  color: var(--warn);
+}
+:root[data-theme="ink"] .sb-turtle[data-on] {
+  filter: drop-shadow(0 0 4px var(--warn));
+}
+
 /* ── Moments (every register) ──────────────────────────────────────────────── */
 
 /* A status that changes (downloading → seeding) arrives rather than blinks. */

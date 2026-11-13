@@ -28,6 +28,8 @@ export function torrent(over: Partial<TorrentSummary> = {}): TorrentSummary {
     sequential: false,
     private: false,
     availability: 1,
+    downloadLimit: 0,
+    uploadLimit: 0,
     ...over,
   };
 }
