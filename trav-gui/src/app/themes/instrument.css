@@ -1,1 +1,698 @@
-/* instrument: placeholder */
+/* ── Instrument: a piece of modern hardware ───────────────────────────────── */
+/* Warm grey plastic and hairlines on a strict grid, tiny monospaced labels,
+   one signal orange, dot-matrix numerals behind a black display window,
+   rubber keys that travel when pressed and slide switches. Quick and exact. */
+:root[data-theme="instrument"] {
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-code: var(--font-geist-mono), ui-monospace, monospace;
+  --font-data: var(--font-geist-mono), ui-monospace, monospace;
+  --font-label: var(--font-geist-mono), ui-monospace, monospace;
+  --font-display: "Doto Variable", var(--font-geist-mono), monospace;
+  --display-weight: 800;
+  --display-tracking: 0;
+  --display-stretch: 100%;
+  --data-size: 11px;
+  --label-size: 9.5px;
+  --label-weight: 500;
+  --label-case: uppercase;
+  --label-tracking: 0.08em;
+  --radius: 4px;
+  --radius-lg: 6px;
+  --bar-h: 6px;
+  --ease: cubic-bezier(0.2, 0, 0, 1);
+  --canvas: #dcd9d2;
+  --bg: #e8e6e0;
+  --bg-raised: #f1efea;
+  --bg-inset: #d9d6ce;
+  --bg-hover: #f4f2ee;
+  --line: #c6c2b8;
+  --line-soft: #d4d0c7;
+  --text: #151514;
+  --text-dim: #4a4945;
+  --text-faint: #7a7870;
+  --accent: #ff4f12;
+  --accent-hi: #ff8a5c;
+  --accent-text: #d63d05;
+  --accent-soft: #ff4f1214;
+  --accent-line: #ff4f1266;
+  --accent-ink: #ffffff;
+  --up: #151514;
+  --ok: #1f8a4c;
+  --warn: #c98200;
+  --err: #d42a1e;
+  --scrim: #dcd9d299;
+  --shadow: 0 1px 0 #ffffffb3 inset, 0 24px 48px -24px #2a271f66, 0 0 0 1px #b8b3a8;
+  --graph: dots;
+  --graph-cell: 4px;
+  --graph-off: #d4d0c7;
+  --map-have: #151514;
+  --map-flight: #ff4f12;
+  --map-empty: #d4d0c7;
+  --map-flash: #ff8a5c;
+  --in-key: linear-gradient(180deg, #faf9f6, #ecebe6);
+  --in-oled: #0c0c0b;
+  --in-dots: radial-gradient(circle, currentColor 0 1.5px, transparent 1.9px) 0 50% / 5px 5px repeat-x;
+  color-scheme: light;
+}
+
+:root[data-theme="instrument"] body {
+  font-variant-numeric: tabular-nums;
+}
+
+:root[data-theme="instrument"] .app {
+  background: var(--canvas);
+  padding: 8px 8px 0;
+  column-gap: 8px;
+}
+
+/* Modules on a chassis: each panel a flat plate with a hairline edge. */
+:root[data-theme="instrument"] :is(.sidebar, .main > .toolbar, .main > .list-region, .main > .panel-wrap) {
+  background: var(--bg);
+  border: 1px solid var(--line);
+  box-shadow: inset 0 1px 0 #ffffffb3;
+}
+
+:root[data-theme="instrument"] .sidebar {
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+:root[data-theme="instrument"] .main {
+  grid-template-rows: var(--toolbar-h) auto minmax(0, 1fr) 8px var(--panel-h);
+}
+
+:root[data-theme="instrument"] .main > .toolbar {
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  border-bottom: 1px solid var(--line);
+}
+
+:root[data-theme="instrument"] .main > .list-region {
+  border-top: 0;
+  border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+}
+
+:root[data-theme="instrument"] .main > .panel-wrap {
+  border-radius: var(--radius-lg);
+}
+
+:root[data-theme="instrument"] .main > .panel-wrap[data-collapsed] {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+
+:root[data-theme="instrument"] :is(.detail, .list-region) {
+  background-color: var(--bg);
+}
+
+:root[data-theme="instrument"] .resizer {
+  border-top: 0;
+  background: transparent;
+}
+
+:root[data-theme="instrument"] .resizer span {
+  background: #b8b3a8;
+}
+
+/* Labels: small, monospaced, capitals; the name is set in dots. */
+:root[data-theme="instrument"] .brand {
+  border-bottom-color: var(--line);
+}
+
+:root[data-theme="instrument"] .brand-mark {
+  font-family: var(--font-display);
+  font-size: 26px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+:root[data-theme="instrument"] .brand-sub,
+:root[data-theme="instrument"] :is(.side-eyebrow, .th, .eyebrow, .session, .sb-item, .tab, .filter-count, .speed-unit) {
+  font-family: var(--font-label);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+:root[data-theme="instrument"] .brand-sub {
+  font-size: 9px;
+  white-space: nowrap;
+}
+
+:root[data-theme="instrument"] .tb-title h1 {
+  font-family: var(--font-display);
+  font-size: 28px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+/* Filters: the chosen one gets an orange indicator, like a lit key. */
+:root[data-theme="instrument"] :is(.filter, .filter-active) {
+  border-radius: var(--radius);
+}
+
+:root[data-theme="instrument"] .filter-active {
+  background: #f8f7f4;
+  box-shadow: 0 0 0 1px var(--line), 0 1px 0 1px #bdb8ad;
+}
+
+:root[data-theme="instrument"] .filter-active::after {
+  content: "";
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  width: 6px;
+  height: 6px;
+  margin-top: -3px;
+  border-radius: 1px;
+  background: var(--accent);
+  box-shadow: 0 0 6px #ff4f1299;
+}
+
+:root[data-theme="instrument"] .filter[aria-current="true"] .filter-count {
+  visibility: hidden;
+}
+
+:root[data-theme="instrument"] .filter[aria-current="true"] {
+  color: var(--text);
+}
+
+/* The display: a black window, orange dot-matrix numerals. */
+:root[data-theme="instrument"] .speedcard {
+  margin: auto 10px 10px;
+  padding: 12px 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--in-oled);
+  box-shadow: inset 0 0 0 1px #000, 0 0 0 3px #d4d0c7, 0 0 0 4px #bdb8ad;
+  --text: #f0eee8;
+  --text-dim: #a8a59c;
+  --text-faint: #6f6c64;
+  --graph-off: #24221e;
+  --up: #f0eee8;
+  color: var(--text);
+}
+
+:root[data-theme="instrument"] .speedcard .speed-num {
+  padding: 2px 14px;
+}
+
+:root[data-theme="instrument"] .speedcard .session {
+  padding: 6px 14px 0;
+}
+
+:root[data-theme="instrument"] .speed-big {
+  font-family: var(--font-display);
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+:root[data-theme="instrument"] .speed-num.down .speed-big {
+  font-size: 36px;
+  color: #ff5a1f;
+  text-shadow: 0 0 10px #ff4f1266;
+}
+
+:root[data-theme="instrument"] .speed-num.up .speed-big {
+  font-size: 22px;
+  color: #f0eee8;
+}
+
+:root[data-theme="instrument"] .side-graph {
+  margin: 4px 0;
+}
+
+/* The list: hairlines, a dot track, a marker on the chosen row. */
+:root[data-theme="instrument"] .thead {
+  background: var(--bg);
+  border-bottom-color: var(--line);
+}
+
+:root[data-theme="instrument"] .th {
+  font-size: 9px;
+}
+
+:root[data-theme="instrument"] .trow {
+  border-bottom-color: var(--line-soft);
+}
+
+:root[data-theme="instrument"] .trow:not([data-selected]):hover {
+  background: #efede8;
+}
+
+:root[data-theme="instrument"] .trow-sel {
+  inset: 0;
+  border-radius: 0;
+  background: #f8f7f4;
+  box-shadow: inset 3px 0 var(--accent), inset 0 0 0 1px #d4d0c7;
+}
+
+:root[data-theme="instrument"] .trow[data-focused]::before {
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 3px;
+  border-radius: 0;
+  background: var(--text);
+}
+
+:root[data-theme="instrument"] .trow[data-selected][data-focused]::before {
+  background: var(--accent);
+}
+
+:root[data-theme="instrument"] .tname {
+  font-weight: 550;
+}
+
+:root[data-theme="instrument"] .pill {
+  border-radius: 2px;
+  font-family: var(--font-label);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+:root[data-theme="instrument"] .sdot {
+  border-radius: 1px;
+}
+
+/* Progress: a row of dots, lit from the left. */
+:root[data-theme="instrument"] .bar {
+  height: 5px;
+  border-radius: 0;
+  background: transparent;
+  color: #cbc7bd;
+  background: var(--in-dots);
+  box-shadow: none !important;
+  overflow: hidden;
+}
+
+:root[data-theme="instrument"] .bar-fill {
+  border-radius: 0;
+  color: #151514;
+  background: var(--in-dots);
+  transition: transform 0.6s steps(16, end), color 0.2s;
+}
+
+:root[data-theme="instrument"] .bar-head {
+  display: none !important;
+}
+
+:root[data-theme="instrument"] .trow[data-status="downloading"] .bar-fill {
+  color: var(--accent);
+}
+
+:root[data-theme="instrument"] .trow:is([data-tone="seed"], [data-tone="seed-dim"]) .bar-fill {
+  color: #1f8a4c;
+}
+
+:root[data-theme="instrument"] .trow[data-tone="seed-dim"] .bar-fill {
+  opacity: 0.55;
+}
+
+:root[data-theme="instrument"] .trow[data-tone="idle"] .bar-fill {
+  color: #8f8b81;
+}
+
+:root[data-theme="instrument"] .trow:is([data-tone="warn"], [data-status="checking"]) .bar-fill {
+  color: #c98200;
+}
+
+:root[data-theme="instrument"] .trow[data-tone="err"] .bar-fill {
+  color: #d42a1e;
+}
+
+:root[data-theme="instrument"] .modal .bar {
+  flex: 0 0 5px;
+  width: 100%;
+}
+
+/* Keys: rubber caps that travel. The main key is the orange one. */
+:root[data-theme="instrument"] :is(.btn, .chip) {
+  border: 1px solid #bdb8ad;
+  border-radius: var(--radius);
+  background: var(--in-key);
+  color: var(--text);
+  box-shadow: 0 2px 0 #c2bdb2;
+  font-family: var(--font-label);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  transition: translate 0.08s var(--ease), box-shadow 0.08s var(--ease), background-color 0.15s;
+}
+
+:root[data-theme="instrument"] :is(.btn, .chip):hover {
+  border-color: #a8a297;
+  color: var(--text);
+}
+
+:root[data-theme="instrument"] :is(.btn, .chip):active {
+  scale: 1;
+  translate: 0 2px;
+  box-shadow: 0 0 0 #c2bdb2;
+}
+
+:root[data-theme="instrument"] .btn.primary {
+  border-color: #d63d05;
+  background: linear-gradient(180deg, #ff6a33, #ff4f12);
+  color: #fff;
+  box-shadow: 0 2px 0 #b83404;
+}
+
+:root[data-theme="instrument"] .btn.primary:hover {
+  color: #fff;
+  filter: brightness(1.04);
+}
+
+:root[data-theme="instrument"] .btn.primary:active {
+  box-shadow: 0 0 0 #b83404;
+}
+
+:root[data-theme="instrument"] .btn.ghost {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+
+:root[data-theme="instrument"] .btn.ghost:hover {
+  background: #00000008;
+}
+
+:root[data-theme="instrument"] .btn.danger {
+  color: #d42a1e;
+}
+
+:root[data-theme="instrument"] .chip[aria-checked="true"] {
+  background: #151514;
+  border-color: #151514;
+  color: #fff;
+  box-shadow: 0 2px 0 #000;
+}
+
+:root[data-theme="instrument"] .icon-btn {
+  border-radius: var(--radius);
+}
+
+:root[data-theme="instrument"] .icon-btn:hover {
+  background: #00000010;
+}
+
+:root[data-theme="instrument"] :is(.input, .tb-search, .select) {
+  border: 1px solid #c6c2b8;
+  border-radius: var(--radius);
+  background-color: #f8f7f4;
+  box-shadow: inset 0 1px 2px #0000000f;
+  font-family: var(--font-data);
+}
+
+:root[data-theme="instrument"] :is(.input:focus, .tb-search:focus-within, .select:focus) {
+  border-color: #151514;
+  box-shadow: 0 0 0 2px #ff4f1233;
+}
+
+:root[data-theme="instrument"] .check span {
+  border: 1px solid #8f8b81;
+  border-radius: 2px;
+  background: #f8f7f4;
+}
+
+:root[data-theme="instrument"] .check input:checked + span {
+  border-color: #151514;
+  background: #151514;
+  box-shadow: inset 0 0 0 2px #f8f7f4;
+}
+
+/* Slide switches: a recessed slot and a ribbed knob. */
+:root[data-theme="instrument"] .toggle-track {
+  width: 34px;
+  height: 18px;
+  border: 1px solid #b8b3a8;
+  border-radius: 3px;
+  background: #d4d0c7;
+  box-shadow: inset 0 1px 3px #00000026;
+}
+
+:root[data-theme="instrument"] .toggle-thumb {
+  top: 1px;
+  left: 1px;
+  width: 16px;
+  height: 14px;
+  border-radius: 2px;
+  background: repeating-linear-gradient(90deg, #3a3935 0 1px, #1c1c1a 1px 3px);
+  box-shadow: 0 1px 2px #00000059;
+}
+
+:root[data-theme="instrument"] .toggle input:checked + .toggle-track {
+  border-color: #d63d05;
+  background: var(--accent);
+}
+
+:root[data-theme="instrument"] .toggle input:checked + .toggle-track .toggle-thumb {
+  transform: translateX(16px);
+  background: repeating-linear-gradient(90deg, #3a3935 0 1px, #1c1c1a 1px 3px);
+}
+
+/* Detail: monospaced capitals; the chosen tab is underlined in black. */
+:root[data-theme="instrument"] .tabs {
+  border-bottom-color: var(--line);
+}
+
+:root[data-theme="instrument"] .tab {
+  font-size: 10px;
+}
+
+:root[data-theme="instrument"] .tab[aria-selected="true"] {
+  color: var(--text);
+}
+
+:root[data-theme="instrument"] .tab-underline {
+  height: 2px;
+  border-radius: 0;
+  background: #151514;
+}
+
+:root[data-theme="instrument"] .ov-name {
+  font-family: var(--font-sans);
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+:root[data-theme="instrument"] .ov-pct {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 46px;
+  letter-spacing: 0.02em;
+  color: var(--text);
+}
+
+:root[data-theme="instrument"] :is(.stats, .piecemap) {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #f1efea;
+  box-shadow: none;
+}
+
+:root[data-theme="instrument"] .stat {
+  border-color: var(--line-soft);
+}
+
+:root[data-theme="instrument"] .speed-graph {
+  border-radius: var(--radius);
+  background: var(--in-oled);
+  box-shadow: 0 0 0 3px #d4d0c7, 0 0 0 4px #bdb8ad;
+  --graph-off: #24221e;
+  --up: #f0eee8;
+  --line-soft: #2a2824;
+  --text-faint: #8a877e;
+}
+
+/* Overlays: plates lifted off the chassis. */
+:root[data-theme="instrument"] .modal-scrim {
+  background: var(--scrim);
+  backdrop-filter: blur(2px) grayscale(0.4);
+  -webkit-backdrop-filter: blur(2px) grayscale(0.4);
+}
+
+:root[data-theme="instrument"] :is(.modal, .palette, .ctx-menu, .recover-card) {
+  border: 1px solid #b8b3a8;
+  border-radius: var(--radius-lg);
+  background: var(--bg-raised);
+  box-shadow: var(--shadow);
+}
+
+:root[data-theme="instrument"] :is(.modal-head, .modal-foot) {
+  background: transparent;
+}
+
+:root[data-theme="instrument"] .modal-head {
+  border-bottom: 1px solid var(--line);
+}
+
+:root[data-theme="instrument"] .modal-foot {
+  border-top-color: var(--line);
+}
+
+:root[data-theme="instrument"] .modal-title {
+  font-family: var(--font-display);
+  font-size: 26px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+:root[data-theme="instrument"] .eyebrow {
+  color: var(--accent-text);
+}
+
+:root[data-theme="instrument"] .set-nav {
+  background: var(--bg);
+  border-right-color: var(--line);
+}
+
+:root[data-theme="instrument"] :is(.set-nav-item, .palette-item, .ctx-item) {
+  border-radius: var(--radius);
+}
+
+:root[data-theme="instrument"] .set-nav-item {
+  font-family: var(--font-label);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+:root[data-theme="instrument"] .set-nav-item[aria-current="true"],
+:root[data-theme="instrument"] .palette-item[aria-selected="true"],
+:root[data-theme="instrument"] .ctx-item.active {
+  color: #fff;
+  background: #151514;
+  box-shadow: none;
+}
+
+:root[data-theme="instrument"] :is(.set-nav-item[aria-current="true"], .palette-item[aria-selected="true"], .ctx-item.active) * {
+  color: inherit;
+}
+
+:root[data-theme="instrument"] .ctx-item:hover:not(.active) {
+  background: #00000010;
+}
+
+:root[data-theme="instrument"] .palette-input {
+  border-bottom-color: var(--line);
+}
+
+:root[data-theme="instrument"] .ctx-sep {
+  background: var(--line);
+}
+
+:root[data-theme="instrument"] .toast {
+  border: 0;
+  border-radius: var(--radius-lg);
+  background: var(--in-oled);
+  color: #f0eee8;
+  box-shadow: 0 0 0 3px #d4d0c7, 0 0 0 4px #bdb8ad, 0 20px 40px -20px #0006;
+  --text: #f0eee8;
+  --text-dim: #a8a59c;
+  --text-faint: #8a877e;
+}
+
+:root[data-theme="instrument"] .toast-title {
+  font-family: var(--font-label);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 10.5px;
+}
+
+:root[data-theme="instrument"] .toast-life {
+  border-radius: 0;
+  background: var(--accent);
+}
+
+:root[data-theme="instrument"] .statusbar {
+  border-top: 0;
+  background: transparent;
+  font-family: var(--font-label);
+  font-size: 9.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+:root[data-theme="instrument"] .sb-item[data-link="online"] .sdot {
+  background: #1f8a4c;
+  box-shadow: none;
+}
+
+:root[data-theme="instrument"] .sb-turtle[data-on] {
+  color: var(--accent);
+}
+
+:root[data-theme="instrument"] .empty-title {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 34px;
+  letter-spacing: 0.02em;
+}
+
+:root[data-theme="instrument"] .empty-title.sm {
+  font-size: 24px;
+}
+
+:root[data-theme="instrument"] .empty-mark {
+  color: var(--accent);
+}
+
+:root[data-theme="instrument"] .launch {
+  background: var(--canvas);
+}
+
+:root[data-theme="instrument"] .launch-glow {
+  display: none;
+}
+
+:root[data-theme="instrument"] .launch-word {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 54px;
+  letter-spacing: 0.06em;
+  color: #151514;
+}
+
+:root[data-theme="instrument"] .launch-mark {
+  color: var(--accent);
+}
+
+:root[data-theme="instrument"] .dropzone-inner {
+  border: 2px dashed #151514;
+  border-radius: var(--radius-lg);
+  background: #f1efeaee;
+  box-shadow: var(--shadow);
+}
+
+:root[data-theme="instrument"] :focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+:root[data-theme="instrument"] :is(.table, .tab, .filter, .set-nav-item, .palette-item, .ctx-item, .th):focus-visible {
+  outline-offset: -2px;
+}
+
+:root[data-theme="instrument"] ::-webkit-scrollbar-thumb {
+  border-radius: 2px;
+  background: #b8b3a8;
+}
+
+.theme-pick[data-pick="instrument"] .swatch {
+  border-radius: 4px;
+  border-color: #b8b3a8 !important;
+  box-shadow: inset 0 1px 0 #fff;
+}
+
+.theme-pick[data-pick="instrument"] .swatch i:first-child {
+  height: 5px;
+  border-radius: 0;
+  background: radial-gradient(circle, #ff4f12 0 1.4px, transparent 1.8px) 0 50% / 5px 5px repeat-x !important;
+}
+
+.theme-pick[data-pick="instrument"] .swatch i:last-child {
+  height: 10px;
+  flex: 0 0 10px;
+  border-radius: 2px;
+  background: #151514 !important;
+}

@@ -1,1 +1,710 @@
-/* quantum: placeholder */
+/* ── Quantum: light in deep space ──────────────────────────────────────────── */
+/* True black with a slow drift of particles. No boxes: things are separated
+   by space and by hairlines of light. One spectrum, shown only where
+   something is active: on the selection, the main control, the meters.
+   Progress is a thread of light with a bright particle at its head; panels
+   phase in out of a blur. */
+:root[data-theme="quantum"] {
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-data: var(--font-geist-mono), ui-monospace, monospace;
+  --font-label: var(--font-geist-mono), ui-monospace, monospace;
+  --font-display: "Unbounded Variable", var(--font-geist-sans), sans-serif;
+  --display-weight: 300;
+  --display-tracking: 0.02em;
+  --display-stretch: 100%;
+  --data-size: 11.5px;
+  --label-size: 9.5px;
+  --label-weight: 400;
+  --label-case: uppercase;
+  --label-tracking: 0.22em;
+  --radius: 8px;
+  --radius-lg: 18px;
+  --bar-h: 2px;
+  --ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --canvas: #020206;
+  --bg: #020206;
+  --bg-raised: #08080f;
+  --bg-inset: #05050b;
+  --bg-hover: #ffffff07;
+  --line: #ffffff17;
+  --line-soft: #ffffff0b;
+  --text: #ecebf5;
+  --text-dim: #9b99b3;
+  --text-faint: #65637c;
+  --accent: #b9a8ff;
+  --accent-hi: #ffffff;
+  --accent-text: #cbbfff;
+  --accent-soft: #b9a8ff14;
+  --accent-line: #b9a8ff59;
+  --accent-ink: #050508;
+  --up: #7cf7ff;
+  --ok: #7dffc4;
+  --warn: #ffd28a;
+  --err: #ff7a9a;
+  --scrim: #020206b3;
+  --shadow: 0 40px 100px -30px #000, 0 0 60px -30px #b9a8ff33;
+  --graph: glow;
+  --map-have: #b9a8ff;
+  --map-flight: #7cf7ff;
+  --map-empty: #ffffff0d;
+  --map-flash: #ffffff;
+  --qu-spectrum: linear-gradient(90deg, #7cf7ff, #b9a8ff 35%, #ff9be8 65%, #ffd28a);
+  --qu-ring: conic-gradient(from 210deg, #7cf7ff, #b9a8ff, #ff9be8, #ffd28a, #7cf7ff);
+  color-scheme: dark;
+}
+
+:root[data-theme="quantum"] body {
+  font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* The field: two layers of particles drifting at different depths, and a
+   faint aurora low on the horizon. */
+:root[data-theme="quantum"] .app {
+  background:
+    radial-gradient(60% 40% at 70% 110%, #3d2a8a33, transparent 70%),
+    radial-gradient(50% 35% at 15% 105%, #0e6a7a26, transparent 70%),
+    #020206;
+}
+
+:root[data-theme="quantum"] .app::before,
+:root[data-theme="quantum"] .app::after {
+  content: "";
+  position: fixed;
+  inset: -50% 0 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image:
+    radial-gradient(1px 1px at 20px 30px, #ffffffb3, transparent 60%),
+    radial-gradient(1px 1px at 140px 90px, #ffffff80, transparent 60%),
+    radial-gradient(1.5px 1.5px at 220px 170px, #cbbfffcc, transparent 60%),
+    radial-gradient(1px 1px at 90px 210px, #ffffff66, transparent 60%),
+    radial-gradient(1px 1px at 260px 40px, #7cf7ff99, transparent 60%);
+  background-size: 300px 260px;
+  animation: quDrift 140s linear infinite;
+  opacity: 0.55;
+}
+
+:root[data-theme="quantum"] .app::after {
+  background-size: 470px 410px;
+  animation-duration: 90s;
+  opacity: 0.35;
+  filter: blur(0.4px);
+}
+
+@keyframes quDrift {
+  to {
+    transform: translateY(50%);
+  }
+}
+
+:root[data-theme="quantum"] .app[data-inactive]::before,
+:root[data-theme="quantum"] .app[data-inactive]::after {
+  animation-play-state: paused;
+}
+
+:root[data-theme="quantum"] :is(.sidebar, .detail, .list-region, .toolbar) {
+  background: transparent;
+}
+
+:root[data-theme="quantum"] .sidebar {
+  border-right: 1px solid var(--line-soft);
+}
+
+:root[data-theme="quantum"] :is(.brand, .toolbar, .tabs) {
+  border-bottom-color: var(--line-soft);
+}
+
+:root[data-theme="quantum"] :is(.brand-mark, .tb-title h1, .modal-title, .empty-title, .launch-word, .ov-pct, .speed-big) {
+  font-family: var(--font-display);
+}
+
+:root[data-theme="quantum"] .brand-mark {
+  font-size: 19px;
+  font-weight: 300;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+}
+
+:root[data-theme="quantum"] .brand-sub {
+  font-family: var(--font-label);
+  font-size: 8.5px;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+:root[data-theme="quantum"] :is(.side-eyebrow, .th, .eyebrow, .session, .sb-item, .tab, .speed-unit, .filter-count, .pill) {
+  font-family: var(--font-label);
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+
+:root[data-theme="quantum"] .tb-title h1 {
+  font-size: 22px;
+  font-weight: 300;
+  letter-spacing: 0.08em;
+}
+
+/* Filters: the chosen one is touched by a line of the spectrum. */
+:root[data-theme="quantum"] :is(.filter, .filter-active) {
+  border-radius: 10px;
+}
+
+:root[data-theme="quantum"] .filter-active {
+  background: radial-gradient(120% 140% at 0% 50%, #b9a8ff1f, transparent 60%);
+  box-shadow: inset 0 0 0 1px #ffffff0f;
+}
+
+:root[data-theme="quantum"] .filter-active::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 22%;
+  bottom: 22%;
+  width: 2px;
+  border-radius: 2px;
+  background: linear-gradient(#7cf7ff, #b9a8ff, #ff9be8);
+  box-shadow: 0 0 10px #b9a8ff;
+}
+
+:root[data-theme="quantum"] .filter[aria-current="true"] {
+  color: #fff;
+}
+
+/* Throughput: big, light numerals, lit by the transfer itself. */
+:root[data-theme="quantum"] .speedcard {
+  border-top-color: var(--line-soft);
+}
+
+:root[data-theme="quantum"] .speed-big {
+  font-weight: 250;
+  letter-spacing: 0;
+}
+
+:root[data-theme="quantum"] .speed-num.down .speed-big {
+  font-size: 32px;
+  color: #fff;
+  text-shadow: 0 0 calc(8px + var(--flux, 0) * 30px) #b9a8ffaa;
+}
+
+:root[data-theme="quantum"] .speed-num.up .speed-big {
+  font-size: 19px;
+  color: #c9fbff;
+}
+
+/* The list: rows float; the selected one sits in a pool of light with the
+   spectrum beneath it. */
+:root[data-theme="quantum"] .thead {
+  background: #020206cc;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border-bottom-color: var(--line-soft);
+}
+
+:root[data-theme="quantum"] .th {
+  font-size: 8.5px;
+}
+
+:root[data-theme="quantum"] .trow {
+  border-bottom-color: transparent;
+}
+
+:root[data-theme="quantum"] .trow:not([data-selected]):hover {
+  background: radial-gradient(60% 120% at 30% 50%, #ffffff08, transparent 70%);
+}
+
+:root[data-theme="quantum"] .trow-sel {
+  inset: 2px 8px;
+  border-radius: 14px;
+  background: radial-gradient(70% 140% at 25% 50%, #b9a8ff1f, #ffffff05 60%, transparent);
+  box-shadow: inset 0 0 0 1px #ffffff0d;
+}
+
+:root[data-theme="quantum"] .trow-sel::after {
+  content: "";
+  position: absolute;
+  left: 18px;
+  right: 18px;
+  bottom: 0;
+  height: 1px;
+  background: var(--qu-spectrum);
+  opacity: 0.7;
+  box-shadow: 0 0 10px #b9a8ff;
+}
+
+:root[data-theme="quantum"] .trow[data-focused]::before {
+  left: 12px;
+  top: 50%;
+  bottom: auto;
+  width: 4px;
+  height: 4px;
+  margin-top: -2px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0 8px 2px #b9a8ff;
+}
+
+:root[data-theme="quantum"] .tname {
+  font-weight: 450;
+  letter-spacing: 0.005em;
+}
+
+:root[data-theme="quantum"] .pill {
+  border-radius: 99px;
+  font-size: 8.5px;
+}
+
+:root[data-theme="quantum"] .sdot {
+  box-shadow: 0 0 8px currentColor;
+}
+
+/* Progress: a thread of light; a particle rides its leading edge. */
+:root[data-theme="quantum"] .bar {
+  height: 2px;
+  border-radius: 2px;
+  background: #ffffff10;
+  overflow: visible;
+  box-shadow: none !important;
+}
+
+:root[data-theme="quantum"] .bar-fill {
+  border-radius: 2px;
+  background: var(--qu-spectrum);
+  background-size: calc(100% / max(var(--p, 1), 0.01)) 100%;
+  box-shadow: 0 0 8px #b9a8ff80;
+}
+
+:root[data-theme="quantum"] .bar-head {
+  top: 50%;
+  bottom: auto;
+  width: 46px;
+  height: 2px;
+  margin-top: -1px;
+  border-radius: 2px;
+  background: linear-gradient(90deg, transparent, #ffffffcc);
+  opacity: 1;
+  animation: none;
+}
+
+:root[data-theme="quantum"] .bar-head::after {
+  content: "";
+  position: absolute;
+  right: -3px;
+  top: 50%;
+  width: 6px;
+  height: 6px;
+  margin-top: -3px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0 10px 3px #cbbfff, 0 0 22px 6px #b9a8ff66;
+  animation: quPulse 1.8s ease-in-out infinite;
+}
+
+@keyframes quPulse {
+  50% {
+    box-shadow: 0 0 6px 1px #cbbfff, 0 0 14px 3px #b9a8ff44;
+  }
+}
+
+:root[data-theme="quantum"] .trow:is([data-tone="seed"], [data-tone="seed-dim"]) .bar-fill {
+  background: linear-gradient(90deg, #7dffc4, #7cf7ff);
+  box-shadow: 0 0 8px #7dffc466;
+}
+
+:root[data-theme="quantum"] .trow[data-tone="seed-dim"] .bar-fill {
+  opacity: 0.5;
+}
+
+:root[data-theme="quantum"] .trow[data-tone="idle"] .bar-fill {
+  background: #65637c;
+  box-shadow: none;
+}
+
+:root[data-theme="quantum"] .trow:is([data-tone="warn"], [data-status="checking"]) .bar-fill {
+  background: linear-gradient(90deg, #ffd28a00, #ffd28a 30%, #ffd28a00 60%) 0 0 / 200% 100%, #ffd28a55;
+  animation: quSweep 1.4s linear infinite;
+}
+
+@keyframes quSweep {
+  from {
+    background-position: 100% 0, 0 0;
+  }
+  to {
+    background-position: -100% 0, 0 0;
+  }
+}
+
+:root[data-theme="quantum"] .trow[data-tone="err"] .bar-fill {
+  background: #ff7a9a;
+  box-shadow: 0 0 10px #ff7a9a99;
+}
+
+:root[data-theme="quantum"] .modal .bar {
+  flex: 0 0 2px;
+  width: 100%;
+}
+
+/* Controls: outlines of light; the main one is filled with the spectrum. */
+:root[data-theme="quantum"] :is(.btn, .chip) {
+  border: 1px solid #ffffff1f;
+  border-radius: 99px;
+  background: #ffffff05;
+  color: var(--text);
+  font-family: var(--font-label);
+  font-size: 9.5px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+:root[data-theme="quantum"] :is(.btn, .chip):hover {
+  border-color: #ffffff4d;
+  background: #ffffff0d;
+  color: #fff;
+  box-shadow: 0 0 18px -6px #b9a8ff;
+}
+
+:root[data-theme="quantum"] .btn.primary {
+  border-color: transparent;
+  background: var(--qu-spectrum);
+  color: #07060d;
+  font-weight: 600;
+  box-shadow: 0 0 24px -6px #b9a8ffcc;
+}
+
+:root[data-theme="quantum"] .btn.primary:hover {
+  color: #07060d;
+  filter: brightness(1.1);
+}
+
+:root[data-theme="quantum"] .btn.ghost {
+  border-color: transparent;
+  background: transparent;
+}
+
+:root[data-theme="quantum"] .btn.danger {
+  border-color: #ff7a9a66;
+  color: #ffb3c4;
+}
+
+:root[data-theme="quantum"] .chip[aria-checked="true"] {
+  border-color: #b9a8ff;
+  background: #b9a8ff1f;
+  color: #fff;
+}
+
+:root[data-theme="quantum"] .icon-btn {
+  border-radius: 99px;
+}
+
+:root[data-theme="quantum"] .icon-btn:hover {
+  background: #ffffff0d;
+  color: #fff;
+}
+
+:root[data-theme="quantum"] :is(.input, .tb-search, .select) {
+  border: 0;
+  border-bottom: 1px solid #ffffff1f;
+  border-radius: 0;
+  background-color: transparent;
+}
+
+:root[data-theme="quantum"] .tb-search {
+  border: 1px solid #ffffff14;
+  border-radius: 99px;
+  background-color: #ffffff05;
+}
+
+:root[data-theme="quantum"] :is(.input:focus, .select:focus) {
+  border-bottom-color: #b9a8ff;
+  box-shadow: 0 8px 14px -12px #b9a8ff;
+}
+
+:root[data-theme="quantum"] .tb-search:focus-within {
+  border-color: #b9a8ff80;
+  box-shadow: 0 0 20px -8px #b9a8ff;
+}
+
+:root[data-theme="quantum"] .check span {
+  border: 1px solid #ffffff4d;
+  border-radius: 50%;
+}
+
+:root[data-theme="quantum"] .check input:checked + span {
+  border-color: #fff;
+  background: radial-gradient(circle, #fff 0 30%, #b9a8ff 55%, transparent 72%);
+  box-shadow: 0 0 10px #b9a8ff;
+}
+
+:root[data-theme="quantum"] .toggle-track {
+  height: 6px;
+  margin-block: 6px;
+  border: 0;
+  border-radius: 6px;
+  background: #ffffff1a;
+}
+
+:root[data-theme="quantum"] .toggle-thumb {
+  top: -3px;
+  left: 0;
+  width: 12px;
+  height: 12px;
+  background: #9b99b3;
+}
+
+:root[data-theme="quantum"] .toggle input:checked + .toggle-track {
+  background: var(--qu-spectrum);
+  box-shadow: 0 0 12px -2px #b9a8ff;
+}
+
+:root[data-theme="quantum"] .toggle input:checked + .toggle-track .toggle-thumb {
+  transform: translateX(18px);
+  background: #fff;
+  box-shadow: 0 0 10px 2px #cbbfff;
+}
+
+/* Detail. */
+:root[data-theme="quantum"] .tab {
+  font-size: 9px;
+}
+
+:root[data-theme="quantum"] .tab[aria-selected="true"] {
+  color: #fff;
+}
+
+:root[data-theme="quantum"] .tab-underline {
+  height: 1px;
+  border-radius: 0;
+  background: var(--qu-spectrum);
+  box-shadow: 0 0 10px #b9a8ff;
+}
+
+:root[data-theme="quantum"] .resizer {
+  border-top: 0;
+  background: linear-gradient(90deg, transparent, #ffffff12 20%, #ffffff12 80%, transparent) 0 50% / 100% 1px no-repeat;
+}
+
+:root[data-theme="quantum"] .ov-name {
+  font-weight: 450;
+}
+
+:root[data-theme="quantum"] .ov-pct {
+  font-size: 40px;
+  font-weight: 250;
+  background: var(--qu-spectrum);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+:root[data-theme="quantum"] :is(.stats, .piecemap, .speed-graph) {
+  border: 1px solid var(--line-soft);
+  border-radius: 14px;
+  background: #ffffff03;
+  box-shadow: none;
+}
+
+:root[data-theme="quantum"] .stat {
+  border-color: var(--line-soft);
+}
+
+/* Overlays: dark glass ringed by the spectrum. */
+:root[data-theme="quantum"] .modal-scrim {
+  background: var(--scrim);
+  backdrop-filter: blur(12px) saturate(0.6);
+  -webkit-backdrop-filter: blur(12px) saturate(0.6);
+}
+
+:root[data-theme="quantum"] :is(.modal, .palette, .ctx-menu, .recover-card, .toast) {
+  border: 1px solid transparent;
+  background:
+    linear-gradient(#0a0a13f2, #07070ef2) padding-box,
+    linear-gradient(140deg, #7cf7ff66, #b9a8ff33 35%, #ffffff0a 60%, #ff9be855) border-box;
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  box-shadow: var(--shadow);
+}
+
+:root[data-theme="quantum"] :is(.modal, .palette, .recover-card) {
+  border-radius: 22px;
+}
+
+:root[data-theme="quantum"] .ctx-menu {
+  border-radius: 14px;
+}
+
+:root[data-theme="quantum"] .toast {
+  border-radius: 16px;
+}
+
+:root[data-theme="quantum"] :is(.modal-head, .modal-foot) {
+  background: transparent;
+}
+
+:root[data-theme="quantum"] .modal-head {
+  border-bottom-color: var(--line-soft);
+}
+
+:root[data-theme="quantum"] .modal-foot {
+  border-top-color: var(--line-soft);
+}
+
+:root[data-theme="quantum"] .modal-title {
+  font-size: 22px;
+  font-weight: 300;
+  letter-spacing: 0.06em;
+}
+
+:root[data-theme="quantum"] .eyebrow {
+  color: #7cf7ff;
+}
+
+:root[data-theme="quantum"] .set-nav {
+  background: transparent;
+  border-right-color: var(--line-soft);
+}
+
+:root[data-theme="quantum"] :is(.set-nav-item, .palette-item, .ctx-item) {
+  border-radius: 10px;
+}
+
+:root[data-theme="quantum"] .set-nav-item[aria-current="true"],
+:root[data-theme="quantum"] .palette-item[aria-selected="true"],
+:root[data-theme="quantum"] .ctx-item.active {
+  color: #fff;
+  background: radial-gradient(120% 160% at 0% 50%, #b9a8ff29, #ffffff06 70%);
+  box-shadow: inset 0 0 0 1px #ffffff12;
+}
+
+:root[data-theme="quantum"] .ctx-item:hover:not(.active) {
+  background: #ffffff0a;
+}
+
+:root[data-theme="quantum"] .palette-input {
+  border-bottom-color: var(--line-soft);
+}
+
+:root[data-theme="quantum"] .ctx-sep {
+  background: var(--line-soft);
+}
+
+:root[data-theme="quantum"] .toast-life {
+  background: var(--qu-spectrum);
+}
+
+:root[data-theme="quantum"] .statusbar {
+  border-top: 1px solid var(--line-soft);
+  background: transparent;
+  font-family: var(--font-label);
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+:root[data-theme="quantum"] .sb-item[data-link="online"] .sdot {
+  background: #7dffc4;
+  box-shadow: 0 0 8px #7dffc4;
+}
+
+:root[data-theme="quantum"] .sb-turtle[data-on] {
+  color: #ffd28a;
+  text-shadow: 0 0 8px #ffd28a;
+}
+
+:root[data-theme="quantum"] .empty-title {
+  font-weight: 250;
+  font-size: 30px;
+  letter-spacing: 0.08em;
+}
+
+:root[data-theme="quantum"] .empty-mark {
+  color: #cbbfff;
+  filter: drop-shadow(0 0 16px #b9a8ff);
+}
+
+:root[data-theme="quantum"] .launch {
+  background:
+    radial-gradient(1px 1px at 20% 30%, #fff, transparent),
+    radial-gradient(1px 1px at 70% 20%, #fff9, transparent),
+    radial-gradient(1px 1px at 40% 80%, #cbbfff, transparent),
+    radial-gradient(1px 1px at 85% 65%, #7cf7ff, transparent),
+    radial-gradient(60% 40% at 50% 110%, #3d2a8a55, transparent 70%),
+    #020206;
+}
+
+:root[data-theme="quantum"] .launch-glow {
+  background: radial-gradient(closest-side, #b9a8ff33, transparent);
+}
+
+:root[data-theme="quantum"] .launch-word {
+  font-size: 34px;
+  font-weight: 250;
+  letter-spacing: 0.5em;
+  text-transform: uppercase;
+  color: #fff;
+  text-shadow: 0 0 24px #b9a8ffaa;
+}
+
+:root[data-theme="quantum"] .dropzone-inner {
+  border: 1px solid transparent;
+  border-radius: 28px;
+  background:
+    linear-gradient(#0a0a13ee, #07070eee) padding-box,
+    var(--qu-ring) border-box;
+  box-shadow: 0 0 60px -10px #b9a8ff88;
+}
+
+:root[data-theme="quantum"] :focus-visible {
+  outline: 1px solid #cbbfff;
+  outline-offset: 3px;
+  box-shadow: 0 0 14px -2px #b9a8ff;
+}
+
+:root[data-theme="quantum"] :is(.table, .tab, .filter, .set-nav-item, .palette-item, .ctx-item, .th):focus-visible {
+  outline-offset: -2px;
+  box-shadow: none;
+}
+
+:root[data-theme="quantum"] ::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+:root[data-theme="quantum"] ::-webkit-scrollbar-thumb {
+  border: 0;
+  border-radius: 6px;
+  background: #ffffff1f;
+}
+
+.theme-pick[data-pick="quantum"] .swatch {
+  border-color: #ffffff1f !important;
+  border-radius: 12px;
+  background: radial-gradient(1px 1px at 20% 30%, #fff, transparent), radial-gradient(1px 1px at 70% 25%, #fff, transparent), radial-gradient(1px 1px at 45% 60%, #cbbfff, transparent), #020206 !important;
+}
+
+.theme-pick[data-pick="quantum"] .swatch i {
+  height: 2px;
+  border-radius: 2px;
+}
+
+.theme-pick[data-pick="quantum"] .swatch i:first-child {
+  background: linear-gradient(90deg, #7cf7ff, #b9a8ff, #ff9be8, #ffd28a) !important;
+  box-shadow: 0 0 6px #b9a8ff;
+}
+
+.theme-pick[data-pick="quantum"] .swatch i:last-child {
+  flex: 0 0 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #fff !important;
+  box-shadow: 0 0 6px 2px #b9a8ff;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root[data-theme="quantum"] .app::before,
+  :root[data-theme="quantum"] .app::after,
+  :root[data-theme="quantum"] .bar-head::after,
+  :root[data-theme="quantum"] .bar-fill {
+    animation: none !important;
+  }
+}
