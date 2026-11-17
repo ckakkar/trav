@@ -15,8 +15,8 @@ import "./globals.css";
 // One stylesheet per newer theme, after the shared one.
 import "./themes/textmode.css";
 import "./themes/teletext.css";
-import "./themes/meadow.css";
 import "./themes/instrument.css";
+import "./themes/swarm.css";
 import "./themes/departures.css";
 import "./themes/receipt.css";
 import "./themes/comic.css";

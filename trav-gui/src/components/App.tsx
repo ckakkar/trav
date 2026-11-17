@@ -66,6 +66,7 @@ import { StatusBar } from "./StatusBar";
 import { LimitsDialog } from "./LimitsDialog";
 import { CreateDialog } from "./CreateDialog";
 import { Launch } from "./Launch";
+import { Swarm } from "./Swarm";
 import { Mark } from "./Mark";
 import { TorrentTable, type Sort, type SortKey } from "./TorrentTable";
 import { DetailPanel, type DetailTab } from "./DetailPanel";
@@ -769,6 +770,7 @@ export default function App({ skipLaunch = false }: { skipLaunch?: boolean }) {
 
   return (
     <div className="app" data-mac data-desktop data-boot={boot !== "done" ? boot : undefined} data-inactive={inactive || undefined}>
+      {theme === "swarm" && <Swarm torrents={torrents} paused={inactive} />}
       <Sidebar
         filters={filterDefs}
         active={filter}

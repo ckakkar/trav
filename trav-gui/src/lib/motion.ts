@@ -7,7 +7,7 @@
 // Bevel and Bitmap never glide: windows zoom open in a few hard steps and
 // highlights jump. Hologram materialises: a line of light unfolds and flickers.
 // Textmode and Teletext redraw a row at a time. Instrument is quick and exact.
-// Meadow fades, as early-2000s desktops did. Departures flips like a flap on a
+// Swarm gathers out of a haze. Departures flips like a flap on a
 // station board; Receipt feeds out of the printer a line at a time; Comic pops
 // in with a bounce and a tilt.
 
@@ -25,12 +25,12 @@ export type Register =
   | "textmode"
   | "teletext"
   | "instrument"
-  | "meadow"
+  | "swarm"
   | "departures"
   | "receipt"
   | "comic";
 
-const REGISTERS: readonly string[] = ["paper", "phosphor", "pinstripe", "bevel", "bitmap", "hologram", "textmode", "teletext", "instrument", "meadow", "departures", "receipt", "comic"];
+const REGISTERS: readonly string[] = ["paper", "phosphor", "pinstripe", "bevel", "bitmap", "hologram", "textmode", "teletext", "instrument", "swarm", "departures", "receipt", "comic"];
 
 function current(): Register {
   const t = typeof document === "undefined" ? "ink" : document.documentElement.dataset.theme;
@@ -139,11 +139,11 @@ export const DIALOG: Record<Register, Choreo> = {
     exit: { opacity: 0, transition: { duration: 0.1 } },
     transition: { duration: 0.2, ease: [0.2, 0, 0, 1] },
   },
-  meadow: {
-    initial: { opacity: 0 },
-    animate: { opacity: 1 },
-    exit: { opacity: 0, transition: { duration: 0.12 } },
-    transition: { duration: 0.18, ease: "linear" },
+  swarm: {
+    initial: { opacity: 0, scale: 0.94, filter: "blur(12px)" },
+    animate: { opacity: 1, scale: 1, filter: "blur(0px)" },
+    exit: { opacity: 0, scale: 1.04, filter: "blur(10px)", transition: { duration: 0.2 } },
+    transition: { duration: 0.45, ease: out },
   },
   departures: {
     initial: { opacity: 1, rotateX: -88, transformPerspective: 900, transformOrigin: "50% 0%" },
@@ -227,11 +227,11 @@ export const MENU: Record<Register, Choreo> = {
     exit: { opacity: 0, transition: { duration: 0.08 } },
     transition: { duration: 0.14, ease: [0.2, 0, 0, 1] },
   },
-  meadow: {
-    initial: { opacity: 0, clipPath: "inset(0 0 100% 0)" },
-    animate: { opacity: 1, clipPath: "inset(0 0 0% 0)" },
-    exit: { opacity: 0, transition: { duration: 0.1 } },
-    transition: { duration: 0.14, ease: "linear" },
+  swarm: {
+    initial: { opacity: 0, scale: 0.92, filter: "blur(6px)" },
+    animate: { opacity: 1, scale: 1, filter: "blur(0px)" },
+    exit: { opacity: 0, filter: "blur(6px)", transition: { duration: 0.12 } },
+    transition: { duration: 0.26, ease: out },
   },
   departures: {
     initial: { opacity: 1, rotateX: -80, transformPerspective: 700, transformOrigin: "50% 0%" },
@@ -315,11 +315,11 @@ export const TOAST: Record<Register, Choreo> = {
     exit: { opacity: 0, x: 10, transition: { duration: 0.12 } },
     transition: { duration: 0.18, ease: [0.2, 0, 0, 1] },
   },
-  meadow: {
-    initial: { opacity: 0, y: 24 },
-    animate: { opacity: 1, y: 0 },
-    exit: { opacity: 0, transition: { duration: 0.2 } },
-    transition: { duration: 0.22, ease: "easeOut" },
+  swarm: {
+    initial: { opacity: 0, x: 30, filter: "blur(8px)" },
+    animate: { opacity: 1, x: 0, filter: "blur(0px)" },
+    exit: { opacity: 0, filter: "blur(8px)", transition: { duration: 0.2 } },
+    transition: { duration: 0.4, ease: out },
   },
   departures: {
     initial: { opacity: 1, rotateX: -90, transformPerspective: 600, transformOrigin: "50% 0%" },
@@ -353,7 +353,7 @@ export const SLIDE: Record<Register, Transition> = {
   textmode: instant,
   teletext: instant,
   instrument: { duration: 0.16, ease: [0.2, 0, 0, 1] },
-  meadow: { duration: 0.12, ease: "linear" },
+  swarm: { type: "spring", stiffness: 300, damping: 30, mass: 0.9 },
   departures: { duration: 0.2, ease: stepped(4) },
   receipt: { duration: 0.18, ease: "linear" },
   comic: { type: "spring", stiffness: 520, damping: 14, mass: 0.7 },
