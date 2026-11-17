@@ -68,10 +68,13 @@ jobs:
         run: npm ci
         working-directory: trav-gui
 
-      # Developer ID signing and notarization, only when those secrets exist:
-      # the bundler treats empty values as "sign with nothing" and fails.
-      # Without them the app is ad-hoc signed.
+      # Developer ID signing and notarization, only when APPLE_CERTIFICATE is
+      # set; without it the app is ad-hoc signed, as before. The certificate
+      # goes into a throwaway keychain (not the bundler's own), so the disk
+      # image can be signed and notarized after the build as well. A partial
+      # set of secrets stops the release rather than shipping it unsigned.
       - name: Apple signing (optional)
+        id: sign
         if: steps.v.outputs.skip != 'true'
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
@@ -81,9 +84,68 @@ jobs:
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
-          for k in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
-            if [ -n "${!k}" ]; then { echo "$k<<__END__"; echo "${!k}"; echo "__END__"; } >> "$GITHUB_ENV"; fi
+          set -euo pipefail
+          if [ -z "$APPLE_CERTIFICATE" ]; then
+            for k in APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
+              if [ -n "${!k}" ]; then
+                echo "::error::$k is set but APPLE_CERTIFICATE isn't. Add the certificate, or remove the Apple secrets to build ad-hoc signed."
+                exit 1
+              fi
+            done
+            echo "No APPLE_CERTIFICATE secret: building ad-hoc signed (users click Open Anyway once)."
+            exit 0
+          fi
+          for k in APPLE_CERTIFICATE_PASSWORD APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
+            if [ -z "${!k}" ]; then
+              echo "::error::APPLE_CERTIFICATE is set but $k is missing. Developer ID builds must be notarized too; see CONTRIBUTING.md."
+              exit 1
+            fi
           done
+
+          kc="$RUNNER_TEMP/trav-signing.keychain-db"
+          kcpass=$(openssl rand -hex 24)
+          p12="$RUNNER_TEMP/trav-signing.p12"
+          printf '%s' "$APPLE_CERTIFICATE" | base64 --decode > "$p12"
+          security create-keychain -p "$kcpass" "$kc"
+          security set-keychain-settings -lut 21600 "$kc"
+          security unlock-keychain -p "$kcpass" "$kc"
+          if ! security import "$p12" -k "$kc" -f pkcs12 -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security; then
+            rm -f "$p12"
+            echo "::error::Couldn't import APPLE_CERTIFICATE. Check that it is the base64 of the .p12 and that APPLE_CERTIFICATE_PASSWORD is its export password."
+            exit 1
+          fi
+          rm -f "$p12"
+          # Apple's Developer ID intermediate, so codesign can build the chain
+          # even if the runner image lacks it.
+          if curl -fsSL https://www.apple.com/certificateauthority/DeveloperIDG2CA.cer -o "$RUNNER_TEMP/DeveloperIDG2CA.cer"; then
+            security import "$RUNNER_TEMP/DeveloperIDG2CA.cer" -k "$kc" >/dev/null 2>&1 || true
+          fi
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$kcpass" "$kc" >/dev/null
+          # shellcheck disable=SC2046
+          security list-keychains -d user -s "$kc" $(security list-keychains -d user | tr -d '"')
+          echo "keychain=$kc" >> "$GITHUB_OUTPUT"
+
+          identities=$(security find-identity -v -p codesigning "$kc")
+          echo "$identities"
+          identity="$APPLE_SIGNING_IDENTITY"
+          if [ -z "$identity" ]; then
+            identity=$(printf '%s\n' "$identities" | sed -n 's/.*"\(Developer ID Application: .*\)"$/\1/p' | head -n 1)
+          fi
+          if [ -z "$identity" ] || ! printf '%s\n' "$identities" | grep -qF "\"$identity\""; then
+            echo "::error::No usable \"${identity:-Developer ID Application}\" identity in APPLE_CERTIFICATE. Export the certificate together with its private key (Keychain Access › My Certificates)."
+            exit 1
+          fi
+          case "$identity" in
+            "Developer ID Application: "*) ;;
+            *) echo "::error::\"$identity\" isn't a Developer ID Application identity; apps outside the App Store need one."; exit 1 ;;
+          esac
+
+          for k in APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
+            { echo "$k<<__END__"; echo "${!k}"; echo "__END__"; } >> "$GITHUB_ENV"
+          done
+          { echo "APPLE_SIGNING_IDENTITY<<__END__"; echo "$identity"; echo "__END__"; } >> "$GITHUB_ENV"
+          echo "signed=true" >> "$GITHUB_OUTPUT"
+          echo "Signing as $identity, notarizing as team $APPLE_TEAM_ID."
 
       - name: Build (universal, with the signed update archive)
         if: steps.v.outputs.skip != 'true'
@@ -93,6 +155,45 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
           VERSION: ${{ steps.v.outputs.version }}
         run: npm run tauri build -- --target universal-apple-darwin --config "{\"version\":\"$VERSION\"}"
+
+      # The bundler signs, notarizes and staples Trav.app (and so the update
+      # archive made from it). The disk image people download gets the same
+      # treatment here, and both are checked before anything is published.
+      - name: Notarize the disk image and check the signatures
+        if: steps.v.outputs.skip != 'true' && steps.sign.outputs.signed == 'true'
+        working-directory: target/universal-apple-darwin/release/bundle
+        run: |
+          set -euo pipefail
+          app=macos/Trav.app
+          dmg=$(ls dmg/*.dmg | head -n 1)
+          codesign --verify --deep --strict --verbose=2 "$app"
+          codesign --display --verbose=2 "$app" 2>&1 | grep -E '^(Authority|TeamIdentifier|Timestamp|Runtime)'
+          xcrun stapler validate "$app"
+
+          codesign --force --sign "$APPLE_SIGNING_IDENTITY" --timestamp "$dmg"
+          out=$(xcrun notarytool submit "$dmg" --apple-id "$APPLE_ID" --password "$APPLE_PASSWORD" \
+            --team-id "$APPLE_TEAM_ID" --wait --timeout 30m --output-format json) || true
+          echo "$out"
+          status=$(printf '%s' "$out" | python3 -c 'import json,sys
+          try: print(json.load(sys.stdin).get("status", ""))
+          except Exception: print("")')
+          if [ "$status" != "Accepted" ]; then
+            id=$(printf '%s' "$out" | python3 -c 'import json,sys
+          try: print(json.load(sys.stdin).get("id", ""))
+          except Exception: print("")')
+            [ -n "$id" ] && xcrun notarytool log "$id" --apple-id "$APPLE_ID" --password "$APPLE_PASSWORD" --team-id "$APPLE_TEAM_ID" || true
+            echo "::error::Apple didn't accept the disk image for notarization (status: ${status:-none}); its log is above."
+            exit 1
+          fi
+          xcrun stapler staple "$dmg"
+          xcrun stapler validate "$dmg"
+          # Gatekeeper's verdict, for the log (runners may have assessments off).
+          spctl --assess --type execute --verbose=4 "$app" || true
+          spctl --assess --type open --context context:primary-signature --verbose=4 "$dmg" || true
+
+      - name: Remove the signing keychain
+        if: always() && steps.sign.outputs.keychain != ''
+        run: security delete-keychain "${{ steps.sign.outputs.keychain }}" || true
 
       - name: Publish
         if: steps.v.outputs.skip != 'true'

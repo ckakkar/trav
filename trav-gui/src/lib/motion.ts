@@ -6,15 +6,34 @@
 // lowers sheets from the title bar, then lets small controls glide into place.
 // Bevel and Bitmap never glide: windows zoom open in a few hard steps and
 // highlights jump. Hologram materialises: a line of light unfolds and flickers.
+// Textmode and Teletext redraw a row at a time. Hi-Fi moves like heavy, damped
+// hardware; Glass is fluid and comes into focus; Instrument is quick and exact;
+// Quantum phases in out of a blur. Meadow fades, as early-2000s desktops did.
 
 import { useSyncExternalStore } from "react";
 import type { TargetAndTransition, Transition } from "motion/react";
 
-export type Register = "ink" | "paper" | "phosphor" | "pinstripe" | "bevel" | "bitmap" | "hologram";
+export type Register =
+  | "ink"
+  | "paper"
+  | "phosphor"
+  | "pinstripe"
+  | "bevel"
+  | "bitmap"
+  | "hologram"
+  | "textmode"
+  | "teletext"
+  | "hifi"
+  | "glass"
+  | "instrument"
+  | "quantum"
+  | "meadow";
+
+const REGISTERS: readonly string[] = ["paper", "phosphor", "pinstripe", "bevel", "bitmap", "hologram", "textmode", "teletext", "hifi", "glass", "instrument", "quantum", "meadow"];
 
 function current(): Register {
   const t = typeof document === "undefined" ? "ink" : document.documentElement.dataset.theme;
-  return t === "paper" || t === "phosphor" || t === "pinstripe" || t === "bevel" || t === "bitmap" || t === "hologram" ? t : "ink";
+  return t && REGISTERS.includes(t) ? (t as Register) : "ink";
 }
 
 function subscribe(cb: () => void) {
@@ -87,6 +106,48 @@ export const DIALOG: Record<Register, Choreo> = {
     exit: { opacity: 0, scaleY: 0.01, transition: { duration: 0.16, ease: "easeIn" } },
     transition: { duration: 0.44, times: [0, 0.32, 0.72, 1], ease: "easeOut" },
   },
+  textmode: {
+    initial: { opacity: 1, clipPath: "inset(0 0 100% 0)" },
+    animate: { opacity: 1, clipPath: "inset(0 0 0% 0)" },
+    exit: { opacity: 0, transition: instant },
+    transition: { duration: 0.16, ease: stepped(8) },
+  },
+  teletext: {
+    initial: { opacity: 1, clipPath: "inset(0 0 100% 0)" },
+    animate: { opacity: 1, clipPath: "inset(0 0 0% 0)" },
+    exit: { opacity: 0, transition: instant },
+    transition: { duration: 0.42, ease: stepped(12) },
+  },
+  hifi: {
+    initial: { opacity: 0, y: 34 },
+    animate: { opacity: 1, y: 0 },
+    exit: { opacity: 0, y: 18, transition: { duration: 0.18, ease: "easeIn" } },
+    transition: { type: "spring", stiffness: 260, damping: 24, mass: 1.4 },
+  },
+  glass: {
+    initial: { opacity: 0, scale: 0.9, filter: "blur(18px)" },
+    animate: { opacity: 1, scale: 1, filter: "blur(0px)" },
+    exit: { opacity: 0, scale: 0.95, filter: "blur(10px)", transition: { duration: 0.2, ease: out } },
+    transition: { type: "spring", stiffness: 300, damping: 24, mass: 0.9 },
+  },
+  instrument: {
+    initial: { opacity: 0, y: 10 },
+    animate: { opacity: 1, y: 0 },
+    exit: { opacity: 0, transition: { duration: 0.1 } },
+    transition: { duration: 0.2, ease: [0.2, 0, 0, 1] },
+  },
+  quantum: {
+    initial: { opacity: 0, scale: 1.07, filter: "blur(16px)" },
+    animate: { opacity: [0, 0.8, 0.55, 1], scale: 1, filter: "blur(0px)" },
+    exit: { opacity: 0, scale: 0.97, filter: "blur(10px)", transition: { duration: 0.2, ease: "easeIn" } },
+    transition: { duration: 0.5, ease: out },
+  },
+  meadow: {
+    initial: { opacity: 0 },
+    animate: { opacity: 1 },
+    exit: { opacity: 0, transition: { duration: 0.12 } },
+    transition: { duration: 0.18, ease: "linear" },
+  },
 };
 
 /** Context menus: out of the pointer. */
@@ -132,6 +193,48 @@ export const MENU: Record<Register, Choreo> = {
     animate: { opacity: [0, 1, 0.6, 1], clipPath: "inset(0 0% 0 0%)" },
     exit: { opacity: 0, transition: { duration: 0.1 } },
     transition: { duration: 0.24, ease: "easeOut" },
+  },
+  textmode: {
+    initial: { opacity: 1, clipPath: "inset(0 0 100% 0)" },
+    animate: { opacity: 1, clipPath: "inset(0 0 0% 0)" },
+    exit: { opacity: 0, transition: instant },
+    transition: { duration: 0.1, ease: stepped(5) },
+  },
+  teletext: {
+    initial: { opacity: 1, clipPath: "inset(0 0 100% 0)" },
+    animate: { opacity: 1, clipPath: "inset(0 0 0% 0)" },
+    exit: { opacity: 0, transition: instant },
+    transition: { duration: 0.2, ease: stepped(6) },
+  },
+  hifi: {
+    initial: { opacity: 0, scaleY: 0.82, y: -6 },
+    animate: { opacity: 1, scaleY: 1, y: 0 },
+    exit: { opacity: 0, transition: { duration: 0.1 } },
+    transition: { type: "spring", stiffness: 420, damping: 26, mass: 1 },
+  },
+  glass: {
+    initial: { opacity: 0, scale: 0.88, filter: "blur(8px)" },
+    animate: { opacity: 1, scale: 1, filter: "blur(0px)" },
+    exit: { opacity: 0, scale: 0.94, transition: { duration: 0.12 } },
+    transition: { type: "spring", stiffness: 520, damping: 30 },
+  },
+  instrument: {
+    initial: { opacity: 0, y: -4 },
+    animate: { opacity: 1, y: 0 },
+    exit: { opacity: 0, transition: { duration: 0.08 } },
+    transition: { duration: 0.14, ease: [0.2, 0, 0, 1] },
+  },
+  quantum: {
+    initial: { opacity: 0, scale: 1.04, filter: "blur(8px)" },
+    animate: { opacity: 1, scale: 1, filter: "blur(0px)" },
+    exit: { opacity: 0, filter: "blur(6px)", transition: { duration: 0.12 } },
+    transition: { duration: 0.28, ease: out },
+  },
+  meadow: {
+    initial: { opacity: 0, clipPath: "inset(0 0 100% 0)" },
+    animate: { opacity: 1, clipPath: "inset(0 0 0% 0)" },
+    exit: { opacity: 0, transition: { duration: 0.1 } },
+    transition: { duration: 0.14, ease: "linear" },
   },
 };
 
@@ -179,6 +282,48 @@ export const TOAST: Record<Register, Choreo> = {
     exit: { opacity: 0, x: 16, transition: { duration: 0.16 } },
     transition: { duration: 0.36, ease: "easeOut" },
   },
+  textmode: {
+    initial: { opacity: 1 },
+    animate: { opacity: 1 },
+    exit: { opacity: 0, transition: instant },
+    transition: instant,
+  },
+  teletext: {
+    initial: { opacity: 1, clipPath: "inset(0 0 100% 0)" },
+    animate: { opacity: 1, clipPath: "inset(0 0 0% 0)" },
+    exit: { opacity: 0, transition: instant },
+    transition: { duration: 0.2, ease: stepped(4) },
+  },
+  hifi: {
+    initial: { opacity: 0, x: 48 },
+    animate: { opacity: 1, x: 0 },
+    exit: { opacity: 0, x: 30, transition: { duration: 0.18 } },
+    transition: { type: "spring", stiffness: 240, damping: 22, mass: 1.3 },
+  },
+  glass: {
+    initial: { opacity: 0, y: -14, scale: 0.9, filter: "blur(10px)" },
+    animate: { opacity: 1, y: 0, scale: 1, filter: "blur(0px)" },
+    exit: { opacity: 0, scale: 0.94, filter: "blur(8px)", transition: { duration: 0.2 } },
+    transition: { type: "spring", stiffness: 340, damping: 24 },
+  },
+  instrument: {
+    initial: { opacity: 0, x: 18 },
+    animate: { opacity: 1, x: 0 },
+    exit: { opacity: 0, x: 10, transition: { duration: 0.12 } },
+    transition: { duration: 0.18, ease: [0.2, 0, 0, 1] },
+  },
+  quantum: {
+    initial: { opacity: 0, x: 24, filter: "blur(10px)" },
+    animate: { opacity: 1, x: 0, filter: "blur(0px)" },
+    exit: { opacity: 0, filter: "blur(8px)", transition: { duration: 0.18 } },
+    transition: { duration: 0.42, ease: out },
+  },
+  meadow: {
+    initial: { opacity: 0, y: 24 },
+    animate: { opacity: 1, y: 0 },
+    exit: { opacity: 0, transition: { duration: 0.2 } },
+    transition: { duration: 0.22, ease: "easeOut" },
+  },
 };
 
 /** The shared-layout highlights (active filter, selected tab). */
@@ -190,4 +335,11 @@ export const SLIDE: Record<Register, Transition> = {
   bevel: instant,
   bitmap: instant,
   hologram: { type: "spring", stiffness: 700, damping: 38, mass: 0.6 },
+  textmode: instant,
+  teletext: instant,
+  hifi: { type: "spring", stiffness: 240, damping: 18, mass: 1.2 },
+  glass: { type: "spring", stiffness: 380, damping: 30, mass: 0.9 },
+  instrument: { duration: 0.16, ease: [0.2, 0, 0, 1] },
+  quantum: { type: "spring", stiffness: 260, damping: 30, mass: 1 },
+  meadow: { duration: 0.12, ease: "linear" },
 };

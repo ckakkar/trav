@@ -3,7 +3,21 @@ import { GeistSans } from "geist/font/sans";
 import { GeistMono } from "geist/font/mono";
 // Paper's face: one variable family, from extra-condensed poster type to text.
 import "@fontsource-variable/archivo/wdth.css";
+// The newer themes' faces, Latin only: Textmode, Teletext, Hi-Fi, Instrument, Quantum.
+import "@fontsource/vt323/latin-400.css";
+import "@fontsource/tiny5/latin-400.css";
+import "@fontsource/michroma/latin-400.css";
+import "@fontsource-variable/doto/wght.css";
+import "@fontsource-variable/unbounded/wght.css";
 import "./globals.css";
+// One stylesheet per newer theme, after the shared one.
+import "./themes/textmode.css";
+import "./themes/teletext.css";
+import "./themes/hifi.css";
+import "./themes/meadow.css";
+import "./themes/glass.css";
+import "./themes/instrument.css";
+import "./themes/quantum.css";
 
 export const metadata: Metadata = {
   title: "Trav",

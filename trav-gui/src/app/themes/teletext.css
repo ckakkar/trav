@@ -1,0 +1,695 @@
+/* ── Teletext: a broadcast page ────────────────────────────────────────────── */
+/* Eight colours on black and a chunky character cell: a page number in the
+   header, double-height titles on coloured bands, block-graphic progress,
+   the four coloured keys along the bottom, and pages drawn a row at a time. */
+:root[data-theme="teletext"] {
+  --font-sans: "Tiny5", "Courier New", Courier, monospace;
+  --font-code: var(--font-sans);
+  --font-data: var(--font-sans);
+  --font-label: var(--font-sans);
+  --font-display: var(--font-sans);
+  --display-weight: 400;
+  --display-tracking: 0;
+  --display-stretch: 100%;
+  --data-size: 12px;
+  --label-size: 11px;
+  --label-weight: 400;
+  --label-case: none;
+  --label-tracking: 0.02em;
+  --radius: 0px;
+  --radius-lg: 0px;
+  --bar-h: 12px;
+  --ease: steps(1, end);
+  --canvas: #000000;
+  --bg: #000000;
+  --bg-raised: #000000;
+  --bg-inset: #000000;
+  --bg-hover: #00007a;
+  --line: #0000ff;
+  --line-soft: #0000ff;
+  --text: #ffffff;
+  --text-dim: #00ffff;
+  --text-faint: #8a8aff;
+  --accent: #ffff00;
+  --accent-hi: #ffffff;
+  --accent-text: #ffff00;
+  --accent-soft: #0000ff;
+  --accent-line: #ffff00;
+  --accent-ink: #000000;
+  --up: #00ffff;
+  --ok: #00ff00;
+  --warn: #ffff00;
+  --err: #ff0000;
+  --scrim: #00000000;
+  --shadow: none;
+  --graph: blocks;
+  --graph-cell: 6px;
+  --graph-off: #0a0a2a;
+  --map-have: #00ff00;
+  --map-flight: #ffff00;
+  --map-empty: #00007a;
+  --map-flash: #ffffff;
+  /* Separated block graphics: cells with a black gutter between them. */
+  --tt-blocks: linear-gradient(transparent 0 42%, #000 42% 58%, transparent 58%), repeating-linear-gradient(90deg, currentColor 0 5px, #000 5px 7px);
+  color-scheme: dark;
+}
+
+:root[data-theme="teletext"] body {
+  font-size-adjust: 0.6;
+  font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: none;
+  font-kerning: none;
+  text-rendering: optimizeSpeed;
+}
+
+:root[data-theme="teletext"] :is(.app, .sidebar, .detail, .list-region) {
+  background: #000;
+}
+
+/* Double height: the classic way to make a heading. */
+:root[data-theme="teletext"] :is(.tb-title h1, .modal-title, .empty-title, .ov-name, .brand-mark) {
+  display: inline-block;
+  transform: scaleY(1.9);
+  transform-origin: 50% 60%;
+  font-weight: 400;
+  letter-spacing: 0.02em;
+}
+
+:root[data-theme="teletext"] .brand {
+  background: #0000ff;
+  border-bottom: 0;
+}
+
+:root[data-theme="teletext"] .brand-mark {
+  font-size: 22px;
+  color: #ffff00;
+}
+
+:root[data-theme="teletext"] .brand-sub {
+  color: #00ffff;
+  white-space: nowrap;
+}
+
+/* The page header: a page number before the title. */
+:root[data-theme="teletext"] .toolbar {
+  background: #000;
+  border-bottom: 0;
+}
+
+:root[data-theme="teletext"] .tb-title::before {
+  content: "P100";
+  margin-right: 14px;
+  color: #ffffff;
+  font-size: 15px;
+  align-self: center;
+}
+
+:root[data-theme="teletext"] .tb-title {
+  display: flex;
+  align-items: baseline;
+}
+
+:root[data-theme="teletext"] .tb-title h1 {
+  font-size: 20px;
+  color: #00ffff;
+}
+
+:root[data-theme="teletext"] .speedcard {
+  border-top: 0;
+}
+
+:root[data-theme="teletext"] .speedcard::before {
+  content: "";
+  display: block;
+  height: 8px;
+  margin: 0 0 10px;
+  color: #ff00ff;
+  background: var(--tt-blocks);
+}
+
+:root[data-theme="teletext"] :is(.speed-big, .ov-pct) {
+  font-family: var(--font-data);
+  font-weight: 400;
+}
+
+:root[data-theme="teletext"] .speed-big {
+  font-size: 34px;
+  color: #00ff00;
+}
+
+:root[data-theme="teletext"] .speed-num.up .speed-big {
+  font-size: 22px;
+  color: #00ffff;
+}
+
+:root[data-theme="teletext"] .speed-unit {
+  color: #ffffff;
+}
+
+/* Sidebar: an index, the current entry on a yellow band. */
+:root[data-theme="teletext"] .sidebar {
+  border-right: 0;
+}
+
+:root[data-theme="teletext"] .filter {
+  border-radius: 0;
+  color: #ffffff;
+}
+
+:root[data-theme="teletext"] .filter-icon {
+  color: #00ffff;
+}
+
+:root[data-theme="teletext"] .filter-count {
+  color: #ffff00;
+}
+
+:root[data-theme="teletext"] .filter-active {
+  border-radius: 0;
+  background: #ffff00;
+  box-shadow: none;
+}
+
+:root[data-theme="teletext"] .filter[aria-current="true"],
+:root[data-theme="teletext"] .filter[aria-current="true"] :is(.filter-icon, .filter-count) {
+  color: #000;
+}
+
+:root[data-theme="teletext"] .filter:hover:not([aria-current="true"]) {
+  color: #ffff00;
+}
+
+/* The list: rows alternate white and cyan, as listings did. */
+:root[data-theme="teletext"] .thead {
+  background: #0000ff;
+  border-bottom: 0;
+}
+
+:root[data-theme="teletext"] .th {
+  color: #ffff00;
+}
+
+:root[data-theme="teletext"] .th.sorted,
+:root[data-theme="teletext"] .th.sorted svg {
+  color: #ffffff;
+}
+
+:root[data-theme="teletext"] .trow {
+  border-bottom-color: transparent;
+}
+
+:root[data-theme="teletext"] .trow-wrap:nth-child(even) .trow:not([data-selected]) .tname {
+  color: #00ffff;
+}
+
+:root[data-theme="teletext"] .trow:not([data-selected]):hover {
+  background: #00007a;
+}
+
+:root[data-theme="teletext"] .trow-sel {
+  inset: 0;
+  border-radius: 0;
+  background: #0000ff;
+  transition: none;
+}
+
+:root[data-theme="teletext"] .trow[data-selected] .tname {
+  color: #ffff00;
+}
+
+:root[data-theme="teletext"] .trow[data-focused]::before {
+  top: 0;
+  bottom: 0;
+  width: 6px;
+  border-radius: 0;
+  background: #ffff00;
+}
+
+:root[data-theme="teletext"] .tname {
+  font-size: 17px;
+  color: #ffffff;
+}
+
+:root[data-theme="teletext"] :is(.pill, .sdot) {
+  border-radius: 0;
+}
+
+/* An error flashes, as a teletext "flash" attribute would. */
+:root[data-theme="teletext"] .trow[data-tone="err"] .slabel {
+  animation: ttFlash 1s steps(1, end) infinite;
+}
+
+@keyframes ttFlash {
+  50% {
+    opacity: 0;
+  }
+}
+
+/* Progress: separated block graphics. */
+:root[data-theme="teletext"] .bar {
+  height: 12px;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none !important;
+  color: #1a1a8a;
+  background-image: var(--tt-blocks);
+}
+
+:root[data-theme="teletext"] .bar-fill {
+  border-radius: 0;
+  color: #00ff00;
+  background: var(--tt-blocks);
+  transition: transform 0.6s steps(10, end);
+}
+
+:root[data-theme="teletext"] .bar-head {
+  display: none !important;
+}
+
+:root[data-theme="teletext"] .trow[data-status="downloading"] .bar-fill {
+  color: #ffff00;
+}
+
+:root[data-theme="teletext"] .trow:is([data-tone="seed"], [data-tone="seed-dim"]) .bar-fill {
+  color: #00ff00;
+}
+
+:root[data-theme="teletext"] .trow[data-tone="idle"] .bar-fill {
+  color: #ffffff;
+}
+
+:root[data-theme="teletext"] .trow:is([data-tone="warn"], [data-status="checking"]) .bar-fill {
+  color: #ff00ff;
+}
+
+:root[data-theme="teletext"] .trow[data-tone="err"] .bar-fill {
+  color: #ff0000;
+}
+
+:root[data-theme="teletext"] :is(.bar.sm, .bar.xs) {
+  height: 8px;
+}
+
+:root[data-theme="teletext"] .modal .bar {
+  flex: 0 0 12px;
+  width: 100%;
+}
+
+/* Controls: solid colour blocks. */
+:root[data-theme="teletext"] :is(.btn, .chip) {
+  border: 0;
+  border-radius: 0;
+  background: #0000ff;
+  color: #ffffff;
+  font-size: 15px;
+  transition: none;
+}
+
+:root[data-theme="teletext"] :is(.btn, .chip):hover {
+  background: #ffffff;
+  color: #000;
+}
+
+:root[data-theme="teletext"] :is(.btn, .chip):active {
+  scale: 1;
+}
+
+:root[data-theme="teletext"] .btn.primary {
+  background: #00ff00;
+  color: #000;
+}
+
+:root[data-theme="teletext"] .btn.primary:hover {
+  background: #ffffff;
+  filter: none;
+}
+
+:root[data-theme="teletext"] .btn.ghost {
+  background: transparent;
+  color: #00ffff;
+}
+
+:root[data-theme="teletext"] .btn.ghost:hover {
+  background: #00ffff;
+  color: #000;
+}
+
+:root[data-theme="teletext"] .btn.danger {
+  background: #ff0000;
+  color: #ffffff;
+}
+
+:root[data-theme="teletext"] .chip[aria-checked="true"] {
+  background: #ffff00;
+  color: #000;
+}
+
+:root[data-theme="teletext"] .icon-btn {
+  border-radius: 0;
+  color: #00ffff;
+}
+
+:root[data-theme="teletext"] .icon-btn:hover {
+  background: #00ffff;
+  color: #000;
+}
+
+:root[data-theme="teletext"] :is(.input, .tb-search, .select) {
+  border: 0;
+  border-bottom: 2px solid #00ffff;
+  border-radius: 0;
+  background-color: #000;
+  color: #ffffff;
+  caret-color: #ffff00;
+}
+
+:root[data-theme="teletext"] :is(.input:focus, .tb-search:focus-within, .select:focus) {
+  box-shadow: none;
+  border-bottom-color: #ffff00;
+}
+
+:root[data-theme="teletext"] .input::placeholder {
+  color: #5a5aff;
+}
+
+:root[data-theme="teletext"] .check span {
+  border: 2px solid #00ffff;
+  border-radius: 0;
+  background: #000;
+}
+
+:root[data-theme="teletext"] .check input:checked + span {
+  border-color: #00ff00;
+  background: #00ff00;
+  box-shadow: inset 0 0 0 2px #000;
+}
+
+:root[data-theme="teletext"] .toggle-track {
+  border: 2px solid #00ffff;
+  border-radius: 0;
+  background: #000;
+  transition: none;
+}
+
+:root[data-theme="teletext"] .toggle-thumb {
+  top: 1px;
+  left: 1px;
+  border-radius: 0;
+  background: #00ffff;
+  transition: none;
+}
+
+:root[data-theme="teletext"] .toggle input:checked + .toggle-track {
+  border-color: #00ff00;
+  background: #000;
+}
+
+:root[data-theme="teletext"] .toggle input:checked + .toggle-track .toggle-thumb {
+  background: #00ff00;
+}
+
+/* Detail tabs: the four coloured keys and white; the current one is a band. */
+:root[data-theme="teletext"] .tabs {
+  border-bottom: 0;
+}
+
+:root[data-theme="teletext"] .tab {
+  font-size: 15px;
+  --tt-key: #ffffff;
+  color: var(--tt-key);
+}
+
+:root[data-theme="teletext"] .tab:nth-child(1) {
+  --tt-key: #ff0000;
+}
+
+:root[data-theme="teletext"] .tab:nth-child(2) {
+  --tt-key: #00ff00;
+}
+
+:root[data-theme="teletext"] .tab:nth-child(3) {
+  --tt-key: #ffff00;
+}
+
+:root[data-theme="teletext"] .tab:nth-child(4) {
+  --tt-key: #00ffff;
+}
+
+:root[data-theme="teletext"] .tab[aria-selected="true"] {
+  color: #000;
+  background: var(--tt-key);
+}
+
+:root[data-theme="teletext"] .tab-underline {
+  display: none;
+}
+
+:root[data-theme="teletext"] .resizer {
+  background: #000;
+  border-top: 0;
+  color: #ff00ff;
+  background-image: var(--tt-blocks);
+  background-size: auto 6px;
+  background-repeat: repeat-x;
+  background-position: 0 50%;
+}
+
+:root[data-theme="teletext"] .ov-name {
+  font-size: 20px;
+  color: #ffff00;
+}
+
+:root[data-theme="teletext"] .ov-pct {
+  font-size: 48px;
+  color: #00ff00;
+}
+
+:root[data-theme="teletext"] :is(.stats, .piecemap, .speed-graph) {
+  border: 0;
+  border-radius: 0;
+  background: #000;
+  box-shadow: none;
+}
+
+:root[data-theme="teletext"] .stats {
+  background: #00007a;
+}
+
+:root[data-theme="teletext"] .stat {
+  border-color: #000;
+}
+
+/* Overlays: a new page. Black, a blue band with a double-height title. */
+:root[data-theme="teletext"] .modal-scrim {
+  background: #000000b3;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+:root[data-theme="teletext"] :is(.modal, .palette, .ctx-menu, .recover-card) {
+  border: 2px solid #0000ff;
+  border-radius: 0;
+  background: #000;
+  box-shadow: none;
+}
+
+:root[data-theme="teletext"] .modal-head {
+  background: #0000ff;
+  border-bottom: 0;
+}
+
+:root[data-theme="teletext"] .modal-foot {
+  background: #000;
+  border-top: 0;
+}
+
+:root[data-theme="teletext"] .modal-title {
+  font-size: 22px;
+  color: #ffff00;
+}
+
+:root[data-theme="teletext"] .eyebrow {
+  color: #ffffff;
+}
+
+:root[data-theme="teletext"] .set-nav {
+  background: #000;
+  border-right: 0;
+}
+
+:root[data-theme="teletext"] :is(.set-nav-item, .palette-item, .ctx-item) {
+  border-radius: 0;
+  font-size: 15px;
+}
+
+:root[data-theme="teletext"] .set-nav-item[aria-current="true"],
+:root[data-theme="teletext"] .palette-item[aria-selected="true"],
+:root[data-theme="teletext"] .ctx-item:is(.active, :hover) {
+  color: #000;
+  background: #00ffff;
+  box-shadow: none;
+}
+
+:root[data-theme="teletext"] .palette-input {
+  background: #0000ff;
+  border-bottom: 0;
+}
+
+:root[data-theme="teletext"] .palette-input :is(input, .input) {
+  color: #ffff00;
+  border: 0;
+}
+
+:root[data-theme="teletext"] .ctx-sep {
+  background: #0000ff;
+}
+
+:root[data-theme="teletext"] .toast {
+  border: 0;
+  border-radius: 0;
+  background: #0000ff;
+  box-shadow: none;
+}
+
+:root[data-theme="teletext"] .toast-title {
+  color: #ffff00;
+}
+
+:root[data-theme="teletext"] .toast-dot {
+  border-radius: 0;
+  box-shadow: none !important;
+}
+
+:root[data-theme="teletext"] .toast-life {
+  border-radius: 0;
+  background: #ffff00;
+}
+
+/* The bottom line: red, green, yellow and cyan, like the remote's keys. */
+:root[data-theme="teletext"] .statusbar {
+  border-top: 0;
+  background: #000;
+  font-size: 14px;
+  gap: 16px;
+}
+
+:root[data-theme="teletext"] .statusbar > :nth-child(4n + 1) {
+  color: #ff0000;
+}
+
+:root[data-theme="teletext"] .statusbar > :nth-child(4n + 2) {
+  color: #00ff00;
+}
+
+:root[data-theme="teletext"] .statusbar > :nth-child(4n + 3) {
+  color: #ffff00;
+}
+
+:root[data-theme="teletext"] .statusbar > :nth-child(4n + 4) {
+  color: #00ffff;
+}
+
+:root[data-theme="teletext"] .statusbar .sb-btn {
+  color: inherit;
+  font-size: 14px;
+}
+
+:root[data-theme="teletext"] .sdot {
+  border-radius: 0;
+  box-shadow: none !important;
+  background: currentColor;
+}
+
+:root[data-theme="teletext"] .sb-turtle[data-on] {
+  background: #ffff00;
+  color: #000 !important;
+}
+
+:root[data-theme="teletext"] .empty-title {
+  font-size: 30px;
+  color: #ffff00;
+}
+
+:root[data-theme="teletext"] .empty-title.sm {
+  font-size: 22px;
+}
+
+:root[data-theme="teletext"] .empty-mark {
+  color: #ff00ff;
+}
+
+:root[data-theme="teletext"] .launch {
+  background: #000;
+}
+
+:root[data-theme="teletext"] .launch-glow {
+  display: none;
+}
+
+:root[data-theme="teletext"] .launch-word {
+  font-size: 52px;
+  color: #ffff00;
+  transform: scaleY(1.9);
+}
+
+:root[data-theme="teletext"] .launch-mark {
+  color: #00ffff;
+}
+
+:root[data-theme="teletext"] .dropzone-inner {
+  border: 0;
+  border-radius: 0;
+  background: #0000ff;
+  box-shadow: none;
+}
+
+:root[data-theme="teletext"] :focus-visible {
+  outline: 2px solid #ffff00;
+  outline-offset: 1px;
+  box-shadow: none;
+}
+
+:root[data-theme="teletext"] :is(.table, .tab, .filter, .set-nav-item, .palette-item, .ctx-item, .th):focus-visible {
+  outline-offset: -2px;
+}
+
+:root[data-theme="teletext"] ::selection {
+  background: #ffff00;
+  color: #000;
+}
+
+:root[data-theme="teletext"] ::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+:root[data-theme="teletext"] ::-webkit-scrollbar-track {
+  background: #000;
+}
+
+:root[data-theme="teletext"] ::-webkit-scrollbar-thumb {
+  border: 0;
+  border-radius: 0;
+  background: #0000ff;
+}
+
+.theme-pick[data-pick="teletext"] .swatch {
+  border-radius: 0;
+  border-color: #0000ff !important;
+  box-shadow: inset 0 9px #0000ff;
+}
+
+.theme-pick[data-pick="teletext"] .swatch i {
+  height: 6px;
+  border-radius: 0;
+}
+
+.theme-pick[data-pick="teletext"] .swatch i:first-child {
+  background: linear-gradient(90deg, #ff0000 0 25%, #00ff00 0 50%, #ffff00 0 75%, #00ffff 0) !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root[data-theme="teletext"] .trow[data-tone="err"] .slabel {
+    animation: none;
+  }
+}

@@ -46,7 +46,7 @@ export function Graph({
     let h = 0;
     let dpr = 1;
     let shownMax = 64 * 1024;
-    let colors = { down: "", up: "", line: "", faint: "", style: "plain" };
+    let colors = { down: "", up: "", line: "", faint: "", style: "plain", cell: 5, off: "" };
     let frames = 0;
     let visible = true;
 
@@ -57,8 +57,13 @@ export function Graph({
         line: cssVar(c, "--line-soft"),
         faint: cssVar(c, "--text-faint"),
         // How the register draws: "glow" (Ink), "print" (Paper, overprinting inks),
-        // "pixel" (Bevel, Bitmap: straight 1px steps over a dithered fill), "plain".
+        // "pixel" (Bevel, Bitmap: straight 1px steps over a dithered fill),
+        // "blocks" (Textmode, Teletext, Hi-Fi: columns of lit cells, like an LED
+        // meter), "dots" (Instrument: a dot-matrix display), "plain".
         style: cssVar(c, "--graph"),
+        // Cell size for "blocks" and "dots", and the colour of unlit cells.
+        cell: Math.max(3, parseFloat(getComputedStyle(c).getPropertyValue("--graph-cell")) || 5),
+        off: getComputedStyle(c).getPropertyValue("--graph-off").trim(),
       };
     };
     readColors();
@@ -115,6 +120,63 @@ export function Graph({
       ctx.lineTo(last[0], last[1]);
     }
 
+    /** The history as columns of cells, lit up to each moment's download speed;
+     *  the upload is a single cell at its own level. */
+    function cells(vis: Sample[], x: (t: number) => number, y: (v: number) => number, top: number, bottom: number) {
+      const size = colors.cell;
+      const gap = Math.max(1, Math.round(size / 5));
+      const pitch = size + gap;
+      const cols = Math.max(1, Math.floor(w / pitch));
+      const rows = Math.max(1, Math.floor((bottom - top + gap) / pitch));
+      const left = w - cols * pitch + gap / 2;
+      const base = bottom;
+      const dots = colors.style === "dots";
+      const tStart = vis[0].t;
+      const tEnd = vis[vis.length - 1].t;
+      const xStart = x(tStart);
+      const xEnd = x(tEnd);
+      // A column's value: the samples interpolated at its center.
+      let j = 0;
+      const at = (t: number, key: "down" | "up") => {
+        while (j < vis.length - 2 && vis[j + 1].t < t) j++;
+        const a = vis[j];
+        const b = vis[Math.min(j + 1, vis.length - 1)];
+        const f = b.t === a.t ? 0 : Math.min(1, Math.max(0, (t - a.t) / (b.t - a.t)));
+        return a[key] + (b[key] - a[key]) * f;
+      };
+      const level = (v: number) => Math.round(((base - y(v)) / (bottom - top)) * rows);
+      const cell = (col: number, row: number) => {
+        const cx = left + col * pitch;
+        const cy = base - (row + 1) * pitch + gap;
+        if (dots) {
+          ctx.beginPath();
+          ctx.arc(cx + size / 2, cy + size / 2, size / 2, 0, Math.PI * 2);
+          ctx.fill();
+        } else ctx.fillRect(Math.round(cx), Math.round(cy), size, size);
+      };
+      const off = colors.off || withAlpha(colors.line, 0.55);
+      j = 0; // columns run forward in time, so the cursor only moves on
+      for (let col = 0; col < cols; col++) {
+        const cx = left + col * pitch + size / 2;
+        const has = cx >= xStart - pitch && cx <= xEnd + pitch;
+        let down = -1;
+        let up = -1;
+        if (has) {
+          const t = tStart + ((cx - xStart) / Math.max(1, xEnd - xStart)) * (tEnd - tStart);
+          down = Math.min(rows, level(at(t, "down")));
+          up = Math.min(rows, level(at(t, "up")));
+        }
+        for (let row = 0; row < rows; row++) {
+          ctx.fillStyle = row < down ? colors.down : off;
+          cell(col, row);
+        }
+        if (up > 0) {
+          ctx.fillStyle = colors.up;
+          cell(col, up - 1);
+        }
+      }
+    }
+
     function draw() {
       raf = 0;
       if (!visible || document.hidden) return;
@@ -159,7 +221,9 @@ export function Graph({
         ctx.setLineDash([]);
       }
 
-      if (vis.length >= 2) {
+      if (vis.length >= 2 && (colors.style === "blocks" || colors.style === "dots")) {
+        cells(vis, x, y, top, bottom);
+      } else if (vis.length >= 2) {
         const print = colors.style === "print";
         const glow = colors.style === "glow";
         const pixel = colors.style === "pixel";

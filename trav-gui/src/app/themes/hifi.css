@@ -1,0 +1,758 @@
+/* ── Hi-Fi: a '70s stereo receiver ─────────────────────────────────────────── */
+/* Brushed aluminium faceplates between walnut cheeks; the list is the tuning
+   dial, smoked glass lit amber from behind, with a dial scale along its head
+   and a red needle on the focused row. Engraved capitals, LED level meters,
+   chrome lever switches and push buttons. It moves like heavy, damped
+   hardware. */
+:root[data-theme="hifi"] {
+  --font-sans: "Archivo Variable", "Helvetica Neue", Arial, sans-serif;
+  --font-data: "Archivo Variable", "Helvetica Neue", Arial, sans-serif;
+  --font-label: "Michroma", "Eurostile", "Helvetica Neue", sans-serif;
+  --font-display: "Michroma", "Eurostile", "Helvetica Neue", sans-serif;
+  --display-weight: 400;
+  --display-tracking: 0.08em;
+  --display-stretch: 100%;
+  --data-size: 12px;
+  --label-size: 9px;
+  --label-weight: 400;
+  --label-case: uppercase;
+  --label-tracking: 0.12em;
+  --radius: 3px;
+  --radius-lg: 6px;
+  --bar-h: 6px;
+  --ease: cubic-bezier(0.3, 1.25, 0.5, 1);
+  /* The dial glass (the default surface: the list). */
+  --canvas: #0d0a08;
+  --bg: #0d0a08;
+  --bg-raised: #15100c;
+  --bg-inset: #080605;
+  --bg-hover: #1c140d;
+  --line: #3a2a1a;
+  --line-soft: #241a10;
+  --text: #f6dcb0;
+  --text-dim: #c99a5e;
+  --text-faint: #8a6a44;
+  --accent: #ffa53a;
+  --accent-hi: #ffd79a;
+  --accent-text: #ffb45c;
+  --accent-soft: #ffa53a1f;
+  --accent-line: #ffa53a66;
+  --accent-ink: #1a0f04;
+  --up: #ff6a3d;
+  --ok: #8fe07a;
+  --warn: #ffd04a;
+  --err: #ff4d3d;
+  --scrim: #0806048c;
+  --shadow: 0 30px 60px -20px #000000d9, 0 0 0 1px #00000066;
+  --graph: blocks;
+  --graph-cell: 5px;
+  --graph-off: #2a1c0e;
+  --map-have: #ffa53a;
+  --map-flight: #ff6a3d;
+  --map-empty: #241a10;
+  --map-flash: #ffe2b0;
+  /* Materials. */
+  --hf-alu: repeating-linear-gradient(0deg, #ffffff0d 0 1px, transparent 1px 3px), repeating-linear-gradient(0deg, #00000008 0 1px, transparent 1px 2px), linear-gradient(180deg, #e2dfd8, #c6c2ba 55%, #b7b2a9);
+  --hf-alu-flat: repeating-linear-gradient(0deg, #ffffff12 0 1px, transparent 1px 3px), linear-gradient(180deg, #d9d5cd, #c3bfb6);
+  --hf-grain: repeating-linear-gradient(178deg, #00000038 0 1px, transparent 1px 5px, #ffffff0d 5px 6px, transparent 6px 11px, #0000001f 11px 13px, transparent 13px 19px);
+  --hf-wood: linear-gradient(90deg, #2e190b, #5a3519 30%, #4a2a13 60%, #2e190b);
+  --hf-glass: radial-gradient(70% 60% at 50% -10%, #ffa53a2e, transparent 70%), linear-gradient(180deg, #120d09, #0b0806);
+  --hf-engraved: #3a3631;
+  --hf-engraved-dim: #6a655d;
+  --hf-press: inset 0 1px 0 #ffffffb3, inset 0 -1px 0 #0000002e, 0 1px 0 #ffffff80, 0 1px 3px #00000059;
+  color-scheme: dark;
+}
+
+/* The faceplates read in dark ink, like engraving on metal. */
+:root[data-theme="hifi"] :is(.sidebar, .toolbar, .tabs, .detail, .modal, .recover-card) {
+  --text: #2b2926;
+  --text-dim: #4d4943;
+  --text-faint: #6f6a62;
+  --accent-text: #b4570f;
+  --line: #9a958c;
+  --line-soft: #aaa59c;
+  --bg-hover: #00000010;
+  --bg-inset: #0d0a08;
+  color: var(--text);
+}
+
+:root[data-theme="hifi"] body {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Walnut cheeks either side of the faceplate. */
+:root[data-theme="hifi"] .app {
+  padding: 0 12px;
+  background:
+    var(--hf-grain) 0 0 / 12px 100% no-repeat,
+    var(--hf-wood) 0 0 / 12px 100% no-repeat,
+    var(--hf-grain) 100% 0 / 12px 100% no-repeat,
+    var(--hf-wood) 100% 0 / 12px 100% no-repeat,
+    var(--hf-alu);
+  box-shadow: inset 12px 0 0 -11px #00000080, inset -12px 0 0 -11px #00000080;
+}
+
+:root[data-theme="hifi"] .sidebar {
+  background: var(--hf-alu);
+  border-right: 0;
+  box-shadow: inset -1px 0 #00000033, inset -2px 0 #ffffff59;
+}
+
+:root[data-theme="hifi"] .brand {
+  border-bottom: 0;
+}
+
+:root[data-theme="hifi"] .brand-mark {
+  font-family: var(--font-display);
+  font-size: 19px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--hf-engraved);
+  text-shadow: 0 1px 0 #ffffffa6;
+}
+
+:root[data-theme="hifi"] .brand-sub {
+  display: none;
+}
+
+:root[data-theme="hifi"] :is(.side-eyebrow, .speed-num > span:first-child, .session, .sb-item, .th, .eyebrow, .stat-label, .speed-unit) {
+  font-family: var(--font-label);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+:root[data-theme="hifi"] .side-eyebrow {
+  font-size: 8px;
+  color: var(--hf-engraved-dim);
+  text-shadow: 0 1px 0 #ffffff99;
+}
+
+/* Filters: push buttons in a column; the chosen one stays down and lit. */
+:root[data-theme="hifi"] .filter {
+  border-radius: 3px;
+  color: var(--hf-engraved);
+  text-shadow: 0 1px 0 #ffffff80;
+}
+
+:root[data-theme="hifi"] .filter-active {
+  border-radius: 3px;
+  background: linear-gradient(180deg, #b9b4ab, #cfcbc3);
+  box-shadow: inset 0 1px 3px #00000059, inset 0 -1px 0 #ffffff80;
+}
+
+:root[data-theme="hifi"] .filter[aria-current="true"] {
+  color: #1d1b18;
+}
+
+:root[data-theme="hifi"] .filter-count {
+  font-family: var(--font-label);
+  font-size: 8.5px;
+}
+
+/* The meter window: black glass in the faceplate, amber digits. */
+:root[data-theme="hifi"] .speedcard {
+  margin: auto 12px 10px;
+  padding: 10px 0 6px;
+  border: 0;
+  border-radius: 4px;
+  background: var(--hf-glass);
+  box-shadow: inset 0 2px 6px #000000cc, 0 1px 0 #ffffffa6, 0 -1px 0 #0000004d;
+  --text: #f6dcb0;
+  --text-dim: #c99a5e;
+  --text-faint: #8a6a44;
+  color: var(--text);
+}
+
+:root[data-theme="hifi"] .speedcard .speed-num {
+  padding: 2px 14px;
+}
+
+:root[data-theme="hifi"] .speedcard .session {
+  padding: 6px 14px 2px;
+}
+
+:root[data-theme="hifi"] .speed-big {
+  font-family: var(--font-display);
+  font-size: 24px;
+  letter-spacing: 0.02em;
+  color: #ffb45c;
+  text-shadow: 0 0 10px #ffa53a8c;
+}
+
+:root[data-theme="hifi"] .speed-num.up .speed-big {
+  font-size: 16px;
+  color: #ff8a5c;
+  text-shadow: 0 0 8px #ff6a3d73;
+}
+
+:root[data-theme="hifi"] .speed-unit {
+  font-size: 8px;
+}
+
+/* The toolbar is the top of the faceplate. */
+:root[data-theme="hifi"] .toolbar {
+  background: var(--hf-alu-flat);
+  border-bottom: 0;
+  box-shadow: inset 0 -1px #00000040, inset 0 -2px #ffffff40;
+}
+
+:root[data-theme="hifi"] .tb-title h1 {
+  font-family: var(--font-display);
+  font-size: 16px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--hf-engraved);
+  text-shadow: 0 1px 0 #ffffffa6;
+}
+
+/* The dial: smoked glass, lit from behind, with a tuning scale for a head. */
+:root[data-theme="hifi"] .list-region {
+  background: var(--hf-glass);
+  box-shadow: inset 0 3px 8px #000000b3, inset 0 0 0 1px #000;
+}
+
+:root[data-theme="hifi"] .thead {
+  background: linear-gradient(180deg, #0f0b08, #0d0a08);
+  border-bottom: 0;
+  box-shadow: 0 1px 0 #ffa53a40;
+}
+
+:root[data-theme="hifi"] .thead::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 7px;
+  pointer-events: none;
+  background:
+    repeating-linear-gradient(90deg, #ffa53a99 0 1px, transparent 1px 50px) 0 100% / 100% 7px no-repeat,
+    repeating-linear-gradient(90deg, #ffa53a4d 0 1px, transparent 1px 10px) 0 100% / 100% 4px no-repeat;
+}
+
+:root[data-theme="hifi"] .thead {
+  position: sticky;
+}
+
+:root[data-theme="hifi"] .th {
+  font-size: 8px;
+  color: #c99a5e;
+}
+
+:root[data-theme="hifi"] .th.sorted,
+:root[data-theme="hifi"] .th.sorted svg {
+  color: #ffb45c;
+}
+
+:root[data-theme="hifi"] .trow {
+  border-bottom-color: #ffa53a12;
+}
+
+:root[data-theme="hifi"] .trow:not([data-selected]):hover {
+  background: #ffa53a0d;
+}
+
+:root[data-theme="hifi"] .trow-sel {
+  inset: 0;
+  border-radius: 0;
+  background: linear-gradient(90deg, #ffa53a2e, #ffa53a14 60%, #ffa53a08);
+  box-shadow: inset 0 1px #ffa53a33, inset 0 -1px #ffa53a33;
+}
+
+/* The tuning needle. */
+:root[data-theme="hifi"] .trow[data-focused]::before {
+  top: 0;
+  bottom: 0;
+  left: 3px;
+  width: 2px;
+  border-radius: 0;
+  background: #ff3b1f;
+  box-shadow: 0 0 6px #ff3b1f, 0 0 14px #ff3b1f99;
+}
+
+:root[data-theme="hifi"] .tname {
+  font-weight: 500;
+  color: #f6dcb0;
+}
+
+:root[data-theme="hifi"] .trow[data-selected] .tname {
+  color: #ffe2b0;
+  text-shadow: 0 0 10px #ffa53a66;
+}
+
+:root[data-theme="hifi"] .sdot {
+  box-shadow: 0 0 6px currentColor;
+}
+
+/* Level meters: LED segments. */
+:root[data-theme="hifi"] .bar {
+  height: 7px;
+  border-radius: 1px;
+  background: repeating-linear-gradient(90deg, #2a1c0e 0 4px, #0d0a08 4px 5px);
+  box-shadow: inset 0 0 0 1px #000 !important;
+}
+
+:root[data-theme="hifi"] .bar-fill {
+  border-radius: 1px;
+  background: repeating-linear-gradient(90deg, currentColor 0 4px, transparent 4px 5px);
+  color: #ffa53a;
+  filter: drop-shadow(0 0 3px color-mix(in srgb, currentColor 70%, transparent));
+}
+
+:root[data-theme="hifi"] .bar-head {
+  display: none !important;
+}
+
+:root[data-theme="hifi"] .trow:is([data-tone="seed"], [data-tone="seed-dim"]) .bar-fill {
+  color: #8fe07a;
+}
+
+:root[data-theme="hifi"] .trow[data-tone="seed-dim"] .bar-fill {
+  opacity: 0.6;
+}
+
+:root[data-theme="hifi"] .trow[data-tone="idle"] .bar-fill {
+  color: #8a6a44;
+  filter: none;
+}
+
+:root[data-theme="hifi"] .trow:is([data-tone="warn"], [data-status="checking"]) .bar-fill {
+  color: #ffd04a;
+}
+
+:root[data-theme="hifi"] .trow[data-tone="err"] .bar-fill {
+  color: #ff4d3d;
+}
+
+:root[data-theme="hifi"] .modal .bar,
+:root[data-theme="hifi"] .detail .bar {
+  background: repeating-linear-gradient(90deg, #2a1c0e 0 4px, #0d0a08 4px 5px);
+}
+
+/* Push buttons: brushed caps that sink when pressed. */
+:root[data-theme="hifi"] :is(.btn, .chip) {
+  border: 1px solid #8f8a81;
+  border-radius: 3px;
+  background: linear-gradient(180deg, #f2efe9, #cfcbc3);
+  color: #2b2926;
+  font-family: var(--font-label);
+  font-size: 8.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  box-shadow: var(--hf-press);
+  text-shadow: 0 1px 0 #ffffffb3;
+}
+
+:root[data-theme="hifi"] :is(.btn, .chip):hover {
+  border-color: #6f6a62;
+  color: #1d1b18;
+}
+
+:root[data-theme="hifi"] :is(.btn, .chip):active {
+  scale: 1;
+  translate: 0 1px;
+  background: linear-gradient(180deg, #c6c2ba, #dad6cf);
+  box-shadow: inset 0 1px 3px #0000004d;
+}
+
+:root[data-theme="hifi"] .btn.primary {
+  border-color: #000;
+  background: linear-gradient(180deg, #2c2722, #14110e);
+  color: #ffb45c;
+  text-shadow: 0 0 8px #ffa53a99;
+  box-shadow: inset 0 1px 0 #ffffff2e, 0 1px 3px #00000080;
+}
+
+:root[data-theme="hifi"] .btn.primary:hover {
+  color: #ffd79a;
+  filter: none;
+}
+
+:root[data-theme="hifi"] .btn.ghost {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+
+:root[data-theme="hifi"] .btn.danger {
+  color: #b4250f;
+}
+
+:root[data-theme="hifi"] .chip[aria-checked="true"] {
+  background: linear-gradient(180deg, #c6c2ba, #dad6cf);
+  box-shadow: inset 0 1px 3px #0000004d;
+  color: #b4570f;
+}
+
+:root[data-theme="hifi"] .icon-btn {
+  border-radius: 3px;
+  color: var(--hf-engraved);
+}
+
+:root[data-theme="hifi"] .icon-btn:hover {
+  background: #00000014;
+}
+
+/* Fields: black glass in the metal. */
+:root[data-theme="hifi"] :is(.input, .tb-search, .select) {
+  border: 1px solid #0006;
+  border-radius: 3px;
+  background-color: #0d0a08;
+  color: #ffd79a;
+  box-shadow: inset 0 2px 4px #000000b3, 0 1px 0 #ffffff99;
+  caret-color: #ffa53a;
+}
+
+:root[data-theme="hifi"] .tb-search :is(input, svg, kbd, .kbd) {
+  color: #ffd79a;
+}
+
+:root[data-theme="hifi"] :is(.input:focus, .tb-search:focus-within, .select:focus) {
+  border-color: #ffa53a;
+  box-shadow: inset 0 2px 4px #000000b3, 0 0 0 2px #ffa53a40;
+}
+
+:root[data-theme="hifi"] .input::placeholder {
+  color: #8a6a44;
+}
+
+:root[data-theme="hifi"] .check span {
+  border: 1px solid #6f6a62;
+  border-radius: 2px;
+  background: linear-gradient(180deg, #f2efe9, #cfcbc3);
+}
+
+:root[data-theme="hifi"] .check input:checked + span {
+  border-color: #000;
+  background: radial-gradient(circle, #ffd79a 0 25%, #ffa53a 45%, #7a3f08 100%);
+  box-shadow: 0 0 6px #ffa53acc;
+}
+
+/* Lever switches: a chrome bat in a black slot. */
+:root[data-theme="hifi"] .toggle-track {
+  width: 34px;
+  height: 14px;
+  border: 0;
+  border-radius: 7px;
+  background: linear-gradient(180deg, #050403, #2a2420);
+  box-shadow: inset 0 1px 2px #000, 0 1px 0 #ffffff99;
+}
+
+:root[data-theme="hifi"] .toggle-thumb {
+  top: -3px;
+  left: -2px;
+  width: 20px;
+  height: 20px;
+  background: radial-gradient(circle at 35% 30%, #ffffff, #d7d3cc 35%, #8f8a81 75%, #5f5b54);
+  box-shadow: 0 2px 4px #00000080;
+}
+
+:root[data-theme="hifi"] .toggle input:checked + .toggle-track {
+  background: linear-gradient(180deg, #050403, #2a2420);
+  box-shadow: inset 0 1px 2px #000, 0 1px 0 #ffffff99, 0 0 8px #ffa53a66;
+}
+
+:root[data-theme="hifi"] .toggle input:checked + .toggle-track .toggle-thumb {
+  transform: translateX(18px);
+  background: radial-gradient(circle at 35% 30%, #ffffff, #d7d3cc 35%, #8f8a81 75%, #5f5b54);
+}
+
+/* The selector row: the chosen function's lamp is lit above it. */
+:root[data-theme="hifi"] .detail {
+  background: var(--hf-alu);
+}
+
+:root[data-theme="hifi"] .tabs {
+  border-bottom: 0;
+  box-shadow: inset 0 -1px #00000033;
+}
+
+:root[data-theme="hifi"] .tab {
+  font-family: var(--font-label);
+  font-size: 8.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--hf-engraved-dim);
+  text-shadow: 0 1px 0 #ffffff80;
+}
+
+:root[data-theme="hifi"] .tab[aria-selected="true"] {
+  color: #1d1b18;
+}
+
+:root[data-theme="hifi"] .tab-underline {
+  top: 6px;
+  bottom: auto;
+  left: 50%;
+  right: auto;
+  width: 5px;
+  height: 5px;
+  margin-left: -2.5px;
+  border-radius: 50%;
+  background: #ffa53a;
+  box-shadow: 0 0 6px 1px #ffa53acc;
+}
+
+:root[data-theme="hifi"] .resizer {
+  background: var(--hf-alu-flat);
+  border-top: 1px solid #00000040;
+}
+
+:root[data-theme="hifi"] .ov-name {
+  font-family: var(--font-sans);
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: 0;
+  color: #1d1b18;
+}
+
+:root[data-theme="hifi"] .ov-pct {
+  font-family: var(--font-data);
+  font-stretch: 125%;
+  font-weight: 600;
+  font-size: 32px;
+  color: #ffb45c;
+  text-shadow: 0 0 12px #ffa53a8c;
+  padding: 2px 10px;
+  border-radius: 3px;
+  background: var(--hf-glass);
+  box-shadow: inset 0 2px 5px #000000cc, 0 1px 0 #ffffffa6;
+}
+
+/* Readouts sit behind glass in the faceplate. */
+:root[data-theme="hifi"] :is(.stats, .piecemap, .speed-graph) {
+  border: 0;
+  border-radius: 4px;
+  background: var(--hf-glass);
+  box-shadow: inset 0 2px 6px #000000cc, 0 1px 0 #ffffffa6;
+  --text: #f6dcb0;
+  --text-dim: #c99a5e;
+  --text-faint: #8a6a44;
+  --line: #3a2a1a;
+  --line-soft: #241a10;
+  color: var(--text);
+}
+
+:root[data-theme="hifi"] .stat {
+  border-color: #ffa53a14;
+}
+
+:root[data-theme="hifi"] .detail :is(.ptable, .ftable, .table, .trk) {
+  --text: #2b2926;
+}
+
+/* Overlays: faceplates. Menus and the palette are lit dial glass. */
+:root[data-theme="hifi"] .modal-scrim {
+  background: var(--scrim);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+}
+
+:root[data-theme="hifi"] :is(.modal, .recover-card) {
+  border: 0;
+  border-radius: 6px;
+  padding: 0 10px;
+  background:
+    var(--hf-grain) 0 0 / 10px 100% no-repeat,
+    var(--hf-wood) 0 0 / 10px 100% no-repeat,
+    var(--hf-grain) 100% 0 / 10px 100% no-repeat,
+    var(--hf-wood) 100% 0 / 10px 100% no-repeat,
+    var(--hf-alu);
+  box-shadow: var(--shadow), inset 0 1px 0 #ffffffb3;
+}
+
+:root[data-theme="hifi"] :is(.modal-head, .modal-foot) {
+  background: transparent;
+}
+
+:root[data-theme="hifi"] .modal-head {
+  border-bottom: 1px solid #0000002e;
+  box-shadow: 0 1px 0 #ffffff66;
+}
+
+:root[data-theme="hifi"] .modal-foot {
+  border-top: 1px solid #0000002e;
+}
+
+:root[data-theme="hifi"] .modal-title {
+  font-family: var(--font-display);
+  font-size: 15px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--hf-engraved);
+  text-shadow: 0 1px 0 #ffffffa6;
+}
+
+:root[data-theme="hifi"] .eyebrow {
+  color: #8a5a20;
+}
+
+:root[data-theme="hifi"] .set-nav {
+  background: transparent;
+  border-right: 1px solid #0000002e;
+}
+
+:root[data-theme="hifi"] .set-nav-item {
+  font-family: var(--font-label);
+  font-size: 8.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+:root[data-theme="hifi"] .set-nav-item[aria-current="true"] {
+  background: linear-gradient(180deg, #b9b4ab, #cfcbc3);
+  box-shadow: inset 0 1px 3px #00000059;
+  color: #1d1b18;
+}
+
+:root[data-theme="hifi"] :is(.palette, .ctx-menu) {
+  border: 1px solid #000;
+  border-radius: 5px;
+  background: var(--hf-glass), #0d0a08;
+  box-shadow: var(--shadow), inset 0 0 0 1px #ffa53a1a;
+}
+
+:root[data-theme="hifi"] .palette-item[aria-selected="true"],
+:root[data-theme="hifi"] .ctx-item:is(.active, :hover) {
+  background: #ffa53a26;
+  color: #ffe2b0;
+  box-shadow: inset 2px 0 #ff3b1f;
+}
+
+:root[data-theme="hifi"] .palette-input {
+  border-bottom-color: #ffa53a33;
+}
+
+:root[data-theme="hifi"] .ctx-sep {
+  background: #ffa53a26;
+}
+
+:root[data-theme="hifi"] .toast {
+  border: 1px solid #000;
+  border-radius: 5px;
+  background: var(--hf-glass), #0d0a08;
+  box-shadow: var(--shadow), inset 0 0 0 1px #ffa53a1a;
+}
+
+:root[data-theme="hifi"] .toast-title {
+  font-family: var(--font-label);
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #ffb45c;
+}
+
+:root[data-theme="hifi"] .toast-life {
+  background: #ffa53a;
+}
+
+/* The bottom strip: black, with indicator lamps. */
+:root[data-theme="hifi"] .statusbar {
+  border-top: 0;
+  background: linear-gradient(180deg, #1a1612, #0b0907);
+  color: #a8a39a;
+  font-size: 8px;
+  --text-faint: #a8a39a;
+  --text-dim: #d4cfc6;
+}
+
+:root[data-theme="hifi"] .statusbar .sb-btn {
+  font-family: var(--font-label);
+  font-size: 8px;
+  letter-spacing: 0.1em;
+}
+
+:root[data-theme="hifi"] .sb-item[data-link="online"] .sdot {
+  background: #ff3b1f;
+  box-shadow: 0 0 6px #ff3b1f;
+}
+
+:root[data-theme="hifi"] .sb-turtle[data-on] {
+  color: #ffa53a;
+  text-shadow: 0 0 6px #ffa53a;
+}
+
+:root[data-theme="hifi"] .empty-title {
+  font-family: var(--font-display);
+  font-size: 22px;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: #ffb45c;
+  text-shadow: 0 0 14px #ffa53a8c;
+}
+
+:root[data-theme="hifi"] .empty-title.sm {
+  font-size: 16px;
+}
+
+:root[data-theme="hifi"] .detail .empty-title {
+  color: var(--hf-engraved);
+  text-shadow: 0 1px 0 #ffffffa6;
+}
+
+:root[data-theme="hifi"] .empty-mark {
+  color: #ffa53a;
+  filter: drop-shadow(0 0 10px #ffa53a99);
+}
+
+:root[data-theme="hifi"] .launch {
+  background: var(--hf-glass), #0d0a08;
+}
+
+:root[data-theme="hifi"] .launch-word {
+  font-family: var(--font-display);
+  font-size: 34px;
+  letter-spacing: 0.4em;
+  text-transform: uppercase;
+  color: #ffb45c;
+  text-shadow: 0 0 18px #ffa53aa6;
+}
+
+:root[data-theme="hifi"] .dropzone-inner {
+  border: 1px solid #ffa53a99;
+  border-radius: 6px;
+  background: var(--hf-glass), #0d0a08ee;
+  box-shadow: 0 0 40px -10px #ffa53a99;
+}
+
+:root[data-theme="hifi"] :focus-visible {
+  outline: 2px solid #ffa53a;
+  outline-offset: 2px;
+}
+
+:root[data-theme="hifi"] :is(.table, .tab, .filter, .set-nav-item, .palette-item, .ctx-item, .th):focus-visible {
+  outline-offset: -2px;
+}
+
+:root[data-theme="hifi"] ::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+:root[data-theme="hifi"] ::-webkit-scrollbar-thumb {
+  border: 0;
+  border-radius: 4px;
+  background: #ffa53a40;
+}
+
+.theme-pick[data-pick="hifi"] .swatch {
+  border-left: 6px solid #3d2210 !important;
+  border-right: 6px solid #3d2210 !important;
+  border-top-color: #b9b4ab !important;
+  border-bottom-color: #b9b4ab !important;
+  border-radius: 2px;
+  background: radial-gradient(70% 70% at 50% 0, #ffa53a33, transparent 70%), #0d0a08 !important;
+}
+
+.theme-pick[data-pick="hifi"] .swatch i {
+  height: 4px;
+  border-radius: 0;
+  background: repeating-linear-gradient(90deg, #ffa53a 0 3px, transparent 3px 4px) !important;
+}
+
+.theme-pick[data-pick="hifi"] .swatch i:last-child {
+  background: #ff3b1f !important;
+  flex: 0 0 2px;
+  height: 18px;
+  box-shadow: 0 0 6px #ff3b1f;
+}
