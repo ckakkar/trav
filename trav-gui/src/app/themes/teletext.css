@@ -522,6 +522,11 @@
   font-size: 15px;
 }
 
+/* The pixel face is wide: menu items keep to one line and the menu grows. */
+:root[data-theme="teletext"] .ctx-item {
+  white-space: nowrap;
+}
+
 :root[data-theme="teletext"] .set-nav-item[aria-current="true"],
 :root[data-theme="teletext"] .palette-item[aria-selected="true"],
 :root[data-theme="teletext"] .ctx-item:is(.active, :hover) {

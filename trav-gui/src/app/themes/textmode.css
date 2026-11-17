@@ -509,6 +509,11 @@
   font-size: 18px;
 }
 
+/* The pixel face is wide: menu items keep to one line and the menu grows. */
+:root[data-theme="textmode"] .ctx-item {
+  white-space: nowrap;
+}
+
 :root[data-theme="textmode"] .set-nav-item[aria-current="true"],
 :root[data-theme="textmode"] .palette-item[aria-selected="true"],
 :root[data-theme="textmode"] .ctx-item:is(.active, :hover) {
