@@ -1,1 +1,1127 @@
-/* meadow: placeholder */
+/* ── Meadow: a friendly early-2000s desktop ──────────────────────────────── */
+/* Blue enamel title bars, cream property sheets and a sky-blue task pane.
+   Green segmented meters and orange hot edges give the controls their own
+   material. The small landscape is drawn entirely with gradients. */
+:root[data-theme="meadow"] {
+  --font-sans: "Tahoma", Verdana, sans-serif;
+  --font-data: var(--font-sans);
+  --font-label: var(--font-sans);
+  --font-display: "Trebuchet MS", "Tahoma", Verdana, sans-serif;
+  --display-weight: 700;
+  --display-tracking: 0;
+  --display-stretch: 100%;
+  --data-size: 11px;
+  --label-size: 11px;
+  --label-weight: 400;
+  --label-case: none;
+  --label-tracking: 0;
+  --radius: 3px;
+  --radius-lg: 8px;
+  --bar-h: 14px;
+  --sidebar-w: 220px;
+  --row-h: 46px;
+  --status-h: 28px;
+  --ease: ease-out;
+  --canvas: #ece9d8;
+  --bg: #ece9d8;
+  --bg-raised: #f5f3e9;
+  --bg-inset: #ffffff;
+  --bg-hover: #e6f0ff;
+  --line: #9bafc4;
+  --line-soft: #d6d4c6;
+  --text: #17212d;
+  --text-dim: #394956;
+  --text-faint: #59636d;
+  --accent: #316ac5;
+  --accent-hi: #7ab8ff;
+  --accent-text: #174b97;
+  --accent-soft: #e2edff;
+  --accent-line: #7f9db9;
+  --accent-ink: #ffffff;
+  --up: #286b24;
+  --ok: #267020;
+  --warn: #875700;
+  --err: #b42b1c;
+  --scrim: #14274724;
+  --shadow: 3px 5px 14px #17365b59;
+  --graph: plain;
+  --map-have: #30a638;
+  --map-flight: #e5ac1b;
+  --map-empty: #d9dfd1;
+  --map-flash: #abed76;
+  --md-blue: #0058e6;
+  --md-title: linear-gradient(180deg, #78b4ff 0, #3a93ff 8%, #0868ee 22%, #0058e6 77%, #0748be 100%);
+  --md-face: linear-gradient(180deg, #ffffff 0, #fbfaf5 50%, #eeeade 100%);
+  --md-go: linear-gradient(180deg, #b0df82 0, #75bf4c 8%, #39871f 23%, #2e7d18 48%, #2d7818 79%, #245f13 100%);
+  --md-desktop:
+    radial-gradient(ellipse 105% 67% at 9% 121%, #4d9c25 0 69%, transparent 69.4%),
+    radial-gradient(ellipse 99% 73% at 108% 125%, #73b735 0 69%, transparent 69.4%),
+    radial-gradient(ellipse 28% 7% at 27% 22%, #ffffffb3 0, transparent 76%),
+    radial-gradient(ellipse 19% 5% at 75% 35%, #ffffff80 0, transparent 76%),
+    linear-gradient(180deg, #4590d6, #9dd6fa 72%, #d3edff);
+  color-scheme: light;
+}
+
+:root[data-theme="meadow"] body {
+  font-size: 12px;
+  -webkit-font-smoothing: antialiased;
+  font-variant-numeric: tabular-nums;
+}
+
+/* One blue frame around each cream window body. */
+:root[data-theme="meadow"] .app {
+  padding: 4px 4px 0;
+  column-gap: 6px;
+  background: #ece9d8;
+}
+
+:root[data-theme="meadow"] .app[data-mac] .main {
+  --toolbar-h: 48px;
+}
+
+:root[data-theme="meadow"] .toolbar {
+  padding: 0 12px;
+  gap: 12px;
+  border: 1px solid #0040a9;
+  border-bottom: 0;
+  border-radius: 8px 8px 0 0;
+  background: var(--md-title);
+  box-shadow: inset 0 1px 0 #bfdcff, inset 1px 0 #6ba5ff, inset -1px 0 #003dab;
+  color: #fff;
+}
+
+:root[data-theme="meadow"] .tb-title h1 {
+  font-size: 20px;
+  color: #fff;
+  text-shadow: 1px 1px 2px #00347d;
+}
+
+:root[data-theme="meadow"] .tb-title > .faint {
+  color: #f0f6ff;
+  text-shadow: 0 1px #00469d;
+  font-size: 11px;
+}
+
+:root[data-theme="meadow"] .tb-divider {
+  background: #b2d4ff;
+}
+
+:root[data-theme="meadow"] .list-region {
+  border: 1px solid #0054ca;
+  border-top: 0;
+  background: #fff;
+}
+
+:root[data-theme="meadow"] .panel-wrap {
+  border: 1px solid #0054ca;
+  border-radius: 3px;
+  background: #ece9d8;
+}
+
+:root[data-theme="meadow"] .panel-wrap[data-collapsed] {
+  border: 0;
+}
+
+:root[data-theme="meadow"] .detail {
+  background: #ece9d8;
+}
+
+:root[data-theme="meadow"] .resizer {
+  border: 0;
+  background: #ece9d8;
+}
+
+:root[data-theme="meadow"] .resizer span {
+  height: 2px;
+  background: #9d9b8d;
+  box-shadow: 0 1px #fff;
+}
+
+/* The task pane: two compact white group boxes on a periwinkle ground. */
+:root[data-theme="meadow"] .sidebar {
+  border: 1px solid #4b6cc3;
+  border-radius: 8px 8px 0 0;
+  background: linear-gradient(160deg, #7ba2e7, #6375d6 80%);
+  color: #153c79;
+  overflow: hidden;
+}
+
+:root[data-theme="meadow"] .sidebar[data-mac] .brand {
+  height: 74px;
+  padding: 28px 14px 8px;
+  border-bottom: 1px solid #3764b9;
+  background: var(--md-title);
+  box-shadow: inset 0 1px #c1dcff;
+  gap: 9px;
+}
+
+:root[data-theme="meadow"] .brand-mark {
+  font-size: 25px;
+  color: #fff;
+  text-shadow: 1px 2px 2px #003875;
+}
+
+:root[data-theme="meadow"] .brand-sub {
+  color: #f2f7ff;
+  font-size: 9px;
+  letter-spacing: 0;
+  white-space: nowrap;
+  padding-top: 3px;
+}
+
+:root[data-theme="meadow"] :is(.filters, .speedcard) {
+  margin: 12px 12px 0;
+  padding: 0 6px 7px;
+  border: 1px solid #f4f7ff;
+  border-radius: 5px;
+  background: #f2f6ff;
+  box-shadow: 0 2px 3px #233d8e33;
+  --text: #153c79;
+  --text-dim: #2d4e81;
+  --text-faint: #4c6080;
+  color: var(--text);
+}
+
+:root[data-theme="meadow"] .filters {
+  flex: 0 1 auto;
+}
+
+:root[data-theme="meadow"] .side-eyebrow {
+  display: block;
+  flex: none;
+  margin: 0 -6px 5px;
+  padding: 7px 10px;
+  background: linear-gradient(180deg, #f5f9ff, #c3d5f7);
+  border-bottom: 1px solid #adc5eb;
+  border-radius: 4px 4px 0 0;
+  color: #163f81;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+:root[data-theme="meadow"] .filter {
+  flex: none;
+  height: 28px;
+  padding: 0 7px;
+  gap: 8px;
+  border-radius: 3px;
+  font-size: 11.5px;
+  color: #244b86;
+}
+
+:root[data-theme="meadow"] .filter:hover:not([aria-current="true"]) {
+  background: #e0ebff;
+  color: #123d7b;
+}
+
+:root[data-theme="meadow"] .filter-active {
+  border-radius: 3px;
+  background: #316ac5;
+  box-shadow: inset 0 1px #ffffff33;
+}
+
+:root[data-theme="meadow"] .filter[aria-current="true"],
+:root[data-theme="meadow"] .filter[aria-current="true"] :is(.filter-icon, .filter-count) {
+  color: #fff;
+}
+
+:root[data-theme="meadow"] .filter-icon {
+  color: #326aab;
+}
+
+:root[data-theme="meadow"] .filter-count {
+  font-size: 10px;
+  color: #4c6080;
+}
+
+:root[data-theme="meadow"] .speedcard {
+  margin-top: auto;
+  margin-bottom: 12px;
+  flex: none;
+}
+
+:root[data-theme="meadow"] .speed-num {
+  padding: 3px 7px;
+}
+
+:root[data-theme="meadow"] .speed-big {
+  font-family: var(--font-display);
+  font-size: 27px;
+  font-weight: 700;
+  color: #174b97;
+}
+
+:root[data-theme="meadow"] .speed-num.up .speed-big {
+  font-size: 19px;
+  color: #286b24;
+}
+
+:root[data-theme="meadow"] .speed-unit {
+  color: #4c6080;
+  font-size: 10px;
+}
+
+:root[data-theme="meadow"] .side-graph {
+  width: calc(100% - 14px);
+  margin: 3px 7px;
+  height: 48px;
+  border: 1px solid #9bafc4;
+  background: #fff;
+  --accent: #2364bc;
+  --up: #36992d;
+  --line-soft: #e0e6ef;
+}
+
+:root[data-theme="meadow"] .session {
+  padding: 5px 7px 2px;
+  font-size: 9px;
+  color: #405678;
+}
+
+:root[data-theme="meadow"] .side-foot {
+  padding: 7px 9px;
+  border-top: 1px solid #4261bc;
+  background: #e2e9f7;
+}
+
+:root[data-theme="meadow"] .side-credit {
+  font-size: 9px;
+  color: #3e5379;
+}
+
+:root[data-theme="meadow"] .side-credit a {
+  color: #264e8c;
+  border-bottom-color: #a2b5d7;
+}
+
+/* Cream column heads above a white list, a flat blue selection. */
+:root[data-theme="meadow"] .thead {
+  height: 26px;
+  background: linear-gradient(180deg, #fffefa, #ece9d8);
+  border-bottom: 1px solid #aca899;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+:root[data-theme="meadow"] .th {
+  position: relative;
+  color: #36414b;
+  font-size: 11px;
+  box-shadow: 1px 0 #d5d0bd;
+}
+
+:root[data-theme="meadow"] .th:hover {
+  background: linear-gradient(180deg, #fffdf2, #f9ebbb);
+  box-shadow: inset 0 -2px #f8b636, 1px 0 #d5d0bd;
+  color: #17212d;
+}
+
+:root[data-theme="meadow"] .th.sorted svg {
+  color: #174b97;
+}
+
+:root[data-theme="meadow"] .trow {
+  border-bottom-color: #edf0f4;
+}
+
+:root[data-theme="meadow"] .trow:not([data-selected]):hover {
+  background: #e6f0ff;
+}
+
+:root[data-theme="meadow"] .tname {
+  font-size: 12px;
+  font-weight: 400;
+}
+
+:root[data-theme="meadow"] .tmeta {
+  font-size: 10px;
+}
+
+:root[data-theme="meadow"] .trow-sel {
+  inset: 0;
+  border-radius: 0;
+  background: #316ac5;
+}
+
+:root[data-theme="meadow"] .trow[data-selected] {
+  --text: #fff;
+  --text-dim: #fff;
+  --text-faint: #edf4ff;
+  --accent-text: #fff;
+  --up: #fff;
+  --ok: #fff;
+  --warn: #fff;
+  --err: #fff;
+  color: var(--text);
+}
+
+:root[data-theme="meadow"] .trow[data-selected] .sdot {
+  background: #fff;
+  box-shadow: none;
+}
+
+:root[data-theme="meadow"] .trow[data-focused]::before {
+  inset: 2px;
+  width: auto;
+  border: 1px dotted #273955;
+  border-radius: 0;
+  background: none;
+}
+
+:root[data-theme="meadow"] .trow[data-selected][data-focused]::before {
+  border-color: #fff;
+}
+
+:root[data-theme="meadow"] .pill {
+  background: #f7f9fc;
+  font-size: 10px;
+}
+
+:root[data-theme="meadow"] .sdot {
+  width: 5px;
+  height: 5px;
+  box-shadow: none;
+}
+
+/* Green blocks retain their width as the meter grows, with a white gap. */
+:root[data-theme="meadow"] .bar {
+  height: 14px;
+  border: 1px solid #7f9db9;
+  border-radius: 3px;
+  background: linear-gradient(180deg, #eae9e2, #fff 45%);
+  box-shadow: inset 0 1px 2px #64758626 !important;
+}
+
+:root[data-theme="meadow"] .bar-fill {
+  inset: 2px;
+  border-radius: 1px;
+  background:
+    repeating-linear-gradient(90deg, transparent 0 7px, #fff 7px 9px),
+    linear-gradient(180deg, #9aed78, #2ed33f 45%, #23aa24);
+  animation: none;
+}
+
+:root[data-theme="meadow"] .trow .bar-fill {
+  right: auto;
+  width: calc((100% - 4px) * var(--p, 0));
+  transform: none;
+  transition: width 0.25s linear;
+}
+
+:root[data-theme="meadow"] .bar-head {
+  display: none !important;
+}
+
+:root[data-theme="meadow"] .trow:is([data-tone="seed"], [data-tone="seed-dim"]) .bar-fill {
+  background:
+    repeating-linear-gradient(90deg, transparent 0 7px, #fff 7px 9px),
+    linear-gradient(180deg, #a3ed7f, #43c936 50%, #2d9f27);
+  opacity: 1;
+}
+
+:root[data-theme="meadow"] .trow[data-tone="idle"] .bar-fill {
+  background:
+    repeating-linear-gradient(90deg, transparent 0 7px, #fff 7px 9px),
+    linear-gradient(180deg, #c9d0d4, #939fa8 50%, #7a8792);
+}
+
+:root[data-theme="meadow"] .trow:is([data-tone="warn"], [data-status="checking"]) .bar-fill {
+  background:
+    repeating-linear-gradient(90deg, transparent 0 7px, #fff 7px 9px),
+    linear-gradient(180deg, #ffe795, #efbd31 50%, #d39a10);
+}
+
+:root[data-theme="meadow"] .trow[data-tone="err"] .bar-fill {
+  background:
+    repeating-linear-gradient(90deg, transparent 0 7px, #fff 7px 9px),
+    linear-gradient(180deg, #f5b0a1, #e45c43 50%, #c53423);
+}
+
+:root[data-theme="meadow"] .trow[data-status="metadata"] .bar-fill {
+  width: 28px;
+  animation: meadowTravel 2.4s linear infinite alternate;
+}
+
+@keyframes meadowTravel {
+  from { left: 2px; }
+  to { left: calc(100% - 30px); }
+}
+
+:root[data-theme="meadow"] :is(.bar.sm, .bar.xs) {
+  height: 9px;
+}
+
+:root[data-theme="meadow"] :is(.bar.sm, .bar.xs) .bar-fill {
+  inset: 1px;
+}
+
+/* Rounded enamel controls: cream faces, orange hot edges, a green Go key. */
+:root[data-theme="meadow"] :is(.btn, .chip, .icon-btn) {
+  border: 1px solid #003c74;
+  border-radius: 3px;
+  background: var(--md-face);
+  box-shadow: inset 0 1px #fff, inset 0 -1px #d6d1bd, 0 1px 1px #00000014;
+  color: #172b45;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 400;
+  text-shadow: none;
+}
+
+:root[data-theme="meadow"] :is(.btn, .chip, .icon-btn):hover {
+  border-color: #003c74;
+  background: var(--md-face);
+  box-shadow: inset 0 0 0 2px #f8c36b, 0 0 0 1px #f8b636;
+  color: #172b45;
+}
+
+:root[data-theme="meadow"] :is(.btn, .chip, .icon-btn):active {
+  scale: 1;
+  background: linear-gradient(180deg, #dddacb, #f7f5eb);
+  box-shadow: inset 1px 1px 2px #7f887f66;
+}
+
+:root[data-theme="meadow"] .btn.primary {
+  border-color: #245b10;
+  background: var(--md-go);
+  box-shadow: inset 0 1px #d7f2b1, inset 1px 0 #9bd36a, inset -1px 0 #2a7517, 0 1px 1px #00000026;
+  color: #fff;
+  font-weight: 700;
+  text-shadow: 0 1px #225d14;
+}
+
+:root[data-theme="meadow"] .btn.primary:hover {
+  background: var(--md-go);
+  box-shadow: inset 0 0 0 2px #e7d681, 0 0 0 1px #f8b636;
+  color: #fff;
+  filter: none;
+}
+
+:root[data-theme="meadow"] .btn.primary:active {
+  background: linear-gradient(180deg, #307a19, #60ad35);
+  box-shadow: inset 1px 1px 2px #17470a;
+}
+
+:root[data-theme="meadow"] .btn.ghost {
+  border-color: #7f9db9;
+  background: var(--md-face);
+  color: #30435b;
+}
+
+:root[data-theme="meadow"] .btn.danger {
+  border-color: #963923;
+  background: linear-gradient(180deg, #fff9ed, #f5dfd3);
+  color: #9f291a;
+}
+
+:root[data-theme="meadow"] :is(.btn, .chip):disabled,
+:root[data-theme="meadow"] .btn.primary:disabled {
+  opacity: 1;
+  border-color: #b8b5a8;
+  background: #f0efe8;
+  box-shadow: inset 0 1px #fff;
+  color: #77796f;
+  text-shadow: 0 1px #fff;
+}
+
+:root[data-theme="meadow"] .chip[aria-checked="true"] {
+  border-color: #316ac5;
+  background: linear-gradient(180deg, #f7fbff, #d8e7fb);
+  box-shadow: inset 0 0 0 1px #aec8ed;
+  color: #153e7e;
+}
+
+:root[data-theme="meadow"] :is(.input, .tb-search, .select) {
+  border: 1px solid #7f9db9;
+  border-radius: 2px;
+  background-color: #fff;
+  color: #17212d;
+  box-shadow: inset 1px 1px 2px #788eaa14;
+  font-size: 11px;
+  caret-color: #17212d;
+}
+
+:root[data-theme="meadow"] .tb-search :is(input, svg, kbd) {
+  color: #435978;
+  text-shadow: none;
+}
+
+:root[data-theme="meadow"] .tb-search input {
+  color: #17212d;
+}
+
+:root[data-theme="meadow"] :is(.input:focus, .tb-search:focus-within, .select:focus) {
+  border-color: #335f99;
+  box-shadow: inset 0 0 0 1px #f8c36b;
+}
+
+:root[data-theme="meadow"] ::placeholder {
+  color: #66727c;
+  opacity: 1;
+}
+
+:root[data-theme="meadow"] .check span {
+  border: 1px solid #7f9db9;
+  border-radius: 2px;
+  background: linear-gradient(135deg, #e2e8ed, #fff 65%);
+}
+
+:root[data-theme="meadow"] .check input:checked + span {
+  border-color: #7f9db9;
+  background: #fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 6.2l2.3 2.3 4.7-5' fill='none' stroke='%232b952f' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / 11px no-repeat;
+  box-shadow: inset 1px 1px 2px #bcc8d34d;
+}
+
+:root[data-theme="meadow"] .toggle-track {
+  width: 33px;
+  height: 18px;
+  border: 1px solid #7f9db9;
+  border-radius: 9px;
+  background: linear-gradient(180deg, #d2d9df, #f8fbff);
+  box-shadow: inset 0 1px 2px #64758633;
+}
+
+:root[data-theme="meadow"] .toggle-thumb {
+  top: 2px;
+  left: 2px;
+  width: 12px;
+  height: 12px;
+  border: 1px solid #6c87a4;
+  border-radius: 6px;
+  background: linear-gradient(180deg, #fff, #c3d9ef);
+  box-shadow: 0 1px 2px #334c6b4d;
+}
+
+:root[data-theme="meadow"] .toggle input:checked + .toggle-track {
+  border-color: #45783d;
+  background: linear-gradient(180deg, #39862a, #75c853 55%, #a4df83);
+}
+
+:root[data-theme="meadow"] .toggle input:checked + .toggle-track .toggle-thumb {
+  transform: translateX(15px);
+  background: linear-gradient(180deg, #fff, #e3f1d9);
+}
+
+/* Property-sheet tabs: the active page rises and catches an orange edge. */
+:root[data-theme="meadow"] .tabs {
+  align-items: flex-end;
+  gap: 2px;
+  height: 36px;
+  padding: 4px 10px 0;
+  border-bottom: 1px solid #919b9c;
+  background: #ece9d8;
+}
+
+:root[data-theme="meadow"] .tab {
+  height: 26px;
+  padding: 0 12px;
+  border: 1px solid #919b9c;
+  border-bottom: 0;
+  border-radius: 4px 4px 0 0;
+  background: linear-gradient(180deg, #fffefa, #e5e2d3);
+  color: #394956;
+  font-size: 11px;
+}
+
+:root[data-theme="meadow"] .tab:hover {
+  color: #17212d;
+  box-shadow: inset 0 2px #f8c36b;
+}
+
+:root[data-theme="meadow"] .tab[aria-selected="true"] {
+  z-index: 1;
+  height: 30px;
+  margin-bottom: -1px;
+  border-bottom: 1px solid #fff;
+  background: #fff;
+  box-shadow: inset 0 3px #ffc83c;
+  color: #17212d;
+}
+
+:root[data-theme="meadow"] .tab-underline {
+  display: none;
+}
+
+:root[data-theme="meadow"] .detail-body {
+  margin: 0 6px 6px;
+  border: 1px solid #aca899;
+  border-top: 0;
+  background: #fff;
+}
+
+:root[data-theme="meadow"] .ov-name {
+  font-size: 22px;
+  color: #163f81;
+}
+
+:root[data-theme="meadow"] .ov-pct {
+  font-size: 34px;
+  color: #267020;
+}
+
+:root[data-theme="meadow"] :is(.stats, .piecemap, .speed-graph) {
+  border: 1px solid #aca899;
+  border-radius: 3px;
+  background: #fff;
+}
+
+:root[data-theme="meadow"] .stat {
+  border-color: #e3e1d8;
+}
+
+:root[data-theme="meadow"] .pane-bar,
+:root[data-theme="meadow"] .gt-head {
+  background: linear-gradient(180deg, #fffefa, #ece9d8);
+  border-bottom-color: #c5c1af;
+}
+
+/* Floating windows, with a compact blue title bar and a red Close key. */
+:root[data-theme="meadow"] .modal-scrim {
+  background: var(--scrim);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+:root[data-theme="meadow"] :is(.modal, .palette, .recover-card) {
+  border: 2px solid #0054ca;
+  border-radius: 8px 8px 3px 3px;
+  background: #ece9d8;
+  box-shadow: var(--shadow), inset 0 0 0 1px #fff;
+  color: var(--text);
+}
+
+:root[data-theme="meadow"] .modal {
+  padding: 2px;
+}
+
+:root[data-theme="meadow"] .modal-head {
+  align-items: center;
+  min-height: 32px;
+  padding: 4px 6px 5px 9px;
+  border-radius: 5px 5px 0 0;
+  background: var(--md-title);
+  color: #fff;
+}
+
+:root[data-theme="meadow"] .modal-head .eyebrow {
+  display: none;
+}
+
+:root[data-theme="meadow"] .modal-title {
+  font-family: var(--font-display);
+  font-size: 15px;
+  line-height: 22px;
+  color: #fff;
+  text-shadow: 1px 1px 2px #00347d;
+}
+
+:root[data-theme="meadow"] .modal-head .icon-btn {
+  width: 22px;
+  height: 22px;
+  border-color: #fff;
+  background: linear-gradient(140deg, #ffb69a, #df5838 45%, #bf351f);
+  box-shadow: inset 0 0 0 1px #f6b49e;
+  color: #fff;
+}
+
+:root[data-theme="meadow"] .modal-head .icon-btn:hover {
+  box-shadow: inset 0 0 0 1px #fff0df, 0 0 0 1px #f8b636;
+}
+
+:root[data-theme="meadow"] .modal-body {
+  padding-top: 16px;
+}
+
+:root[data-theme="meadow"] .modal-foot {
+  background: #ece9d8;
+  border-top: 1px solid #d2cfbd;
+  box-shadow: inset 0 1px #fff;
+}
+
+:root[data-theme="meadow"] .settings {
+  grid-template-rows: minmax(0, 1fr);
+  min-height: 0;
+  height: min(530px, calc(100dvh - 150px));
+  max-height: calc(100dvh - 150px);
+}
+
+:root[data-theme="meadow"] .set-nav {
+  background: linear-gradient(180deg, #edf3ff, #d9e3f7);
+  border-right-color: #b0c1dc;
+}
+
+:root[data-theme="meadow"] .set-nav-item {
+  border-radius: 3px;
+  color: #244b86;
+  font-size: 11px;
+}
+
+:root[data-theme="meadow"] .set-nav-item:hover {
+  background: #e1ebfd;
+}
+
+:root[data-theme="meadow"] .set-nav-item[aria-current="true"] {
+  background: #316ac5;
+  box-shadow: inset 0 1px #ffffff4d;
+  color: #fff;
+}
+
+:root[data-theme="meadow"] .set-row {
+  padding-block: 12px;
+}
+
+:root[data-theme="meadow"] .set-hint {
+  color: #59636d;
+}
+
+/* Menus have a pale-blue icon gutter, like a well-organised desktop menu. */
+:root[data-theme="meadow"] :is(.palette, .ctx-menu) {
+  background: linear-gradient(90deg, #e4ecf9 0 36px, #fff 36px);
+}
+
+:root[data-theme="meadow"] .palette::before {
+  content: "Commands";
+  display: block;
+  padding: 6px 12px;
+  background: var(--md-title);
+  color: #fff;
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 700;
+  text-shadow: 1px 1px #00347d;
+}
+
+:root[data-theme="meadow"] .palette-input {
+  height: 44px;
+  background: #ece9d8;
+  border-bottom-color: #b5b5a3;
+  color: #405678;
+}
+
+:root[data-theme="meadow"] .palette-input input {
+  padding: 5px 7px;
+  border: 1px solid #7f9db9;
+  border-radius: 2px;
+  background: #fff;
+  color: #17212d;
+  font-size: 12px;
+}
+
+:root[data-theme="meadow"] .palette-list {
+  max-height: min(360px, calc(100dvh - 210px));
+}
+
+:root[data-theme="meadow"] .ctx-menu {
+  padding: 3px;
+  border: 1px solid #7890a9;
+  border-radius: 3px;
+  box-shadow: 3px 4px 8px #10274b4d;
+}
+
+:root[data-theme="meadow"] :is(.palette-item, .ctx-item) {
+  border-radius: 2px;
+  color: #17212d;
+  font-size: 11px;
+}
+
+:root[data-theme="meadow"] :is(.palette-icon, .ctx-icon) {
+  color: #24528a;
+}
+
+:root[data-theme="meadow"] .palette-item[aria-selected="true"],
+:root[data-theme="meadow"] .ctx-item:is(.active, :hover) {
+  --text: #fff;
+  --text-dim: #fff;
+  --text-faint: #edf4ff;
+  --accent-text: #fff;
+  background: #316ac5;
+  box-shadow: none;
+  color: #fff;
+}
+
+:root[data-theme="meadow"] .palette-item[aria-selected="true"] :is(.palette-icon, .palette-hint),
+:root[data-theme="meadow"] .ctx-item:is(.active, :hover) :is(.ctx-icon, .ctx-hint) {
+  color: #fff;
+}
+
+:root[data-theme="meadow"] .ctx-item.danger {
+  color: #a12c1d;
+}
+
+:root[data-theme="meadow"] .ctx-item.danger:is(.active, :hover) {
+  color: #fff;
+}
+
+:root[data-theme="meadow"] .ctx-sep {
+  margin-left: 34px;
+  background: #d5d9df;
+}
+
+:root[data-theme="meadow"] .recover-card {
+  padding: 2px;
+  gap: 0;
+  overflow: hidden;
+}
+
+:root[data-theme="meadow"] .recover-title {
+  width: 100%;
+  padding: 9px 12px;
+  background: var(--md-title);
+  color: #fff;
+  font-size: 17px;
+  text-shadow: 1px 1px #00347d;
+}
+
+:root[data-theme="meadow"] .recover-body {
+  padding: 16px;
+  color: #394956;
+}
+
+:root[data-theme="meadow"] .recover-card .btn {
+  margin: 0 16px 16px;
+}
+
+/* Notification balloons, and a quiet row of sunken status panes. */
+:root[data-theme="meadow"] .toast {
+  position: relative;
+  overflow: visible;
+  border: 1px solid #676754;
+  border-radius: 8px;
+  background: #ffffe1;
+  box-shadow: 2px 3px 6px #26354333;
+  --text: #252a22;
+  --text-dim: #3d4538;
+  --text-faint: #525b49;
+  color: var(--text);
+}
+
+:root[data-theme="meadow"] .toast::after {
+  content: "";
+  position: absolute;
+  right: 22px;
+  bottom: -6px;
+  width: 10px;
+  height: 10px;
+  border-right: 1px solid #676754;
+  border-bottom: 1px solid #676754;
+  background: #ffffe1;
+  transform: rotate(45deg);
+}
+
+:root[data-theme="meadow"] .toast-title {
+  font-size: 12px;
+  font-weight: 700;
+}
+
+:root[data-theme="meadow"] .toast-body {
+  font-size: 11px;
+}
+
+:root[data-theme="meadow"] .toast-dot {
+  box-shadow: none;
+}
+
+:root[data-theme="meadow"] .toast-life {
+  left: 10px;
+  right: 40px;
+  background: #619c28;
+}
+
+:root[data-theme="meadow"] .statusbar {
+  gap: 3px;
+  padding: 3px 0;
+  border-top: 1px solid #fff;
+  background: #ece9d8;
+  color: #394956;
+  font-size: 10px;
+}
+
+:root[data-theme="meadow"] .sb-item {
+  align-self: stretch;
+  padding: 0 6px;
+  border: 1px solid;
+  border-color: #c2bfae #fff #fff #c2bfae;
+  color: #394956;
+  box-shadow: inset 1px 1px #e1decd;
+}
+
+:root[data-theme="meadow"] .sb-turtle[data-on] {
+  background: #e2edcf;
+  color: #286b24;
+}
+
+/* The desktop is a blue sky with two original, overlapping grassy hills. */
+:root[data-theme="meadow"] .list-region:has(.empty),
+:root[data-theme="meadow"] .launch {
+  background: var(--md-desktop);
+}
+
+:root[data-theme="meadow"] .tbody:has(.empty) {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+:root[data-theme="meadow"] .empty {
+  flex: 1;
+  min-height: 100%;
+  padding: 24px;
+  background: transparent;
+  color: #172b45;
+}
+
+:root[data-theme="meadow"] .empty > div {
+  max-width: 100%;
+  padding: 20px 26px;
+  border: 1px solid #789fbf;
+  border-radius: 6px;
+  background: #ffffffed;
+  box-shadow: 0 3px 8px #174d7c33;
+}
+
+:root[data-theme="meadow"] .empty-title {
+  font-size: 30px;
+  color: #163f81;
+}
+
+:root[data-theme="meadow"] .empty-sub {
+  color: #394956;
+  font-size: 12px;
+}
+
+:root[data-theme="meadow"] .empty-mark {
+  color: #2364bc;
+}
+
+:root[data-theme="meadow"] .empty:has(.empty-title.sm) {
+  min-height: 0;
+  padding: 8px 16px;
+}
+
+:root[data-theme="meadow"] .empty > div:has(.empty-title.sm) {
+  padding: 10px 16px;
+}
+
+:root[data-theme="meadow"] .empty-title.sm {
+  margin: 0 0 5px;
+  font-size: 19px;
+}
+
+:root[data-theme="meadow"] .empty-title.sm + .empty-sub {
+  margin: 0;
+  font-size: 11px;
+}
+
+:root[data-theme="meadow"] .launch {
+  --text: #fff;
+  --text-dim: #f0f7ff;
+  --text-faint: #f0f7ff;
+  color: var(--text);
+}
+
+:root[data-theme="meadow"] .launch-word {
+  color: #fff;
+  font-size: 42px;
+  text-shadow: 1px 2px 3px #164f88;
+}
+
+:root[data-theme="meadow"] .launch-mark {
+  color: #fff;
+  filter: drop-shadow(0 2px 2px #1b609066);
+}
+
+:root[data-theme="meadow"] .launch-glow {
+  display: none;
+}
+
+:root[data-theme="meadow"] .dropzone-inner {
+  border: 2px dashed #316ac5;
+  border-radius: 8px;
+  background: #f2f6ffed;
+  box-shadow: 0 3px 12px #164b7a33;
+  color: #163f81;
+}
+
+/* Dotted focus rectangles remain visible on both cream and blue controls. */
+:root[data-theme="meadow"] :focus-visible {
+  outline: 1px dotted #17212d;
+  outline-offset: 2px;
+}
+
+:root[data-theme="meadow"] :is(.table, .th, .tab, .filter, .set-nav-item, .palette-item, .ctx-item):focus-visible {
+  outline-offset: -3px;
+}
+
+:root[data-theme="meadow"] :is(.btn.primary, .filter[aria-current="true"], .set-nav-item[aria-current="true"], .palette-item[aria-selected="true"], .ctx-item.active):focus-visible {
+  outline-color: #fff;
+  outline-offset: -4px;
+}
+
+:root[data-theme="meadow"] .check input:focus-visible + span,
+:root[data-theme="meadow"] .toggle input:focus-visible + .toggle-track {
+  outline: 1px dotted #17212d;
+  outline-offset: 2px;
+}
+
+:root[data-theme="meadow"] ::selection {
+  background: #316ac5;
+  color: #fff;
+}
+
+:root[data-theme="meadow"] ::-webkit-scrollbar {
+  width: 13px;
+  height: 13px;
+}
+
+:root[data-theme="meadow"] ::-webkit-scrollbar-track {
+  background: #f1efe2;
+}
+
+:root[data-theme="meadow"] ::-webkit-scrollbar-thumb {
+  border: 1px solid #7f9db9;
+  border-radius: 3px;
+  background: linear-gradient(90deg, #eaf3ff, #b9d0ed);
+  box-shadow: inset 0 0 0 1px #fff;
+}
+
+.theme-pick[data-pick="meadow"] .swatch {
+  border: 1px solid #0054ca !important;
+  border-radius: 5px 5px 2px 2px;
+  background: linear-gradient(180deg, #68a7ff 0, #0058e6 25%, #ece9d8 26%) !important;
+  box-shadow: inset 0 1px #b7d7ff;
+}
+
+.theme-pick[data-pick="meadow"] .swatch i {
+  height: 6px;
+  border-radius: 1px;
+}
+
+.theme-pick[data-pick="meadow"] .swatch i:first-child {
+  background: repeating-linear-gradient(90deg, #32b72d 0 5px, #fff 5px 7px) !important;
+}
+
+.theme-pick[data-pick="meadow"] .swatch i:last-child {
+  background: #316ac5 !important;
+}
+
+@media (max-height: 720px) {
+  :root[data-theme="meadow"] .filter { height: 25px; }
+  :root[data-theme="meadow"] :is(.filters, .speedcard) { margin-inline: 10px; }
+  :root[data-theme="meadow"] .filters { margin-top: 10px; }
+  :root[data-theme="meadow"] .side-eyebrow { padding-block: 5px; }
+  :root[data-theme="meadow"] .side-graph { height: 30px; }
+  :root[data-theme="meadow"] .speedcard { margin-bottom: 8px; }
+  :root[data-theme="meadow"] .speed-num.down .speed-big { font-size: 24px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root[data-theme="meadow"] *,
+  :root[data-theme="meadow"] *::before,
+  :root[data-theme="meadow"] *::after {
+    animation: none !important;
+    transition-duration: 0.001ms !important;
+  }
+  :root[data-theme="meadow"] .trow[data-status="metadata"] .bar-fill {
+    left: calc(50% - 14px);
+  }
+}
