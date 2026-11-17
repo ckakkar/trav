@@ -51,14 +51,19 @@ export function Palette({
   // not resurrect the previous (frozen) input and its stale query.
   const session = useRef(0);
   const wasOpen = useRef(open);
+  // Focus goes back where it came from when the palette closes. Note the
+  // opener while rendering the opening: by the time effects run, the input's
+  // autoFocus has already taken focus.
+  const opener = useRef<HTMLElement | null>(null);
+  if (!wasOpen.current && open && typeof document !== "undefined") {
+    const a = document.activeElement;
+    opener.current = a instanceof HTMLElement && a !== document.body ? a : null;
+  }
   if (wasOpen.current && !open) session.current += 1;
   wasOpen.current = open;
-  // Focus goes back where it came from when the palette closes.
-  const opener = useRef<HTMLElement | null>(null);
   const list = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (open) {
-      opener.current = document.activeElement instanceof HTMLElement && document.activeElement !== document.body ? document.activeElement : null;
       setQ("");
       setIdx(0);
       requestAnimationFrame(() => input.current?.focus());
