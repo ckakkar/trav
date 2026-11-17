@@ -26,7 +26,8 @@ const TABS: { id: DetailTab; label: string }[] = [
 ];
 
 export interface DetailActions {
-  setPriorities: (hash: string, p: number[]) => void;
+  /** Resolves false when the engine refused the change. */
+  setPriorities: (hash: string, p: number[]) => Promise<boolean>;
   addPeers: (hash: string, peers: string[]) => void;
   reannounce: (hash: string) => void;
   move: (hash: string) => void;
@@ -261,15 +262,22 @@ function Files({ d, actions }: { d: TorrentDetails; actions: DetailActions }) {
   if (!d.summary.hasMetadata) {
     return <div className="pane-note mono">Files appear once metadata arrives from the swarm.</div>;
   }
+  // A refused change goes back to what the engine has (unless a newer edit
+  // has replaced it since).
+  const settle = (asked: Record<number, number>) => (ok: boolean) => {
+    if (ok) return;
+    setPending((x) => Object.fromEntries(Object.entries(x).filter(([i, v]) => asked[Number(i)] !== v)));
+  };
   const set = (f: FileInfo, p: number) => {
     const next = [...prios];
     next[f.index] = p;
     setPending((x) => ({ ...x, [f.index]: p }));
-    actions.setPriorities(hash, next);
+    actions.setPriorities(hash, next).then(settle({ [f.index]: p }));
   };
   const setAll = (p: number) => {
-    setPending(Object.fromEntries(d.files.map((f) => [f.index, p])));
-    actions.setPriorities(hash, prios.map(() => p));
+    const asked = Object.fromEntries(d.files.map((f) => [f.index, p]));
+    setPending(asked);
+    actions.setPriorities(hash, prios.map(() => p)).then(settle(asked));
   };
   const wanted = d.files.filter((f) => prioOf(f) > 0).length;
   return (

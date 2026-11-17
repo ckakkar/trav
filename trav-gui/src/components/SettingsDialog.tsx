@@ -1,15 +1,15 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useContext, useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { Dices, FolderOpen } from "lucide-react";
 import type { GlobalStats, Settings } from "@/lib/types";
 import { bytes } from "@/lib/format";
 import { call, getAutostart, pickFolder, setAutostart } from "@/lib/rpc";
 import { Modal } from "./Modal";
-import { Toggle } from "./AddDialog";
-import { THEMES, type Theme } from "./theme";
+import { LabelledBy, Toggle } from "./AddDialog";
+import { chooseTheme, effectiveTheme, matchTheMac, THEME_GROUPS, THEMES, useDarkAppearance, type Theme, type ThemeChoice } from "./theme";
 
-export interface UiPrefs {
+export interface UiPrefs extends ThemeChoice {
   theme: Theme;
   notify: boolean;
   confirmRemove: boolean;
@@ -35,21 +35,27 @@ function minutes(value: string, fallback: number) {
 type Section = (typeof SECTIONS)[number];
 
 function Row({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
+  // The visible label names the row's switches and number fields for VoiceOver.
+  const id = useId();
   return (
     <div className="set-row">
       <div className="set-label">
-        <div>{label}</div>
+        <div id={id}>{label}</div>
         {hint && <div className="mono faint set-hint">{hint}</div>}
       </div>
-      <div className="set-control">{children}</div>
+      <div className="set-control">
+        <LabelledBy.Provider value={id}>{children}</LabelledBy.Provider>
+      </div>
     </div>
   );
 }
 
 function Num({ value, onChange, suffix, min = 0, max, step = 1 }: { value: number; onChange: (n: number) => void; suffix?: string; min?: number; max?: number; step?: number }) {
+  const named = useContext(LabelledBy);
   return (
     <div className="num-input">
       <input
+        aria-labelledby={named}
         className="input mono"
         type="number"
         min={min}
@@ -84,6 +90,9 @@ export function SettingsDialog({
   version: string;
   onCheckUpdates: () => Promise<void>;
 }) {
+  const dark = useDarkAppearance();
+  const current = effectiveTheme(prefs, dark);
+  const label = (id?: Theme) => THEMES.find((t) => t.id === id)?.label ?? "—";
   const [s, setS] = useState<Settings | null>(null);
   const [orig, setOrig] = useState<string>("");
   const [section, setSection] = useState<Section>("Downloads");
@@ -120,6 +129,10 @@ export function SettingsDialog({
 
   const save = async () => {
     if (!s) return;
+    if (!s.downloadDir.trim().startsWith("/")) {
+      onErrorRef.current("Choose a save folder: the default save folder needs a full path, such as /Users/you/Downloads.");
+      return;
+    }
     setSaving(true);
     try {
       const v = await call<Settings>("setSettings", s);
@@ -162,9 +175,10 @@ export function SettingsDialog({
             <>
               <Row label="Default save folder" hint="new torrents land here unless you pick another">
                 <div className="field-row">
-                  <input className="input mono" value={s.downloadDir} onChange={(e) => set("downloadDir", e.target.value)} spellCheck={false} />
+                  <input className="input mono" value={s.downloadDir} onChange={(e) => set("downloadDir", e.target.value)} spellCheck={false} aria-label="Default save folder" aria-invalid={!s.downloadDir.trim().startsWith("/") || undefined} />
                   <button
                     className="btn"
+                    aria-label="Choose save folder"
                     onClick={async () => {
                       const p = await pickFolder(s.downloadDir);
                       if (p) set("downloadDir", p);
@@ -263,7 +277,7 @@ export function SettingsDialog({
               <Row label="Listen port" hint="TCP and UDP (µTP, DHT)">
                 <div className="field-row">
                   <Num value={s.listenPort} onChange={(v) => set("listenPort", Math.min(65535, v))} max={65535} />
-                  <button className="btn" title="Random port" onClick={() => set("listenPort", 20000 + Math.floor(Math.random() * 40000))}>
+                  <button className="btn" title="Random port" aria-label="Random port" onClick={() => set("listenPort", 20000 + Math.floor(Math.random() * 40000))}>
                     <Dices size={14} />
                   </button>
                 </div>
@@ -346,19 +360,48 @@ export function SettingsDialog({
             </>
           ) : (
             <>
-              <Row label="Theme" hint="⌘⇧L cycles through them">
-                <div className="theme-picks">
-                  {THEMES.map((t) => (
-                    <button key={t.id} className="theme-pick" data-pick={t.id} aria-pressed={prefs.theme === t.id} onClick={() => onPrefs({ ...prefs, theme: t.id })}>
-                      <span className="swatch" style={{ background: t.bg, borderColor: t.line }}>
-                        <i style={{ background: t.accent }} />
-                        <i style={{ background: t.text }} />
-                      </span>
-                      <span className="mono">{t.label}</span>
-                    </button>
+              <Row label="Match the Mac's appearance" hint="one theme in Light mode, another in Dark mode">
+                <Toggle checked={!!prefs.autoTheme} onChange={(v) => onPrefs(matchTheMac(prefs, v, dark))} label="" />
+              </Row>
+              <div className="set-row set-row-wide">
+                <div className="set-label">
+                  <div id="theme-label">Theme</div>
+                  <div className="mono faint set-hint">
+                    {prefs.autoTheme
+                      ? `Light mode: ${label(prefs.lightTheme)} · Dark mode: ${label(prefs.darkTheme)} · a click sets the ${dark ? "Dark" : "Light"}-mode one`
+                      : "⌘⇧L cycles through them"}
+                  </div>
+                </div>
+                <div className="theme-groups" role="group" aria-labelledby="theme-label">
+                  {THEME_GROUPS.map((g) => (
+                    <div key={g.label} className="theme-group">
+                      <div className="theme-group-title">{g.label}</div>
+                      <div className="theme-picks">
+                        {g.ids.map((id) => {
+                          const t = THEMES.find((x) => x.id === id)!;
+                          const slot = prefs.autoTheme ? (prefs.lightTheme === id ? "light" : prefs.darkTheme === id ? "dark" : null) : null;
+                          return (
+                            <button
+                              key={t.id}
+                              className="theme-pick"
+                              data-pick={t.id}
+                              aria-pressed={current === t.id}
+                              onClick={() => onPrefs(chooseTheme(prefs, t.id, dark))}
+                            >
+                              <span className="swatch" style={{ background: t.bg, borderColor: t.line }}>
+                                <i style={{ background: t.accent }} />
+                                <i style={{ background: t.text }} />
+                              </span>
+                              <span className="mono">{t.label}</span>
+                              {slot && <span className="theme-slot mono">{slot}</span>}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
                   ))}
                 </div>
-              </Row>
+              </div>
               <Row label="Notify when a download completes">
                 <Toggle checked={prefs.notify} onChange={(v) => onPrefs({ ...prefs, notify: v })} label="" />
               </Row>

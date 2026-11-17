@@ -2,7 +2,7 @@
 
 import { AnimatePresence, motion } from "motion/react";
 import { createContext, useCallback, useContext, useRef, useState, type ReactNode } from "react";
-import { TOAST, useRegister } from "@/lib/motion";
+import { TOAST, useChoreo } from "@/lib/motion";
 
 type Tone = "info" | "ok" | "error";
 interface Toast {
@@ -21,7 +21,7 @@ export const useToast = () => useContext(Ctx);
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [items, setItems] = useState<Toast[]>([]);
   const seq = useRef(0);
-  const choreo = TOAST[useRegister()];
+  const choreo = useChoreo(TOAST);
   const push = useCallback((title: string, opts?: { body?: string; tone?: Tone }) => {
     const id = ++seq.current;
     const life = opts?.tone === "error" ? 7000 : 4200;

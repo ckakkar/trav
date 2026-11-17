@@ -11,7 +11,7 @@
 // Quantum phases in out of a blur. Meadow fades, as early-2000s desktops did.
 
 import { useSyncExternalStore } from "react";
-import type { TargetAndTransition, Transition } from "motion/react";
+import { useReducedMotion, type TargetAndTransition, type Transition } from "motion/react";
 
 export type Register =
   | "ink"
@@ -61,6 +61,20 @@ const paperSnap: Transition = { type: "spring", stiffness: 900, damping: 30, mas
 /** An easing that moves in `n` hard steps, as old window managers drew. */
 const stepped = (n: number) => (t: number) => Math.ceil(t * n) / n;
 const instant: Transition = { duration: 0 };
+
+/** With Reduce Motion on, every register just fades: no zooms, wipes or blurs. */
+const FADE: Choreo = {
+  initial: { opacity: 0 },
+  animate: { opacity: 1 },
+  exit: { opacity: 0, transition: { duration: 0.1 } },
+  transition: { duration: 0.12, ease: "linear" },
+};
+
+/** The active register's choreography from `table`, or a plain fade under Reduce Motion. */
+export function useChoreo(table: Record<Register, Choreo>): Choreo {
+  const reg = useRegister();
+  return useReducedMotion() ? FADE : table[reg];
+}
 
 /** Dialogs and the command palette. */
 export const DIALOG: Record<Register, Choreo> = {

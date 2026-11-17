@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, createContext, useContext } from "react";
 import { FolderOpen, Link2, Magnet } from "lucide-react";
 import type { TorrentPreview } from "@/lib/types";
 import { bytes, looksLikeMagnet } from "@/lib/format";
@@ -118,7 +118,10 @@ export function AddDialog({
         });
         onAdded(r.infoHash);
       } catch (e) {
+        // Keep the one that failed (and those after it) open, with the
+        // choices made, so another folder can be picked and it can be retried.
         onError(String((e as Error)?.message ?? e));
+        break;
       }
       consumed++;
     }
@@ -312,10 +315,14 @@ export function AddDialog({
   );
 }
 
+/** The id of a visible label that names the controls inside it (a Settings row). */
+export const LabelledBy = createContext<string | undefined>(undefined);
+
 export function Toggle({ checked, onChange, label, hint }: { checked: boolean; onChange: (v: boolean) => void; label: string; hint?: string }) {
+  const named = useContext(LabelledBy);
   return (
     <label className="toggle">
-      <input type="checkbox" role="switch" checked={checked} onChange={(e) => onChange(e.target.checked)} />
+      <input type="checkbox" role="switch" checked={checked} onChange={(e) => onChange(e.target.checked)} aria-labelledby={label ? undefined : named} />
       <span className="toggle-track">
         <span className="toggle-thumb" />
       </span>

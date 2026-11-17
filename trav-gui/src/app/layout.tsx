@@ -30,7 +30,7 @@ export const viewport: Viewport = {
 };
 
 // Apply the saved theme before first paint so there is no flash.
-const boot = `try{var p=JSON.parse(localStorage.getItem("trav.ui.prefs")||"{}");document.documentElement.dataset.theme=p.theme||"ink";document.documentElement.dataset.scanlines=p.scanlines===false?"off":"on"}catch(e){document.documentElement.dataset.theme="ink"}`;
+const boot = `try{var p=JSON.parse(localStorage.getItem("trav.ui.prefs")||"{}");var t=p.theme||"ink";if(p.autoTheme)t=matchMedia("(prefers-color-scheme: dark)").matches?p.darkTheme||"ink":p.lightTheme||"paper";document.documentElement.dataset.theme=t;document.documentElement.dataset.scanlines=p.scanlines===false?"off":"on"}catch(e){document.documentElement.dataset.theme="ink"}`;
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (

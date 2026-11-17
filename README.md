@@ -15,7 +15,7 @@ Open the `.dmg` and drag Trav into Applications. The first launch needs **Open A
 - **Motion with purpose.** A short launch sequence where the mark assembles itself; progress bars whose sheen speeds up with the download; a burst when a download completes; new transfers sweep in. Decorative motion rests while the window is in the background, and respects Reduce Motion.
 - **Always up to date.** Every push to `main` that passes CI is published as a new version. Trav checks hourly (or **Trav › Check for Updates…**), shows what changed, verifies the update's signature, installs it and relaunches.
 - **Careful with your Mac.** "Remove and delete data" moves files to the Trash. It keeps the Mac awake only while transferring, remembers the window, and keeps running when you close it.
-- **The Nova UI**, with three themes that differ in material, not just color: **Ink** (dark: floating panels, light that glows with your download speed), **Paper** (light: a risograph print in navy and fluorescent pink, condensed poster type, highlighter selection) and **Phosphor** (the terminal of [kkrwhofrags.xyz](https://kkrwhofrags.xyz): green on black, CRT scanlines). Each moves in its own way, from dialogs and menus to how a finished download is marked. It has a sortable multi-select table, a detail panel (Overview with piece map, Files with priorities, Peers, Trackers, Speed), an add dialog for choosing files, drag & drop, ⌘V to paste magnets, and a command palette (⌘K).
+- **The Nova UI**, with fourteen themes that differ in material, not just color. The originals: **Ink** (dark: floating panels, light that glows with your download speed), **Paper** (light: a risograph print in navy and fluorescent pink) and **Phosphor** (the terminal of [kkrwhofrags.xyz](https://kkrwhofrags.xyz): green on black, CRT scanlines). Retro: **Pinstripe** (glossy early-2000s Mac), **Bevel** (a mid-90s desktop), **Meadow** (the blue-and-green early-2000s desktop), **Bitmap** (one bit), **Textmode** (a DOS text screen), **Teletext** (a broadcast page) and **Hi-Fi** (a '70s stereo receiver, walnut and amber). Future: **Hologram** (a heads-up display), **Glass** (frosted layers over moving colour), **Instrument** (modern hardware with a dot-matrix display) and **Quantum** (light in deep space). Each moves in its own way, from dialogs and menus to how a finished download is marked, and Trav can follow the Mac's Light and Dark mode with a theme for each. It has a sortable multi-select table, a detail panel (Overview with piece map, Files with priorities, Peers, Trackers, Speed), an add dialog for choosing files, drag & drop, ⌘V to paste magnets, and a command palette (⌘K).
 
 ## The engine (`trav-core`)
 
@@ -29,7 +29,7 @@ Open the `.dmg` and drag Trav into Applications. The first launch needs **Open A
 - **Persistence:** resume data, settings and DHT nodes survive restarts, and missing or truncated files trigger a recheck.
 - **Safety:** paths from torrents are sanitised, made unique and kept inside the save folder, never followed through symlinks. Parsers are fuzz-tested, peer frames and tracker replies are size-capped, piece buffers are bounded, and peers that send bad data are banned.
 
-Not implemented yet: BitTorrent v2 and the IPv6 DHT (BEP 32).
+Not implemented yet: torrents that are BitTorrent v2 only (hybrid v1 + v2 torrents work).
 
 ## Build from source
 

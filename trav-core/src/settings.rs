@@ -149,6 +149,14 @@ impl Settings {
 
     /// Clamp values that would wedge the engine.
     pub fn sanitized(mut self) -> Self {
+        // A blank or relative save folder would put downloads wherever the
+        // app happens to be running from: fall back to the default instead.
+        if !self.download_dir.is_absolute() {
+            self.download_dir = default_download_dir();
+        }
+        if self.watch_dir.as_ref().is_some_and(|d| !d.is_absolute()) {
+            self.watch_dir = None;
+        }
         self.alt_from %= 1440;
         self.alt_to %= 1440;
         self.alt_days &= 0x7f;
@@ -167,6 +175,26 @@ impl Settings {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn blank_or_relative_folders_fall_back() {
+        let s = Settings {
+            download_dir: PathBuf::new(),
+            watch_dir: Some(PathBuf::from("relative/dir")),
+            ..Settings::default()
+        }
+        .sanitized();
+        assert!(s.download_dir.is_absolute(), "{:?}", s.download_dir);
+        assert_eq!(s.watch_dir, None);
+        let kept = Settings {
+            download_dir: PathBuf::from("/tmp/x"),
+            watch_dir: Some(PathBuf::from("/tmp/w")),
+            ..Settings::default()
+        }
+        .sanitized();
+        assert_eq!(kept.download_dir, PathBuf::from("/tmp/x"));
+        assert_eq!(kept.watch_dir, Some(PathBuf::from("/tmp/w")));
+    }
 
     fn scheduled(from: u16, to: u16, days: u8) -> Settings {
         Settings {

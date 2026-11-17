@@ -3,7 +3,7 @@
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useRef, type ReactNode } from "react";
 import { X } from "lucide-react";
-import { DIALOG, useRegister } from "@/lib/motion";
+import { DIALOG, useChoreo } from "@/lib/motion";
 
 export const ease = [0.17, 0.84, 0.44, 1] as const;
 
@@ -27,7 +27,7 @@ export function Modal({
   title?: ReactNode;
 }) {
   const panel = useRef<HTMLDivElement>(null);
-  const motionSet = DIALOG[useRegister()];
+  const motionSet = useChoreo(DIALOG);
   // Parents pass a fresh `onClose` on every render (the engine polls twice a
   // second); focus must follow opening and closing only, not those renders.
   const close = useRef(onClose);

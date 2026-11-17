@@ -1047,9 +1047,11 @@ impl EngineHandle {
 
     pub async fn update_settings(&self, new: Settings) -> Result<()> {
         let new = new.sanitized();
+        // Save first: settings that can't be saved don't take effect, so a
+        // failed Save never leaves Trav running on half-applied settings.
+        self.s.ctx.store.save("settings.json", &new)?;
         let old = std::mem::replace(&mut *self.s.ctx.settings.write(), new.clone());
         self.s.apply_limits();
-        self.s.ctx.store.save("settings.json", &new)?;
         if old.listen_port != new.listen_port {
             self.s.bind_listener().await;
         }

@@ -1,3 +1,5 @@
+import { useSyncExternalStore } from "react";
+
 // Fourteen registers. Ink, Paper and Phosphor; then the retro ones (Pinstripe,
 // Bevel, Meadow, Bitmap, Textmode, Teletext, Hi-Fi) and the futuristic ones
 // (Hologram, Glass, Instrument, Quantum).
@@ -73,4 +75,63 @@ export function applyTheme(theme: Theme, origin?: { x: number; y: number }) {
     .then(() => root.animate({ clipPath }, { duration, easing, pseudoElement: "::view-transition-new(root)" }).finished)
     .catch(() => {});
   t.finished.finally(settle);
+}
+
+export const isTheme = (t: unknown): t is Theme => THEMES.some((x) => x.id === t);
+
+/** The theme list in Settings, in three families. */
+export const THEME_GROUPS: { label: string; ids: Theme[] }[] = [
+  { label: "Originals", ids: ["ink", "paper", "phosphor"] },
+  { label: "Retro", ids: ["pinstripe", "bevel", "meadow", "bitmap", "textmode", "teletext", "hifi"] },
+  { label: "Future", ids: ["hologram", "glass", "instrument", "quantum"] },
+];
+
+/** The theme choice: one theme, or (Match the Mac) one for Light mode and one for Dark. */
+export interface ThemeChoice {
+  theme: Theme;
+  autoTheme?: boolean;
+  lightTheme?: Theme;
+  darkTheme?: Theme;
+}
+
+/** The theme to show for `p` when the Mac is in Dark mode (`dark`) or not. */
+export function effectiveTheme(p: ThemeChoice, dark: boolean): Theme {
+  const t = p.autoTheme ? (dark ? (p.darkTheme ?? "ink") : (p.lightTheme ?? "paper")) : p.theme;
+  return isTheme(t) ? t : "ink";
+}
+
+/** Pick `t`. With Match the Mac on, it becomes the theme for the current appearance. */
+export function chooseTheme<P extends ThemeChoice>(p: P, t: Theme, dark: boolean): P {
+  if (!p.autoTheme) return { ...p, theme: t };
+  return dark ? { ...p, darkTheme: t } : { ...p, lightTheme: t };
+}
+
+/** Turn Match the Mac on or off, filling in both themes from the one in use. */
+export function matchTheMac<P extends ThemeChoice>(p: P, on: boolean, dark: boolean): P {
+  const now = effectiveTheme(p, dark);
+  if (!on) return { ...p, autoTheme: false, theme: now };
+  const nowDark = THEMES.find((t) => t.id === now)?.dark ?? true;
+  return {
+    ...p,
+    autoTheme: true,
+    lightTheme: p.lightTheme ?? (nowDark ? "paper" : now),
+    darkTheme: p.darkTheme ?? (nowDark ? now : "ink"),
+  };
+}
+
+const DARK_QUERY = "(prefers-color-scheme: dark)";
+/** Whether the Mac is in Dark mode right now. */
+export const darkNow = () => typeof window !== "undefined" && !!window.matchMedia?.(DARK_QUERY).matches;
+
+/** Whether the Mac is in Dark mode, following changes. */
+export function useDarkAppearance(): boolean {
+  return useSyncExternalStore(
+    (cb) => {
+      const mq = window.matchMedia?.(DARK_QUERY);
+      mq?.addEventListener("change", cb);
+      return () => mq?.removeEventListener("change", cb);
+    },
+    darkNow,
+    () => true,
+  );
 }

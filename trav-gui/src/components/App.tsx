@@ -76,7 +76,7 @@ import { ContextMenu, type MenuEntry } from "./ContextMenu";
 import { Modal, ease } from "./Modal";
 import { useToast } from "./Toasts";
 import { UpdateDialog } from "./UpdateDialog";
-import { applyTheme, THEMES, type Theme } from "./theme";
+import { applyTheme, chooseTheme, darkNow, effectiveTheme, THEMES, useDarkAppearance } from "./theme";
 
 interface FilterSpec {
   id: string;
@@ -163,10 +163,14 @@ export default function App({ skipLaunch = false }: { skipLaunch?: boolean }) {
   useEffect(() => save("tab", tab), [tab]);
   useEffect(() => save("panelH", panelH), [panelH]);
   useEffect(() => save("collapsed", collapsed), [collapsed]);
+  // The theme on screen: the chosen one, or with Match the Mac, the one for
+  // the Mac's current appearance (switching as it does).
+  const dark = useDarkAppearance();
+  const theme = effectiveTheme(prefs, dark);
   useEffect(() => {
     document.documentElement.dataset.scanlines = prefs.scanlines ? "on" : "off";
-    if (document.documentElement.dataset.theme !== prefs.theme) applyTheme(prefs.theme);
-  }, [prefs.theme, prefs.scanlines]);
+    if (document.documentElement.dataset.theme !== theme) applyTheme(theme);
+  }, [theme, prefs.scanlines]);
   useEffect(() => {
     setNotify(prefs.notify);
   }, [prefs.notify]);
@@ -192,10 +196,11 @@ export default function App({ skipLaunch = false }: { skipLaunch?: boolean }) {
 
   const cycleTheme = useCallback((e?: { clientX: number; clientY: number }) => {
     setPrefs((p) => {
-      const i = THEMES.findIndex((t) => t.id === p.theme);
-      const next = THEMES[(i + 1) % THEMES.length].id as Theme;
+      const isDark = darkNow();
+      const i = THEMES.findIndex((t) => t.id === effectiveTheme(p, isDark));
+      const next = THEMES[(i + 1) % THEMES.length].id;
       applyTheme(next, e ? { x: e.clientX, y: e.clientY } : undefined);
-      return { ...p, theme: next };
+      return chooseTheme(p, next, isDark);
     });
   }, []);
 
@@ -268,14 +273,17 @@ export default function App({ skipLaunch = false }: { skipLaunch?: boolean }) {
     };
   }, [toast, version]);
 
+  /** Run an engine action; resolves true when it worked (failures are toasted). */
   const act = useCallback(
-    async (method: string, hashes: string[], extra?: Record<string, unknown>) => {
-      if (!hashes.length) return;
+    async (method: string, hashes: string[], extra?: Record<string, unknown>): Promise<boolean> => {
+      if (!hashes.length) return false;
       try {
         await call(method, { hashes, ...extra });
         refresh();
+        return true;
       } catch (e) {
         fail(e);
+        return false;
       }
     },
     [refresh, fail],
@@ -448,7 +456,13 @@ export default function App({ skipLaunch = false }: { skipLaunch?: boolean }) {
         setPaletteOpen((o) => !o);
         return;
       }
-      if (anyModal) return;
+      // Any open dialog (Add, Settings, Create, Speed limits, Update…) owns the keyboard.
+      if (anyModal || document.querySelector(".modal-scrim, [role='dialog'], [aria-modal='true']")) return;
+      // Space and Enter belong to a focused control; arrows to a focused tab strip.
+      const el = e.target instanceof Element ? e.target : null;
+      const control = el?.closest("button, a[href], summary, [role='button'], [role='switch'], [role='checkbox'], [role='menuitem'], [role='option']");
+      if (control && (e.key === " " || e.key === "Enter")) return;
+      if (el?.closest("[role='tablist']") && e.key.startsWith("Arrow")) return;
       if (mod && e.key.toLowerCase() === "o") {
         e.preventDefault();
         openTorrentPicker();
@@ -477,8 +491,14 @@ export default function App({ skipLaunch = false }: { skipLaunch?: boolean }) {
         const dir = e.key === "ArrowDown" || e.key === "j" ? 1 : -1;
         const next = order[Math.max(0, Math.min(order.length - 1, i < 0 ? 0 : i + dir))];
         setFocus(next);
-        if (e.shiftKey) setSelected((s) => new Set([...s, next]));
-        else {
+        if (e.shiftKey) {
+          // The selection is the range from the anchor to the new row, so
+          // stepping back toward the anchor shrinks it again.
+          const from = anchor.current && order.includes(anchor.current) ? anchor.current : (focus ?? next);
+          if (!anchor.current || !order.includes(anchor.current)) anchor.current = from;
+          const [a, b] = [order.indexOf(from), order.indexOf(next)].sort((x, y) => x - y);
+          setSelected(new Set(order.slice(a, b + 1)));
+        } else {
           setSelected(new Set([next]));
           anchor.current = next;
         }
@@ -699,7 +719,7 @@ export default function App({ skipLaunch = false }: { skipLaunch?: boolean }) {
       { id: "settings", label: "Settings", hint: "⌘,", icon: <Settings2 size={14} />, run: () => setSettingsOpen(true) },
       { id: "update", label: "Check for updates…", icon: <RefreshCw size={14} />, run: () => runUpdateCheck(true) },
       { id: "theme", label: "Cycle theme", hint: "⌘⇧L", icon: <SunMoon size={14} />, run: () => cycleTheme() },
-      ...THEMES.map((t) => ({ id: `theme-${t.id}`, label: `Theme: ${t.label}`, icon: <SunMoon size={14} />, run: () => setPrefs((p) => ({ ...p, theme: t.id })) })),
+      ...THEMES.map((t) => ({ id: `theme-${t.id}`, label: `Theme: ${t.label}`, icon: <SunMoon size={14} />, run: () => setPrefs((p) => chooseTheme(p, t.id, darkNow())) })),
       ...FILTERS.map((f) => ({ id: `filter-${f.id}`, label: `Show ${f.label.toLowerCase()}`, icon: f.icon, run: () => setFilter(f.id) })),
     ],
     [openTorrentPicker, openMagnet, refresh, fail, cycleTheme, runUpdateCheck],
@@ -842,9 +862,18 @@ export default function App({ skipLaunch = false }: { skipLaunch?: boolean }) {
             history={history}
             selectionCount={selected.size}
             actions={{
-              setPriorities: (hash, priorities) => call("setFilePriorities", { hash, priorities }).then(refresh).catch(fail),
+              setPriorities: (hash, priorities) =>
+                call("setFilePriorities", { hash, priorities })
+                  .then(() => {
+                    refresh();
+                    return true;
+                  })
+                  .catch((e) => {
+                    fail(e);
+                    return false;
+                  }),
               addPeers: (hash, peers) => call("addPeers", { hash, peers }).then(() => toast("Peers queued")).catch(fail),
-              reannounce: (hash) => act("reannounce", [hash]).then(() => toast("Reannouncing")),
+              reannounce: (hash) => act("reannounce", [hash]).then((ok) => ok && toast("Reannouncing")),
               move: moveData,
               limits: (hash) => openLimits([hash]),
               toast,
