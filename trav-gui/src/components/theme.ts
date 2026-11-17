@@ -1,8 +1,10 @@
 import { useSyncExternalStore } from "react";
 
-// Fourteen registers. Ink, Paper and Phosphor; then the retro ones (Pinstripe,
-// Bevel, Meadow, Bitmap, Textmode, Teletext, Hi-Fi) and the futuristic ones
-// (Hologram, Glass, Instrument, Quantum).
+// Fourteen registers. Ink, Paper and Phosphor; the retro ones (Pinstripe,
+// Bevel, Bitmap, Textmode, Teletext); the futuristic ones (Hologram,
+// Instrument, and Swarm, alive with particles that follow the transfers); and
+// found objects, where the window becomes something else entirely (a
+// split-flap departure board, a till receipt, a comic page).
 
 export type Theme =
   | "ink"
@@ -14,11 +16,11 @@ export type Theme =
   | "hologram"
   | "textmode"
   | "teletext"
-  | "hifi"
-  | "glass"
   | "instrument"
-  | "quantum"
-  | "meadow";
+  | "swarm"
+  | "departures"
+  | "receipt"
+  | "comic";
 
 /** `dark`: which half of the Mac's appearance a theme suits, for "Match the Mac". */
 export const THEMES: { id: Theme; label: string; bg: string; line: string; accent: string; text: string; dark: boolean }[] = [
@@ -27,15 +29,15 @@ export const THEMES: { id: Theme; label: string; bg: string; line: string; accen
   { id: "phosphor", label: "Phosphor", bg: "#000000", line: "#123a20", accent: "#6af59a", text: "#45cf6c", dark: true },
   { id: "pinstripe", label: "Pinstripe", bg: "#f1f2f4", line: "#9ba3ae", accent: "#1466bb", text: "#26313e", dark: false },
   { id: "bevel", label: "Bevel", bg: "#c0c0c0", line: "#808080", accent: "#000080", text: "#000000", dark: false },
-  { id: "meadow", label: "Meadow", bg: "#ece9d8", line: "#0a246a", accent: "#316ac5", text: "#000000", dark: false },
   { id: "bitmap", label: "Bitmap", bg: "#ffffff", line: "#000000", accent: "#000000", text: "#000000", dark: false },
   { id: "hologram", label: "Hologram", bg: "#05030c", line: "#2e2660", accent: "#ff5fd2", text: "#eeebff", dark: true },
   { id: "textmode", label: "Textmode", bg: "#0000aa", line: "#55ffff", accent: "#ffff55", text: "#aaaaaa", dark: true },
   { id: "teletext", label: "Teletext", bg: "#000000", line: "#0000ff", accent: "#ffff00", text: "#ffffff", dark: true },
-  { id: "hifi", label: "Hi-Fi", bg: "#0d0a08", line: "#b9b4ab", accent: "#ffa53a", text: "#f6dcb0", dark: true },
-  { id: "glass", label: "Glass", bg: "#e9e6f4", line: "#ffffff", accent: "#4f46e5", text: "#14131c", dark: false },
   { id: "instrument", label: "Instrument", bg: "#e8e6e0", line: "#c6c2b8", accent: "#ff4f12", text: "#151514", dark: false },
-  { id: "quantum", label: "Quantum", bg: "#020206", line: "#1c1c2c", accent: "#b9a8ff", text: "#ecebf5", dark: true },
+  { id: "swarm", label: "Swarm", bg: "#05060c", line: "#1a1d2e", accent: "#5ef0d0", text: "#e8ecf6", dark: true },
+  { id: "departures", label: "Departures", bg: "#111214", line: "#2a2c30", accent: "#ffcc1a", text: "#f2efe6", dark: true },
+  { id: "receipt", label: "Receipt", bg: "#fbf8f1", line: "#2b2b2b", accent: "#d6332a", text: "#232323", dark: false },
+  { id: "comic", label: "Comic", bg: "#fff6d6", line: "#111111", accent: "#e8178a", text: "#111111", dark: false },
 ];
 
 /** Every theme arrives as a bloom from where you clicked (the window's center without a pointer). */
@@ -82,8 +84,9 @@ export const isTheme = (t: unknown): t is Theme => THEMES.some((x) => x.id === t
 /** The theme list in Settings, in three families. */
 export const THEME_GROUPS: { label: string; ids: Theme[] }[] = [
   { label: "Originals", ids: ["ink", "paper", "phosphor"] },
-  { label: "Retro", ids: ["pinstripe", "bevel", "meadow", "bitmap", "textmode", "teletext", "hifi"] },
-  { label: "Future", ids: ["hologram", "glass", "instrument", "quantum"] },
+  { label: "Retro", ids: ["pinstripe", "bevel", "bitmap", "textmode", "teletext"] },
+  { label: "Future", ids: ["hologram", "instrument", "swarm"] },
+  { label: "Found objects", ids: ["departures", "receipt", "comic"] },
 ];
 
 /** The theme choice: one theme, or (Match the Mac) one for Light mode and one for Dark. */

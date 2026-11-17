@@ -1,0 +1,602 @@
+/* ── Swarm: the transfers made visible ─────────────────────────────────────── */
+/* Deep space behind translucent panels, and particles everywhere (drawn by
+   Swarm.tsx): pieces stream in from the edges of the window into each
+   download's leading edge and leave each upload; finished downloads burst
+   in gold; dialogs gather out of a ring of light; a halo runs round the
+   selected row; the speed readout pulls a vortex. The panels stay quiet so
+   the light can move behind them. */
+:root[data-theme="swarm"] {
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-data: var(--font-geist-mono), ui-monospace, monospace;
+  --font-label: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --display-weight: 250;
+  --display-tracking: -0.03em;
+  --display-stretch: 100%;
+  --data-size: 12px;
+  --label-size: 10.5px;
+  --label-weight: 500;
+  --label-case: uppercase;
+  --label-tracking: 0.12em;
+  --radius: 10px;
+  --radius-lg: 16px;
+  --bar-h: 3px;
+  --ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --canvas: #05060c;
+  --bg: #0a0c16a8;
+  --bg-raised: #0e1120d9;
+  --bg-inset: #05060cb3;
+  --bg-hover: #5ef0d00a;
+  --line: #5ef0d01f;
+  --line-soft: #ffffff0d;
+  --text: #e8ecf6;
+  --text-dim: #9aa3bd;
+  --text-faint: #7c85a6;
+  --accent: #5ef0d0;
+  --accent-hi: #d6fff5;
+  --accent-text: #6ff5d8;
+  --accent-soft: #5ef0d014;
+  --accent-line: #5ef0d055;
+  --accent-ink: #03110d;
+  --up: #a78bfa;
+  --ok: #5ef0d0;
+  --warn: #ffd479;
+  --err: #ff7a8a;
+  --scrim: #05060c80;
+  --shadow: 0 40px 90px -30px #000000f2, 0 0 0 1px #5ef0d01a, inset 0 1px 0 #ffffff0d;
+  --graph: glow;
+  --map-have: #5ef0d0;
+  --map-flight: #ffd479;
+  --map-empty: #ffffff0d;
+  --map-flash: #ffffff;
+  color-scheme: dark;
+}
+
+:root[data-theme="swarm"] body {
+  font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* The particle canvas sits behind everything in the window. */
+.swarm-canvas {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+}
+/* The front layer: over the panels, under menus and dialogs. */
+.swarm-canvas.swarm-front {
+  z-index: 40;
+  opacity: 0.9;
+}
+
+:root[data-theme="swarm"] .app {
+  padding: 10px 10px 0;
+  column-gap: 10px;
+  background:
+    radial-gradient(70% 55% at 75% 0%, #12304a55, transparent 70%),
+    radial-gradient(60% 50% at 10% 100%, #2a1a5a44, transparent 70%),
+    #05060c;
+}
+
+/* Translucent panels: the light moves behind them. */
+:root[data-theme="swarm"] :is(.sidebar, .main > .toolbar, .main > .list-region, .main > .panel-wrap) {
+  background: linear-gradient(180deg, #0c0f1c94, #080a1480);
+  border: 1px solid #5ef0d014;
+  box-shadow: inset 0 1px 0 #ffffff08, 0 20px 50px -30px #000;
+}
+
+:root[data-theme="swarm"] .sidebar {
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+:root[data-theme="swarm"] .main {
+  grid-template-rows: var(--toolbar-h) auto minmax(0, 1fr) 10px var(--panel-h);
+}
+
+:root[data-theme="swarm"] .main > .toolbar {
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  border-bottom-color: #ffffff0a;
+}
+
+:root[data-theme="swarm"] .main > .list-region {
+  border-top: 0;
+  border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+}
+
+:root[data-theme="swarm"] .main > .panel-wrap {
+  border-radius: var(--radius-lg);
+}
+
+:root[data-theme="swarm"] .main > .panel-wrap[data-collapsed] {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+}
+
+:root[data-theme="swarm"] :is(.detail, .list-region) {
+  background-color: transparent;
+}
+
+:root[data-theme="swarm"] .resizer {
+  border-top: 0;
+  background: transparent;
+}
+
+:root[data-theme="swarm"] .resizer span {
+  top: 3px;
+  background: #5ef0d040;
+}
+
+:root[data-theme="swarm"] .brand {
+  border-bottom-color: #ffffff0a;
+}
+
+:root[data-theme="swarm"] .brand-mark {
+  font-size: 25px;
+  font-weight: 300;
+  letter-spacing: -0.03em;
+  color: #f4fffc;
+  text-shadow: 0 0 22px #5ef0d066;
+}
+
+:root[data-theme="swarm"] .brand-sub {
+  white-space: nowrap;
+}
+
+:root[data-theme="swarm"] .tb-title h1 {
+  font-size: 27px;
+  font-weight: 300;
+}
+
+/* Filters: the chosen one glows from within. */
+:root[data-theme="swarm"] :is(.filter, .filter-active) {
+  border-radius: 10px;
+}
+
+:root[data-theme="swarm"] .filter-active {
+  background: radial-gradient(120% 160% at 0% 50%, #5ef0d026, #5ef0d008 60%, transparent);
+  box-shadow: inset 0 0 0 1px #5ef0d026, 0 0 24px -10px #5ef0d0;
+}
+
+:root[data-theme="swarm"] .filter[aria-current="true"] {
+  color: #f4fffc;
+}
+
+/* Throughput: thin numerals lit by the transfer. */
+:root[data-theme="swarm"] .speedcard {
+  border-top-color: #ffffff0a;
+}
+
+:root[data-theme="swarm"] .speed-big {
+  font-weight: 250;
+  letter-spacing: -0.04em;
+}
+
+:root[data-theme="swarm"] .speed-num.down .speed-big {
+  font-size: 40px;
+  color: #f4fffc;
+  text-shadow: 0 0 calc(8px + var(--flux, 0) * 30px) #5ef0d0aa;
+}
+
+:root[data-theme="swarm"] .speed-num.up .speed-big {
+  font-size: 22px;
+  color: #c9b8ff;
+  text-shadow: 0 0 calc(4px + var(--uflux, 0) * 20px) #a78bfa99;
+}
+
+/* The list. */
+:root[data-theme="swarm"] .thead {
+  background: #080a14a6;
+  border-bottom-color: #ffffff0a;
+}
+
+:root[data-theme="swarm"] .trow {
+  border-bottom-color: #ffffff07;
+}
+
+:root[data-theme="swarm"] .trow:not([data-selected]):hover {
+  background: radial-gradient(60% 140% at 25% 50%, #5ef0d00d, transparent 70%);
+}
+
+:root[data-theme="swarm"] .trow-sel {
+  inset: 2px 6px;
+  border-radius: 12px;
+  background: radial-gradient(70% 160% at 20% 50%, #5ef0d01c, #5ef0d006 60%, transparent);
+  box-shadow: inset 0 0 0 1px #5ef0d026;
+}
+
+:root[data-theme="swarm"] .trow[data-focused]::before {
+  left: 10px;
+  top: 50%;
+  bottom: auto;
+  width: 4px;
+  height: 4px;
+  margin-top: -2px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0 8px 2px #5ef0d0;
+}
+
+:root[data-theme="swarm"] .tname {
+  font-weight: 450;
+}
+
+:root[data-theme="swarm"] .pill {
+  border-radius: 99px;
+}
+
+:root[data-theme="swarm"] .sdot {
+  box-shadow: 0 0 8px currentColor;
+}
+
+/* Progress: a thread of light that the particles pour into. */
+:root[data-theme="swarm"] .bar {
+  height: 3px;
+  border-radius: 3px;
+  background: #ffffff0f;
+  overflow: visible;
+  box-shadow: none !important;
+}
+
+:root[data-theme="swarm"] .bar-fill {
+  border-radius: 3px;
+  background: linear-gradient(90deg, #2bb8a066, #5ef0d0);
+  box-shadow: 0 0 10px #5ef0d080;
+}
+
+:root[data-theme="swarm"] .bar-head {
+  top: 50%;
+  bottom: auto;
+  width: 8px;
+  height: 8px;
+  margin-top: -4px;
+  border-radius: 50%;
+  translate: -50% 0;
+  background: radial-gradient(circle, #ffffff, #5ef0d0 45%, transparent 70%);
+  box-shadow: 0 0 14px 4px #5ef0d066;
+  animation: swPulse 1.4s ease-in-out infinite;
+}
+
+@keyframes swPulse {
+  50% {
+    box-shadow: 0 0 22px 8px #5ef0d044;
+  }
+}
+
+:root[data-theme="swarm"] .trow:is([data-tone="seed"], [data-tone="seed-dim"]) .bar-fill {
+  background: linear-gradient(90deg, #7c5cff66, #a78bfa);
+  box-shadow: 0 0 10px #a78bfa66;
+}
+
+:root[data-theme="swarm"] .trow[data-tone="seed-dim"] .bar-fill {
+  opacity: 0.5;
+}
+
+:root[data-theme="swarm"] .trow[data-tone="idle"] .bar-fill {
+  background: #6a7290;
+  box-shadow: none;
+}
+
+:root[data-theme="swarm"] .trow:is([data-tone="warn"], [data-status="checking"]) .bar-fill {
+  background: linear-gradient(90deg, transparent, #ffd479 30%, transparent 60%) 0 0 / 200% 100%, #ffd47944;
+  animation: swSweep 1.3s linear infinite;
+}
+
+@keyframes swSweep {
+  from {
+    background-position: 100% 0, 0 0;
+  }
+  to {
+    background-position: -100% 0, 0 0;
+  }
+}
+
+:root[data-theme="swarm"] .trow[data-tone="err"] .bar-fill {
+  background: #ff7a8a;
+  box-shadow: 0 0 10px #ff7a8a99;
+}
+
+/* The particles burst for a finished download; the CSS sparks stand down. */
+:root[data-theme="swarm"] .burst {
+  display: none;
+}
+
+/* Controls. */
+:root[data-theme="swarm"] :is(.btn, .chip) {
+  border: 1px solid #5ef0d026;
+  border-radius: 99px;
+  background: #0e1120b3;
+  color: var(--text);
+  transition: border-color 0.25s var(--ease), box-shadow 0.35s var(--ease), background-color 0.25s var(--ease);
+}
+
+:root[data-theme="swarm"] :is(.btn, .chip):hover {
+  border-color: #5ef0d080;
+  color: #f4fffc;
+  box-shadow: 0 0 22px -6px #5ef0d0;
+}
+
+:root[data-theme="swarm"] .btn.primary {
+  border-color: transparent;
+  background: linear-gradient(120deg, #5ef0d0, #8fd8ff);
+  color: #03110d;
+  font-weight: 600;
+  box-shadow: 0 0 26px -6px #5ef0d0cc;
+}
+
+:root[data-theme="swarm"] .btn.primary:hover {
+  color: #03110d;
+  filter: brightness(1.08);
+}
+
+:root[data-theme="swarm"] .btn.ghost {
+  border-color: transparent;
+  background: transparent;
+}
+
+:root[data-theme="swarm"] .btn.danger {
+  border-color: #ff7a8a66;
+  color: #ffc2ca;
+}
+
+:root[data-theme="swarm"] .chip[aria-checked="true"] {
+  border-color: #5ef0d0;
+  background: #5ef0d01f;
+  color: #f4fffc;
+}
+
+:root[data-theme="swarm"] .icon-btn {
+  border-radius: 99px;
+}
+
+:root[data-theme="swarm"] .icon-btn:hover {
+  background: #5ef0d014;
+  color: #f4fffc;
+}
+
+:root[data-theme="swarm"] :is(.input, .tb-search, .select) {
+  border: 1px solid #ffffff14;
+  border-radius: 10px;
+  background-color: #05060cb3;
+}
+
+:root[data-theme="swarm"] :is(.input:focus, .tb-search:focus-within, .select:focus) {
+  border-color: #5ef0d080;
+  box-shadow: 0 0 22px -8px #5ef0d0;
+}
+
+:root[data-theme="swarm"] .check span {
+  border: 1px solid #ffffff40;
+  border-radius: 50%;
+}
+
+:root[data-theme="swarm"] .check input:checked + span {
+  border-color: #5ef0d0;
+  background: radial-gradient(circle, #fff 0 28%, #5ef0d0 55%, transparent 72%);
+  box-shadow: 0 0 10px #5ef0d0;
+}
+
+:root[data-theme="swarm"] .toggle-track {
+  border-color: #ffffff1a;
+  background: #05060cb3;
+}
+
+:root[data-theme="swarm"] .toggle input:checked + .toggle-track {
+  border-color: #5ef0d0;
+  background: #5ef0d026;
+  box-shadow: 0 0 14px -4px #5ef0d0;
+}
+
+:root[data-theme="swarm"] .toggle input:checked + .toggle-track .toggle-thumb {
+  background: #f4fffc;
+  box-shadow: 0 0 10px 2px #5ef0d0;
+}
+
+/* Detail. */
+:root[data-theme="swarm"] .tabs {
+  border-bottom-color: #ffffff0a;
+}
+
+:root[data-theme="swarm"] .tab[aria-selected="true"] {
+  color: #f4fffc;
+}
+
+:root[data-theme="swarm"] .tab-underline {
+  height: 2px;
+  border-radius: 2px;
+  background: #5ef0d0;
+  box-shadow: 0 0 12px #5ef0d0;
+}
+
+:root[data-theme="swarm"] .ov-name {
+  font-weight: 450;
+}
+
+:root[data-theme="swarm"] .ov-pct {
+  font-weight: 250;
+  font-size: 46px;
+  color: #f4fffc;
+  text-shadow: 0 0 24px #5ef0d077;
+}
+
+:root[data-theme="swarm"] :is(.stats, .piecemap, .speed-graph) {
+  border: 1px solid #ffffff0d;
+  border-radius: 14px;
+  background: #05060c80;
+  box-shadow: none;
+}
+
+:root[data-theme="swarm"] .stat {
+  border-color: #ffffff0a;
+}
+
+/* Overlays: dark glass. The particles gather them out of a ring of light. */
+:root[data-theme="swarm"] .modal-scrim {
+  background: var(--scrim);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+}
+
+:root[data-theme="swarm"] :is(.modal, .palette, .ctx-menu, .recover-card, .toast) {
+  border: 1px solid #5ef0d02e;
+  background: linear-gradient(180deg, #0e1120f0, #090b16f0);
+  box-shadow: var(--shadow), 0 0 60px -30px #5ef0d0;
+}
+
+:root[data-theme="swarm"] :is(.modal, .palette, .recover-card) {
+  border-radius: 20px;
+}
+
+:root[data-theme="swarm"] .ctx-menu {
+  border-radius: 14px;
+}
+
+:root[data-theme="swarm"] .toast {
+  border-radius: 16px;
+}
+
+:root[data-theme="swarm"] :is(.modal-head, .modal-foot) {
+  background: transparent;
+}
+
+:root[data-theme="swarm"] .modal-head {
+  border-bottom-color: #ffffff0a;
+}
+
+:root[data-theme="swarm"] .modal-foot {
+  border-top-color: #ffffff0a;
+}
+
+:root[data-theme="swarm"] .modal-title {
+  font-weight: 300;
+}
+
+:root[data-theme="swarm"] .eyebrow {
+  color: #5ef0d0;
+}
+
+:root[data-theme="swarm"] .set-nav {
+  background: transparent;
+  border-right-color: #ffffff0a;
+}
+
+:root[data-theme="swarm"] :is(.set-nav-item, .palette-item, .ctx-item) {
+  border-radius: 10px;
+}
+
+:root[data-theme="swarm"] .set-nav-item[aria-current="true"],
+:root[data-theme="swarm"] .palette-item[aria-selected="true"],
+:root[data-theme="swarm"] .ctx-item.active {
+  color: #f4fffc;
+  background: radial-gradient(120% 160% at 0% 50%, #5ef0d026, #5ef0d008 70%);
+  box-shadow: inset 0 0 0 1px #5ef0d022;
+}
+
+:root[data-theme="swarm"] .ctx-item:hover:not(.active) {
+  background: #ffffff08;
+}
+
+:root[data-theme="swarm"] .palette-input {
+  border-bottom-color: #ffffff0a;
+}
+
+:root[data-theme="swarm"] .ctx-sep {
+  background: #ffffff0d;
+}
+
+:root[data-theme="swarm"] .toast-life {
+  background: #5ef0d0;
+  box-shadow: 0 0 8px #5ef0d0;
+}
+
+:root[data-theme="swarm"] .statusbar {
+  border-top: 0;
+  background: transparent;
+}
+
+:root[data-theme="swarm"] .sb-item[data-link="online"] .sdot {
+  background: #5ef0d0;
+  box-shadow: 0 0 8px #5ef0d0;
+}
+
+:root[data-theme="swarm"] .sb-turtle[data-on] {
+  color: #ffd479;
+  text-shadow: 0 0 8px #ffd479;
+}
+
+:root[data-theme="swarm"] .empty-title {
+  font-weight: 250;
+  color: #f4fffc;
+  text-shadow: 0 0 26px #5ef0d066;
+}
+
+:root[data-theme="swarm"] .empty-mark {
+  color: #5ef0d0;
+  filter: drop-shadow(0 0 16px #5ef0d0);
+}
+
+:root[data-theme="swarm"] .launch {
+  background: radial-gradient(60% 50% at 50% 45%, #12304a66, transparent 70%), #05060c;
+}
+
+:root[data-theme="swarm"] .launch-glow {
+  background: radial-gradient(closest-side, #5ef0d033, transparent);
+}
+
+:root[data-theme="swarm"] .launch-word {
+  font-weight: 250;
+  color: #f4fffc;
+  text-shadow: 0 0 26px #5ef0d0aa;
+}
+
+:root[data-theme="swarm"] .dropzone-inner {
+  border: 1px dashed #5ef0d0aa;
+  border-radius: 24px;
+  background: #0a0c16e6;
+  box-shadow: 0 0 60px -10px #5ef0d088;
+}
+
+:root[data-theme="swarm"] :focus-visible {
+  outline: 1px solid #6ff5d8;
+  outline-offset: 3px;
+  box-shadow: 0 0 14px -2px #5ef0d0;
+}
+
+:root[data-theme="swarm"] :is(.table, .tab, .filter, .set-nav-item, .palette-item, .ctx-item, .th):focus-visible {
+  outline-offset: -2px;
+  box-shadow: none;
+}
+
+:root[data-theme="swarm"] ::-webkit-scrollbar-thumb {
+  border-radius: 6px;
+  background: #5ef0d026;
+}
+
+.theme-pick[data-pick="swarm"] .swatch {
+  border-color: #5ef0d033 !important;
+  border-radius: 12px;
+  background:
+    radial-gradient(1.2px 1.2px at 18% 30%, #5ef0d0, transparent),
+    radial-gradient(1px 1px at 36% 64%, #fff, transparent),
+    radial-gradient(1.4px 1.4px at 58% 22%, #a78bfa, transparent),
+    radial-gradient(1px 1px at 74% 70%, #5ef0d0, transparent),
+    radial-gradient(1.2px 1.2px at 88% 40%, #ffd479, transparent),
+    #05060c !important;
+}
+
+.theme-pick[data-pick="swarm"] .swatch i {
+  height: 3px;
+  border-radius: 3px;
+}
+
+.theme-pick[data-pick="swarm"] .swatch i:first-child {
+  box-shadow: 0 0 8px #5ef0d0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root[data-theme="swarm"] :is(.bar-head, .bar-fill) {
+    animation: none !important;
+  }
+}

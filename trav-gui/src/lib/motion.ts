@@ -6,9 +6,10 @@
 // lowers sheets from the title bar, then lets small controls glide into place.
 // Bevel and Bitmap never glide: windows zoom open in a few hard steps and
 // highlights jump. Hologram materialises: a line of light unfolds and flickers.
-// Textmode and Teletext redraw a row at a time. Hi-Fi moves like heavy, damped
-// hardware; Glass is fluid and comes into focus; Instrument is quick and exact;
-// Quantum phases in out of a blur. Meadow fades, as early-2000s desktops did.
+// Textmode and Teletext redraw a row at a time. Instrument is quick and exact.
+// Swarm gathers out of a haze. Departures flips like a flap on a
+// station board; Receipt feeds out of the printer a line at a time; Comic pops
+// in with a bounce and a tilt.
 
 import { useSyncExternalStore } from "react";
 import { useReducedMotion, type TargetAndTransition, type Transition } from "motion/react";
@@ -23,13 +24,13 @@ export type Register =
   | "hologram"
   | "textmode"
   | "teletext"
-  | "hifi"
-  | "glass"
   | "instrument"
-  | "quantum"
-  | "meadow";
+  | "swarm"
+  | "departures"
+  | "receipt"
+  | "comic";
 
-const REGISTERS: readonly string[] = ["paper", "phosphor", "pinstripe", "bevel", "bitmap", "hologram", "textmode", "teletext", "hifi", "glass", "instrument", "quantum", "meadow"];
+const REGISTERS: readonly string[] = ["paper", "phosphor", "pinstripe", "bevel", "bitmap", "hologram", "textmode", "teletext", "instrument", "swarm", "departures", "receipt", "comic"];
 
 function current(): Register {
   const t = typeof document === "undefined" ? "ink" : document.documentElement.dataset.theme;
@@ -132,35 +133,35 @@ export const DIALOG: Record<Register, Choreo> = {
     exit: { opacity: 0, transition: instant },
     transition: { duration: 0.42, ease: stepped(12) },
   },
-  hifi: {
-    initial: { opacity: 0, y: 34 },
-    animate: { opacity: 1, y: 0 },
-    exit: { opacity: 0, y: 18, transition: { duration: 0.18, ease: "easeIn" } },
-    transition: { type: "spring", stiffness: 260, damping: 24, mass: 1.4 },
-  },
-  glass: {
-    initial: { opacity: 0, scale: 0.9, filter: "blur(18px)" },
-    animate: { opacity: 1, scale: 1, filter: "blur(0px)" },
-    exit: { opacity: 0, scale: 0.95, filter: "blur(10px)", transition: { duration: 0.2, ease: out } },
-    transition: { type: "spring", stiffness: 300, damping: 24, mass: 0.9 },
-  },
   instrument: {
     initial: { opacity: 0, y: 10 },
     animate: { opacity: 1, y: 0 },
     exit: { opacity: 0, transition: { duration: 0.1 } },
     transition: { duration: 0.2, ease: [0.2, 0, 0, 1] },
   },
-  quantum: {
-    initial: { opacity: 0, scale: 1.07, filter: "blur(16px)" },
-    animate: { opacity: [0, 0.8, 0.55, 1], scale: 1, filter: "blur(0px)" },
-    exit: { opacity: 0, scale: 0.97, filter: "blur(10px)", transition: { duration: 0.2, ease: "easeIn" } },
-    transition: { duration: 0.5, ease: out },
+  swarm: {
+    initial: { opacity: 0, scale: 0.94, filter: "blur(12px)" },
+    animate: { opacity: 1, scale: 1, filter: "blur(0px)" },
+    exit: { opacity: 0, scale: 1.04, filter: "blur(10px)", transition: { duration: 0.2 } },
+    transition: { duration: 0.45, ease: out },
   },
-  meadow: {
-    initial: { opacity: 0 },
-    animate: { opacity: 1 },
-    exit: { opacity: 0, transition: { duration: 0.12 } },
-    transition: { duration: 0.18, ease: "linear" },
+  departures: {
+    initial: { opacity: 1, rotateX: -88, transformPerspective: 900, transformOrigin: "50% 0%" },
+    animate: { opacity: 1, rotateX: 0, transformPerspective: 900, transformOrigin: "50% 0%" },
+    exit: { opacity: 0, rotateX: 60, transition: { duration: 0.14, ease: "easeIn" } },
+    transition: { duration: 0.32, ease: stepped(7) },
+  },
+  receipt: {
+    initial: { opacity: 1, y: -24, clipPath: "inset(0 0 100% 0)" },
+    animate: { opacity: 1, y: 0, clipPath: "inset(0 0 0% 0)" },
+    exit: { opacity: 0, y: 12, transition: { duration: 0.14, ease: "easeIn" } },
+    transition: { duration: 0.42, ease: stepped(14) },
+  },
+  comic: {
+    initial: { opacity: 0, scale: 0.55, rotate: -6 },
+    animate: { opacity: 1, scale: 1, rotate: -0.6 },
+    exit: { opacity: 0, scale: 0.8, rotate: 4, transition: { duration: 0.14, ease: "easeIn" } },
+    transition: { type: "spring", stiffness: 520, damping: 13, mass: 0.8 },
   },
 };
 
@@ -220,35 +221,35 @@ export const MENU: Record<Register, Choreo> = {
     exit: { opacity: 0, transition: instant },
     transition: { duration: 0.2, ease: stepped(6) },
   },
-  hifi: {
-    initial: { opacity: 0, scaleY: 0.82, y: -6 },
-    animate: { opacity: 1, scaleY: 1, y: 0 },
-    exit: { opacity: 0, transition: { duration: 0.1 } },
-    transition: { type: "spring", stiffness: 420, damping: 26, mass: 1 },
-  },
-  glass: {
-    initial: { opacity: 0, scale: 0.88, filter: "blur(8px)" },
-    animate: { opacity: 1, scale: 1, filter: "blur(0px)" },
-    exit: { opacity: 0, scale: 0.94, transition: { duration: 0.12 } },
-    transition: { type: "spring", stiffness: 520, damping: 30 },
-  },
   instrument: {
     initial: { opacity: 0, y: -4 },
     animate: { opacity: 1, y: 0 },
     exit: { opacity: 0, transition: { duration: 0.08 } },
     transition: { duration: 0.14, ease: [0.2, 0, 0, 1] },
   },
-  quantum: {
-    initial: { opacity: 0, scale: 1.04, filter: "blur(8px)" },
+  swarm: {
+    initial: { opacity: 0, scale: 0.92, filter: "blur(6px)" },
     animate: { opacity: 1, scale: 1, filter: "blur(0px)" },
     exit: { opacity: 0, filter: "blur(6px)", transition: { duration: 0.12 } },
-    transition: { duration: 0.28, ease: out },
+    transition: { duration: 0.26, ease: out },
   },
-  meadow: {
-    initial: { opacity: 0, clipPath: "inset(0 0 100% 0)" },
+  departures: {
+    initial: { opacity: 1, rotateX: -80, transformPerspective: 700, transformOrigin: "50% 0%" },
+    animate: { opacity: 1, rotateX: 0, transformPerspective: 700, transformOrigin: "50% 0%" },
+    exit: { opacity: 0, transition: { duration: 0.08 } },
+    transition: { duration: 0.2, ease: stepped(5) },
+  },
+  receipt: {
+    initial: { opacity: 1, clipPath: "inset(0 0 100% 0)" },
     animate: { opacity: 1, clipPath: "inset(0 0 0% 0)" },
-    exit: { opacity: 0, transition: { duration: 0.1 } },
-    transition: { duration: 0.14, ease: "linear" },
+    exit: { opacity: 0, transition: { duration: 0.08 } },
+    transition: { duration: 0.22, ease: stepped(9) },
+  },
+  comic: {
+    initial: { opacity: 0, scale: 0.7, rotate: 3 },
+    animate: { opacity: 1, scale: 1, rotate: 0 },
+    exit: { opacity: 0, scale: 0.9, transition: { duration: 0.1 } },
+    transition: { type: "spring", stiffness: 700, damping: 15 },
   },
 };
 
@@ -308,35 +309,35 @@ export const TOAST: Record<Register, Choreo> = {
     exit: { opacity: 0, transition: instant },
     transition: { duration: 0.2, ease: stepped(4) },
   },
-  hifi: {
-    initial: { opacity: 0, x: 48 },
-    animate: { opacity: 1, x: 0 },
-    exit: { opacity: 0, x: 30, transition: { duration: 0.18 } },
-    transition: { type: "spring", stiffness: 240, damping: 22, mass: 1.3 },
-  },
-  glass: {
-    initial: { opacity: 0, y: -14, scale: 0.9, filter: "blur(10px)" },
-    animate: { opacity: 1, y: 0, scale: 1, filter: "blur(0px)" },
-    exit: { opacity: 0, scale: 0.94, filter: "blur(8px)", transition: { duration: 0.2 } },
-    transition: { type: "spring", stiffness: 340, damping: 24 },
-  },
   instrument: {
     initial: { opacity: 0, x: 18 },
     animate: { opacity: 1, x: 0 },
     exit: { opacity: 0, x: 10, transition: { duration: 0.12 } },
     transition: { duration: 0.18, ease: [0.2, 0, 0, 1] },
   },
-  quantum: {
-    initial: { opacity: 0, x: 24, filter: "blur(10px)" },
+  swarm: {
+    initial: { opacity: 0, x: 30, filter: "blur(8px)" },
     animate: { opacity: 1, x: 0, filter: "blur(0px)" },
-    exit: { opacity: 0, filter: "blur(8px)", transition: { duration: 0.18 } },
-    transition: { duration: 0.42, ease: out },
+    exit: { opacity: 0, filter: "blur(8px)", transition: { duration: 0.2 } },
+    transition: { duration: 0.4, ease: out },
   },
-  meadow: {
-    initial: { opacity: 0, y: 24 },
+  departures: {
+    initial: { opacity: 1, rotateX: -90, transformPerspective: 600, transformOrigin: "50% 0%" },
+    animate: { opacity: 1, rotateX: 0, transformPerspective: 600, transformOrigin: "50% 0%" },
+    exit: { opacity: 0, rotateX: 90, transition: { duration: 0.16, ease: stepped(4) } },
+    transition: { duration: 0.28, ease: stepped(6) },
+  },
+  receipt: {
+    initial: { opacity: 1, y: "-110%" },
     animate: { opacity: 1, y: 0 },
-    exit: { opacity: 0, transition: { duration: 0.2 } },
-    transition: { duration: 0.22, ease: "easeOut" },
+    exit: { opacity: 0, y: -16, transition: { duration: 0.16 } },
+    transition: { duration: 0.5, ease: stepped(10) },
+  },
+  comic: {
+    initial: { opacity: 0, scale: 0.2, rotate: -12, transformOrigin: "0% 100%" },
+    animate: { opacity: 1, scale: 1, rotate: -1.5, transformOrigin: "0% 100%" },
+    exit: { opacity: 0, scale: 0.6, transition: { duration: 0.14 } },
+    transition: { type: "spring", stiffness: 600, damping: 12, mass: 0.7 },
   },
 };
 
@@ -351,9 +352,9 @@ export const SLIDE: Record<Register, Transition> = {
   hologram: { type: "spring", stiffness: 700, damping: 38, mass: 0.6 },
   textmode: instant,
   teletext: instant,
-  hifi: { type: "spring", stiffness: 240, damping: 18, mass: 1.2 },
-  glass: { type: "spring", stiffness: 380, damping: 30, mass: 0.9 },
   instrument: { duration: 0.16, ease: [0.2, 0, 0, 1] },
-  quantum: { type: "spring", stiffness: 260, damping: 30, mass: 1 },
-  meadow: { duration: 0.12, ease: "linear" },
+  swarm: { type: "spring", stiffness: 300, damping: 30, mass: 0.9 },
+  departures: { duration: 0.2, ease: stepped(4) },
+  receipt: { duration: 0.18, ease: "linear" },
+  comic: { type: "spring", stiffness: 520, damping: 14, mass: 0.7 },
 };

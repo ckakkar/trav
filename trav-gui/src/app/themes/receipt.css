@@ -1,0 +1,852 @@
+/* ── Receipt: a till roll on a steel counter ───────────────────────────────── */
+/* The list is a receipt fresh off the printer: warm thermal paper, a dot-
+   matrix head, each torrent a line item with a dot leader to its size,
+   dashed rules, block-printed meters and rubber-stamped statuses. The chosen
+   line is circled in red pen. The detail is a second slip torn off below;
+   the sidebar is a ticket stub; the status bar is the till's display. It
+   feeds out a line at a time. */
+:root[data-theme="receipt"] {
+  --font-sans: var(--font-geist-mono), ui-monospace, "SF Mono", Menlo, monospace;
+  --font-code: var(--font-geist-mono), ui-monospace, monospace;
+  --font-data: var(--font-geist-mono), ui-monospace, monospace;
+  --font-label: var(--font-geist-mono), ui-monospace, monospace;
+  --font-display: "Doto Variable", var(--font-geist-mono), monospace;
+  --display-weight: 900;
+  --display-tracking: 0.02em;
+  --display-stretch: 100%;
+  --data-size: 11.5px;
+  --label-size: 10px;
+  --label-weight: 600;
+  --label-case: uppercase;
+  --label-tracking: 0.06em;
+  --radius: 2px;
+  --radius-lg: 2px;
+  --bar-h: 8px;
+  --ease: cubic-bezier(0.3, 0, 0.2, 1);
+  --canvas: #2f3236;
+  --bg: #fbf8f1;
+  --bg-raised: #fbf8f1;
+  --bg-inset: #f1ece0;
+  --bg-hover: #f4efe3;
+  --line: #2b2b2b;
+  --line-soft: #c9c2b2;
+  --text: #232323;
+  --text-dim: #4d4a44;
+  --text-faint: #6b665c;
+  --accent: #d6332a;
+  --accent-hi: #ff7a70;
+  --accent-text: #b8261e;
+  --accent-soft: #d6332a14;
+  --accent-line: #d6332a80;
+  --accent-ink: #ffffff;
+  --up: #2856b8;
+  --ok: #2a8a4a;
+  --warn: #a8700c;
+  --err: #c8302a;
+  --scrim: #16181b99;
+  --shadow: 0 18px 40px -16px #000000b3, 0 2px 0 #00000026;
+  --graph: dots;
+  --graph-cell: 3px;
+  --graph-off: #e6e0d2;
+  --map-have: #232323;
+  --map-flight: #d6332a;
+  --map-empty: #e6e0d2;
+  --map-flash: #ff7a70;
+  /* Materials. */
+  --rc-paper: #fbf8f1;
+  --rc-counter: repeating-linear-gradient(90deg, #ffffff06 0 1px, transparent 1px 3px), linear-gradient(180deg, #3a3d42, #2a2c30);
+  /* Torn edges: paper-coloured teeth, pointing down (bottom of a slip) or up. */
+  --rc-teeth-down: linear-gradient(135deg, var(--rc-paper) 25%, transparent 25%) -6px 0 / 12px 12px repeat-x, linear-gradient(225deg, var(--rc-paper) 25%, transparent 25%) -6px 0 / 12px 12px repeat-x;
+  --rc-teeth-up: linear-gradient(45deg, var(--rc-paper) 25%, transparent 25%) -6px 100% / 12px 12px repeat-x, linear-gradient(315deg, var(--rc-paper) 25%, transparent 25%) -6px 100% / 12px 12px repeat-x;
+  --rc-dash: repeating-linear-gradient(90deg, #8f897c 0 6px, transparent 6px 10px);
+  --rc-leader: radial-gradient(circle, #9a9384 0.7px, transparent 1px) 0 0 / 5px 3px repeat-x;
+  color-scheme: light;
+}
+
+:root[data-theme="receipt"] body {
+  font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Thermal print: a touch of bleed in the ink. */
+:root[data-theme="receipt"] :is(.main, .sidebar, .modal, .palette, .ctx-menu, .toast) {
+  text-shadow: 0 0 0.4px #23232399;
+}
+
+/* The counter, and the slips laid on it. */
+:root[data-theme="receipt"] .app {
+  padding: 12px 12px 0;
+  column-gap: 14px;
+  background: var(--rc-counter);
+}
+
+:root[data-theme="receipt"] .main {
+  grid-template-rows: var(--toolbar-h) auto minmax(0, 1fr) 18px var(--panel-h);
+}
+
+:root[data-theme="receipt"] :is(.sidebar, .main > .toolbar, .main > .list-region, .main > .panel-wrap) {
+  background: var(--rc-paper);
+  border: 0;
+}
+
+:root[data-theme="receipt"] :is(.main > .toolbar, .main > .list-region, .main > .panel-wrap, .sidebar) {
+  box-shadow: 0 10px 24px -14px #000000cc;
+}
+
+:root[data-theme="receipt"] :is(.detail, .list-region) {
+  background-color: var(--rc-paper);
+}
+
+/* The tear between the receipt and the slip below it. */
+:root[data-theme="receipt"] .resizer {
+  border-top: 0;
+  background: var(--rc-teeth-down), var(--rc-teeth-up), transparent;
+}
+
+:root[data-theme="receipt"] .resizer span {
+  top: 7px;
+  background: #ffffff40;
+}
+
+:root[data-theme="receipt"] .main > .panel-wrap[data-collapsed] {
+  background: transparent;
+  box-shadow: none;
+}
+
+/* The ticket stub: perforated down its right edge. */
+:root[data-theme="receipt"] .sidebar {
+  border-right: 0;
+  background:
+    radial-gradient(circle at 100% 50%, #2c2f33 3.5px, transparent 4px) 100% 0 / 8px 12px repeat-y,
+    var(--rc-paper);
+}
+
+:root[data-theme="receipt"] .brand {
+  border-bottom: 0;
+  background: var(--rc-dash) 0 100% / 100% 1px no-repeat;
+}
+
+:root[data-theme="receipt"] .brand-mark {
+  font-family: var(--font-display);
+  font-size: 30px;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+:root[data-theme="receipt"] .brand-sub {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  white-space: nowrap;
+}
+
+:root[data-theme="receipt"] :is(.side-eyebrow, .th, .eyebrow, .session, .sb-item, .tab, .filter-count, .speed-unit, .tmeta, .pill) {
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+:root[data-theme="receipt"] :is(.filter, .filter-active) {
+  border-radius: 0;
+}
+
+:root[data-theme="receipt"] .filter {
+  text-transform: uppercase;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+}
+
+/* The chosen filter is punched: printed in reverse. */
+:root[data-theme="receipt"] .filter-active {
+  background: #232323;
+  box-shadow: none;
+}
+
+:root[data-theme="receipt"] .filter[aria-current="true"],
+:root[data-theme="receipt"] .filter[aria-current="true"] :is(.filter-icon, .filter-count) {
+  color: var(--rc-paper);
+}
+
+:root[data-theme="receipt"] .filter:hover:not([aria-current="true"]) {
+  background: #f1ece0;
+}
+
+/* Throughput: the subtotal, in big dot-matrix figures. */
+:root[data-theme="receipt"] .speedcard {
+  border-top: 0;
+  background: var(--rc-dash) 0 0 / 100% 1px no-repeat;
+}
+
+:root[data-theme="receipt"] .speed-big {
+  font-family: var(--font-display);
+  font-weight: 900;
+  letter-spacing: 0.02em;
+}
+
+:root[data-theme="receipt"] .speed-num.down .speed-big {
+  font-size: 34px;
+  color: #232323;
+}
+
+:root[data-theme="receipt"] .speed-num.up .speed-big {
+  font-size: 20px;
+  color: #2856b8;
+}
+
+/* The receipt's head. */
+:root[data-theme="receipt"] .main > .toolbar {
+  border-bottom: 0;
+  background: var(--rc-dash) 0 100% / 100% 1px no-repeat, var(--rc-paper);
+}
+
+:root[data-theme="receipt"] .tb-title h1 {
+  font-family: var(--font-display);
+  font-size: 30px;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+:root[data-theme="receipt"] .tb-title :is(.tb-sub, .mono, .faint) {
+  text-transform: uppercase;
+}
+
+:root[data-theme="receipt"] .thead {
+  background: var(--rc-paper);
+  border-bottom: 0;
+  box-shadow: 0 1px 0 #232323, 0 3px 0 var(--rc-paper), 0 4px 0 #232323;
+}
+
+:root[data-theme="receipt"] .th {
+  font-weight: 700;
+  color: #232323;
+}
+
+/* Line items: dashed rules, and a dot leader from the name to the size. */
+:root[data-theme="receipt"] .trow {
+  border-bottom: 0;
+  background: var(--rc-dash) 0 100% / 100% 1px no-repeat;
+}
+
+:root[data-theme="receipt"] .trow:not([data-selected]):hover {
+  background: var(--rc-dash) 0 100% / 100% 1px no-repeat, #f4efe3;
+}
+
+:root[data-theme="receipt"] .trow .c-name {
+  background: var(--rc-leader);
+  background-position: 0 calc(50% - 5px);
+}
+
+:root[data-theme="receipt"] .tname {
+  width: fit-content;
+  max-width: 100%;
+  padding-right: 8px;
+  background: var(--rc-paper);
+  text-transform: uppercase;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+:root[data-theme="receipt"] .tmeta {
+  width: fit-content;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding-right: 8px;
+  background: var(--rc-paper);
+  font-size: 10px;
+}
+
+:root[data-theme="receipt"] .trow .c-idx::before {
+  content: "#";
+}
+
+/* The chosen line, circled in red pen. */
+:root[data-theme="receipt"] .trow-sel {
+  inset: 3px 4px;
+  border: 2px solid #d6332a;
+  border-radius: 46% 54% 48% 52% / 60% 46% 54% 40%;
+  background: transparent;
+  rotate: -0.4deg;
+  opacity: 0;
+  transition: opacity 0.12s linear, clip-path 0.4s var(--ease);
+  clip-path: inset(0 100% 0 0);
+}
+
+:root[data-theme="receipt"] .trow[data-selected] .trow-sel {
+  opacity: 0.9;
+  clip-path: inset(0 0 0 0);
+}
+
+:root[data-theme="receipt"] .trow[data-focused]::before {
+  content: "▸";
+  top: 0;
+  bottom: 0;
+  left: 2px;
+  width: auto;
+  border-radius: 0;
+  background: none;
+  color: #d6332a;
+  font-size: 13px;
+  line-height: var(--row-h);
+}
+
+/* Statuses are rubber stamps, each in its own ink. */
+:root[data-theme="receipt"] .sdot {
+  display: none;
+}
+
+:root[data-theme="receipt"] .slabel {
+  --ink: #4d4a44;
+  padding: 1px 5px 0;
+  border: 1.5px solid var(--ink);
+  border-radius: 3px;
+  color: var(--ink);
+  font-weight: 800;
+  font-size: 9.5px;
+  letter-spacing: 0.1em;
+  rotate: -3deg;
+  /* Inked unevenly, but never fainter than the type needs. */
+  mask-image: radial-gradient(circle at 30% 40%, #000 70%, #000e 100%);
+  -webkit-mask-image: radial-gradient(circle at 30% 40%, #000 70%, #000e 100%);
+}
+
+:root[data-theme="receipt"] .trow[data-status="downloading"] .slabel {
+  --ink: #2856b8;
+}
+
+:root[data-theme="receipt"] .trow:is([data-tone="seed"], [data-tone="seed-dim"]) .slabel {
+  --ink: #1d7a3c;
+}
+
+:root[data-theme="receipt"] .trow:is([data-tone="warn"], [data-status="checking"]) .slabel {
+  --ink: #875a00;
+}
+
+:root[data-theme="receipt"] .trow[data-tone="err"] .slabel {
+  --ink: #c8302a;
+  rotate: 4deg;
+}
+
+/* Meters: printed blocks on a dotted track. */
+:root[data-theme="receipt"] .bar {
+  height: 8px;
+  border-radius: 0;
+  background: radial-gradient(circle, #b9b2a2 0.8px, transparent 1.1px) 0 50% / 4px 4px repeat-x;
+  box-shadow: none !important;
+}
+
+:root[data-theme="receipt"] .bar-fill {
+  border-radius: 0;
+  background: repeating-linear-gradient(90deg, currentColor 0 6px, transparent 6px 8px);
+  color: #232323;
+  transition: transform 0.6s steps(12, end);
+}
+
+:root[data-theme="receipt"] .bar-head {
+  display: none !important;
+}
+
+:root[data-theme="receipt"] .trow[data-status="downloading"] .bar-fill {
+  color: #232323;
+}
+
+:root[data-theme="receipt"] .trow:is([data-tone="seed"], [data-tone="seed-dim"]) .bar-fill {
+  color: #2a8a4a;
+}
+
+:root[data-theme="receipt"] .trow[data-tone="idle"] .bar-fill {
+  color: #a39d90;
+}
+
+:root[data-theme="receipt"] .trow:is([data-tone="warn"], [data-status="checking"]) .bar-fill {
+  background: repeating-linear-gradient(90deg, currentColor 0 2px, transparent 2px 4px);
+  color: #a8700c;
+}
+
+:root[data-theme="receipt"] .trow[data-tone="err"] .bar-fill {
+  color: #c8302a;
+}
+
+/* A finished download is stamped PAID. */
+:root[data-theme="receipt"] .burst {
+  display: none;
+}
+
+:root[data-theme="receipt"] .stamp {
+  display: block;
+  position: absolute;
+  right: 2px;
+  top: 50%;
+  margin-top: -11px;
+  padding: 1px 6px 0;
+  font-family: var(--font-display);
+  font-weight: 900;
+  font-size: 14px;
+  line-height: 18px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #d6332a;
+  border: 2px solid #d6332a;
+  border-radius: 3px;
+  pointer-events: none;
+  animation: stamp 2s cubic-bezier(0.2, 0.9, 0.3, 1) both;
+}
+
+/* Keys on the till. The main one is the red key. */
+:root[data-theme="receipt"] :is(.btn, .chip) {
+  border: 1.5px solid #232323;
+  border-radius: 2px;
+  background: var(--rc-paper);
+  color: #232323;
+  font-family: var(--font-label);
+  font-weight: 700;
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  box-shadow: 0 2px 0 #232323;
+}
+
+:root[data-theme="receipt"] :is(.btn, .chip):hover {
+  border-color: #232323;
+  background: #f1ece0;
+  color: #232323;
+}
+
+:root[data-theme="receipt"] :is(.btn, .chip):active {
+  scale: 1;
+  translate: 0 2px;
+  box-shadow: 0 0 0 #232323;
+}
+
+:root[data-theme="receipt"] .btn.primary {
+  border-color: #8f1f19;
+  background: #d6332a;
+  color: #fff;
+  box-shadow: 0 2px 0 #8f1f19;
+}
+
+:root[data-theme="receipt"] .btn.primary:hover {
+  background: #c22c24;
+  color: #fff;
+  filter: none;
+}
+
+:root[data-theme="receipt"] .btn.ghost {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+
+:root[data-theme="receipt"] .btn.ghost:hover {
+  background: #f1ece0;
+}
+
+:root[data-theme="receipt"] .btn.danger {
+  border-color: #c8302a;
+  color: #c8302a;
+  box-shadow: 0 2px 0 #c8302a;
+}
+
+:root[data-theme="receipt"] .chip[aria-checked="true"] {
+  background: #232323;
+  color: var(--rc-paper);
+}
+
+:root[data-theme="receipt"] .icon-btn {
+  border-radius: 2px;
+}
+
+:root[data-theme="receipt"] .icon-btn:hover {
+  background: #f1ece0;
+}
+
+:root[data-theme="receipt"] :is(.input, .tb-search, .select) {
+  border: 0;
+  border-bottom: 1.5px solid #232323;
+  border-radius: 0;
+  background-color: transparent;
+  font-family: var(--font-data);
+}
+
+:root[data-theme="receipt"] .tb-search {
+  border: 1.5px solid #232323;
+  border-radius: 2px;
+}
+
+:root[data-theme="receipt"] :is(.input:focus, .tb-search:focus-within, .select:focus) {
+  border-color: #d6332a;
+  box-shadow: none;
+  background-color: #fff;
+}
+
+/* Ticks: a box that gets an X. */
+:root[data-theme="receipt"] .check span {
+  border: 1.5px solid #232323;
+  border-radius: 0;
+  background: transparent;
+}
+
+:root[data-theme="receipt"] .check input:checked + span {
+  border-color: #232323;
+  background:
+    linear-gradient(45deg, transparent 44%, #232323 44% 56%, transparent 56%),
+    linear-gradient(-45deg, transparent 44%, #232323 44% 56%, transparent 56%);
+  box-shadow: none;
+}
+
+:root[data-theme="receipt"] .toggle-track {
+  border: 1.5px solid #232323;
+  border-radius: 2px;
+  background: transparent;
+}
+
+:root[data-theme="receipt"] .toggle-thumb {
+  top: 1.5px;
+  left: 2px;
+  border-radius: 1px;
+  background: #a39d90;
+}
+
+:root[data-theme="receipt"] .toggle input:checked + .toggle-track {
+  border-color: #232323;
+  background: #232323;
+}
+
+:root[data-theme="receipt"] .toggle input:checked + .toggle-track .toggle-thumb {
+  background: var(--rc-paper);
+}
+
+/* The slip below: tabs as printed headings; the chosen one is reversed. */
+:root[data-theme="receipt"] .tabs {
+  border-bottom: 0;
+  background: var(--rc-dash) 0 100% / 100% 1px no-repeat;
+}
+
+:root[data-theme="receipt"] .tab {
+  font-size: 10.5px;
+  font-weight: 700;
+}
+
+:root[data-theme="receipt"] .tab[aria-selected="true"] {
+  color: var(--rc-paper);
+  background: #232323;
+}
+
+:root[data-theme="receipt"] .tab-underline {
+  display: none;
+}
+
+:root[data-theme="receipt"] .ov-name {
+  text-transform: uppercase;
+  font-weight: 700;
+  font-size: 17px;
+  letter-spacing: 0.02em;
+}
+
+:root[data-theme="receipt"] .ov-pct {
+  font-family: var(--font-display);
+  font-weight: 900;
+  font-size: 46px;
+  letter-spacing: 0.02em;
+}
+
+:root[data-theme="receipt"] :is(.stats, .piecemap, .speed-graph) {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+:root[data-theme="receipt"] .stats {
+  border-top: 1px solid #232323;
+  border-bottom: 1px solid #232323;
+}
+
+:root[data-theme="receipt"] .stat {
+  border-color: #c9c2b2;
+  border-style: dashed;
+}
+
+/* Overlays: slips with torn tops and bottoms. */
+:root[data-theme="receipt"] .modal-scrim {
+  background: var(--scrim);
+  backdrop-filter: blur(1px);
+  -webkit-backdrop-filter: blur(1px);
+}
+
+:root[data-theme="receipt"] :is(.modal, .palette, .recover-card) {
+  position: relative;
+}
+
+:root[data-theme="receipt"] :is(.modal, .palette, .ctx-menu, .recover-card) {
+  border: 0;
+  border-radius: 0;
+  background: var(--rc-paper);
+  box-shadow: var(--shadow);
+  overflow: visible;
+}
+
+:root[data-theme="receipt"] :is(.modal, .palette, .ctx-menu, .recover-card)::before,
+:root[data-theme="receipt"] :is(.modal, .palette, .ctx-menu, .recover-card)::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 6px;
+  pointer-events: none;
+}
+
+:root[data-theme="receipt"] :is(.modal, .palette, .ctx-menu, .recover-card)::before {
+  top: -6px;
+  background: linear-gradient(45deg, var(--rc-paper) 25%, transparent 25%) -6px 0 / 12px 12px repeat-x, linear-gradient(315deg, var(--rc-paper) 25%, transparent 25%) -6px 0 / 12px 12px repeat-x;
+  background-position: 0 6px, 0 6px;
+}
+
+:root[data-theme="receipt"] :is(.modal, .palette, .ctx-menu, .recover-card)::after {
+  bottom: -6px;
+  background: linear-gradient(135deg, var(--rc-paper) 25%, transparent 25%) -6px 0 / 12px 12px repeat-x, linear-gradient(225deg, var(--rc-paper) 25%, transparent 25%) -6px 0 / 12px 12px repeat-x;
+  background-position: 0 -6px, 0 -6px;
+}
+
+:root[data-theme="receipt"] :is(.modal-head, .modal-foot) {
+  background: transparent;
+}
+
+:root[data-theme="receipt"] .modal-head {
+  border-bottom: 0;
+  background: var(--rc-dash) 0 100% / 100% 1px no-repeat;
+}
+
+:root[data-theme="receipt"] .modal-foot {
+  border-top: 0;
+  background: var(--rc-dash) 0 0 / 100% 1px no-repeat;
+}
+
+:root[data-theme="receipt"] .modal-title {
+  font-family: var(--font-display);
+  font-weight: 900;
+  font-size: 26px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+:root[data-theme="receipt"] .eyebrow {
+  color: #6b665c;
+}
+
+:root[data-theme="receipt"] .set-nav {
+  background: transparent;
+  border-right: 1px dashed #8f897c;
+}
+
+:root[data-theme="receipt"] :is(.set-nav-item, .palette-item, .ctx-item) {
+  border-radius: 0;
+  text-transform: uppercase;
+  font-size: 11px;
+  letter-spacing: 0.03em;
+}
+
+:root[data-theme="receipt"] .set-nav-item[aria-current="true"],
+:root[data-theme="receipt"] .palette-item[aria-selected="true"],
+:root[data-theme="receipt"] .ctx-item.active {
+  color: var(--rc-paper);
+  background: #232323;
+  box-shadow: none;
+}
+
+:root[data-theme="receipt"] :is(.set-nav-item[aria-current="true"], .palette-item[aria-selected="true"], .ctx-item.active) * {
+  color: inherit;
+}
+
+:root[data-theme="receipt"] .ctx-item:hover:not(.active) {
+  background: #f1ece0;
+}
+
+:root[data-theme="receipt"] .ctx-item {
+  white-space: nowrap;
+}
+
+:root[data-theme="receipt"] .palette-input {
+  border-bottom: 0;
+  background: var(--rc-dash) 0 100% / 100% 1px no-repeat;
+}
+
+:root[data-theme="receipt"] .ctx-sep {
+  background: var(--rc-dash);
+  height: 1px;
+}
+
+:root[data-theme="receipt"] .toast {
+  border: 0;
+  border-radius: 0;
+  background: var(--rc-paper);
+  box-shadow: var(--shadow);
+  text-transform: uppercase;
+}
+
+:root[data-theme="receipt"] .toast-dot {
+  border-radius: 0;
+  box-shadow: none !important;
+}
+
+:root[data-theme="receipt"] .toast-life {
+  border-radius: 0;
+  background: #232323;
+}
+
+/* The till's display. */
+:root[data-theme="receipt"] .statusbar {
+  margin: 8px 12px 6px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 3px;
+  background: linear-gradient(180deg, #8f9c80, #a3b091);
+  box-shadow: inset 0 2px 4px #0000008c, 0 1px 0 #ffffff1a;
+  color: #1d2414;
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  --text-faint: #1d2414;
+  --text-dim: #1d2414;
+}
+
+:root[data-theme="receipt"] .app {
+  grid-template-rows: minmax(0, 1fr) calc(var(--status-h) + 14px);
+}
+
+:root[data-theme="receipt"] .statusbar .sb-btn {
+  color: #1d2414;
+}
+
+:root[data-theme="receipt"] .sb-item[data-link="online"] .sdot {
+  display: block;
+  background: #1d2414;
+  box-shadow: none;
+}
+
+:root[data-theme="receipt"] .sb-turtle[data-on] {
+  background: #1d2414;
+  color: #a3b091 !important;
+  padding: 0 4px;
+}
+
+:root[data-theme="receipt"] .empty-title {
+  font-family: var(--font-display);
+  font-weight: 900;
+  font-size: 34px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+:root[data-theme="receipt"] .empty-title.sm {
+  font-size: 24px;
+}
+
+:root[data-theme="receipt"] .empty-mark {
+  color: #d6332a;
+}
+
+/* Under the last item: a barcode and a thank-you. */
+:root[data-theme="receipt"] .tbody::after {
+  content: "* * *  THANK YOU FOR SEEDING  * * *";
+  display: block;
+  margin: 22px auto 18px;
+  padding-top: 46px;
+  width: 260px;
+  text-align: center;
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  color: #4d4a44;
+  background:
+    repeating-linear-gradient(90deg, #232323 0 2px, transparent 2px 3px, #232323 3px 4px, transparent 4px 7px, #232323 7px 10px, transparent 10px 11px, #232323 11px 12px, transparent 12px 15px) 50% 0 / 210px 38px no-repeat;
+}
+
+:root[data-theme="receipt"] .tbody:has(> .empty)::after {
+  content: none;
+}
+
+:root[data-theme="receipt"] .launch {
+  background: var(--rc-counter);
+}
+
+:root[data-theme="receipt"] .launch-glow {
+  display: none;
+}
+
+:root[data-theme="receipt"] .launch-stage {
+  padding: 28px 40px 34px;
+  background: var(--rc-paper);
+  box-shadow: var(--shadow);
+}
+
+:root[data-theme="receipt"] .launch-word {
+  font-family: var(--font-display);
+  font-weight: 900;
+  font-size: 46px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #232323;
+}
+
+:root[data-theme="receipt"] .launch-mark {
+  color: #d6332a;
+}
+
+:root[data-theme="receipt"] .dropzone-inner {
+  border: 2px dashed #232323;
+  border-radius: 0;
+  background: var(--rc-paper);
+  box-shadow: var(--shadow);
+}
+
+:root[data-theme="receipt"] :focus-visible {
+  outline: 2px solid #d6332a;
+  outline-offset: 2px;
+}
+
+:root[data-theme="receipt"] :is(.table, .tab, .filter, .set-nav-item, .palette-item, .ctx-item, .th):focus-visible {
+  outline-offset: -2px;
+}
+
+:root[data-theme="receipt"] ::selection {
+  background: #23232333;
+}
+
+:root[data-theme="receipt"] ::-webkit-scrollbar-thumb {
+  border-radius: 0;
+  background: #c9c2b2;
+}
+
+.theme-pick[data-pick="receipt"] .swatch {
+  border: 0 !important;
+  border-radius: 0;
+  background: linear-gradient(135deg, #fbf8f1 25%, transparent 25%) -4px 100% / 8px 8px repeat-x, linear-gradient(225deg, #fbf8f1 25%, transparent 25%) -4px 100% / 8px 8px repeat-x, repeating-linear-gradient(#fbf8f1 0 5px, #e8e2d4 5px 6px) !important;
+  box-shadow: 0 1px 3px #0003;
+}
+
+.theme-pick[data-pick="receipt"] .swatch i:first-child {
+  height: 4px;
+  border-radius: 0;
+  background: repeating-linear-gradient(90deg, #232323 0 4px, transparent 4px 6px) !important;
+}
+
+.theme-pick[data-pick="receipt"] .swatch i:last-child {
+  height: 9px;
+  border-radius: 2px;
+  border: 1.5px solid #d6332a;
+  background: transparent !important;
+  rotate: -6deg;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root[data-theme="receipt"] .trow-sel {
+    transition: none;
+  }
+  :root[data-theme="receipt"] .stamp {
+    animation: none;
+    opacity: 0;
+  }
+}

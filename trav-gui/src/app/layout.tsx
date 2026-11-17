@@ -3,21 +3,23 @@ import { GeistSans } from "geist/font/sans";
 import { GeistMono } from "geist/font/mono";
 // Paper's face: one variable family, from extra-condensed poster type to text.
 import "@fontsource-variable/archivo/wdth.css";
-// The newer themes' faces, Latin only: Textmode, Teletext, Hi-Fi, Instrument, Quantum.
+// The newer themes' faces, Latin only: Textmode, Teletext, Instrument and
+// Receipt (Doto), Comic (Bangers, Comic Neue).
 import "@fontsource/vt323/latin-400.css";
 import "@fontsource/tiny5/latin-400.css";
-import "@fontsource/michroma/latin-400.css";
 import "@fontsource-variable/doto/wght.css";
-import "@fontsource-variable/unbounded/wght.css";
+import "@fontsource/bangers/latin-400.css";
+import "@fontsource/comic-neue/latin-400.css";
+import "@fontsource/comic-neue/latin-700.css";
 import "./globals.css";
 // One stylesheet per newer theme, after the shared one.
 import "./themes/textmode.css";
 import "./themes/teletext.css";
-import "./themes/hifi.css";
-import "./themes/meadow.css";
-import "./themes/glass.css";
 import "./themes/instrument.css";
-import "./themes/quantum.css";
+import "./themes/swarm.css";
+import "./themes/departures.css";
+import "./themes/receipt.css";
+import "./themes/comic.css";
 
 export const metadata: Metadata = {
   title: "Trav",
