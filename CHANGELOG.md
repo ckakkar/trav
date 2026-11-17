@@ -7,6 +7,12 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- Four themes that turn the window into something else. **Swarm** fills it with particles that follow the transfers: pieces stream in from the edges of the window into each download's leading edge (as many as its speed), uploads leave as sparks, a finished download bursts in gold, dialogs gather out of a ring of light, a halo runs round the selected torrent and the speed readout pulls a vortex. **Departures** is a split-flap station board: names, figures and statuses are set one character to a flap, and they flip into place. **Receipt** is a till roll on a steel counter: dot-matrix headings, dot leaders, rubber-stamped statuses, the selected line circled in red pen, a torn edge between the list and the details, a barcode, and the till's display as the status bar; a finished download is stamped. **Comic** is a pop-art page: ink outlines, halftone dots, caption boxes, speech-bubble notifications and a starburst Add button.
+
+### Removed
+- The Hi-Fi, Glass, Quantum and Meadow themes, replaced by the four above. If one of them was chosen, Trav switches to Ink.
+
+### Added
 - Seven more themes. Retro: **Textmode**, a DOS text screen (blue panels in double-line frames, a cyan selection bar, grey dialogs with hard shadows, shaded block progress, a blinking cursor, a function-key line); **Teletext**, a broadcast page (eight colours, a page number, double-height titles, block-graphic progress, the four coloured keys, pages drawn a row at a time, errors that flash); **Hi-Fi**, a '70s stereo receiver (brushed aluminium between walnut cheeks, the list as an amber-lit tuning dial with a scale and a red needle, LED level meters, chrome lever switches); and **Meadow**, the blue-and-green early-2000s desktop. Future: **Glass** (frosted sheets over a slowly moving field of colour), **Instrument** (warm grey hardware, one signal orange, dot-matrix numerals behind a black display, rubber keys and slide switches) and **Quantum** (light in deep space: drifting particles, wide light type, a spectrum on whatever is active, progress as a thread of light with a particle at its head). Each moves in its own way.
 - Match the Mac's appearance (Settings › Interface): pick a theme for Light mode and one for Dark mode, and Trav switches with the Mac. Themes are grouped in Settings as Originals, Retro and Future.
 - The speed graphs can draw as LED columns (Textmode, Teletext, Hi-Fi) or a dot-matrix display (Instrument).

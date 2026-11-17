@@ -76,7 +76,7 @@ In the list:
 | 1 – 5 | detail tabs |
 | / | filter the list |
 
-**Themes:** fourteen, in Settings › Interface or one after another with ⇧⌘L. The originals: Ink, Paper, Phosphor. Retro: Pinstripe, Bevel, Meadow, Bitmap, Textmode, Teletext, Hi-Fi. Future: Hologram, Glass, Instrument, Quantum. Turn on **Match the Mac's appearance** to use one theme in Light mode and another in Dark mode; Trav switches when the Mac does.
+**Themes:** fourteen, in Settings › Interface or one after another with ⇧⌘L. The originals: Ink, Paper, Phosphor. Retro: Pinstripe, Bevel, Bitmap, Textmode, Teletext. Future: Hologram, Instrument, Swarm. Found objects: Departures, Receipt, Comic. Turn on **Match the Mac's appearance** to use one theme in Light mode and another in Dark mode; Trav switches when the Mac does.
 
 ## Removing
 
