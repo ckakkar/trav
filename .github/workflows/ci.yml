@@ -28,7 +28,7 @@ jobs:
 
   lint:
     name: Format & clippy
-    runs-on: macos-26
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
@@ -42,7 +42,7 @@ jobs:
 
   test:
     name: Engine tests
-    runs-on: macos-26
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
@@ -51,7 +51,7 @@ jobs:
 
   msrv:
     name: MSRV (1.90)
-    runs-on: macos-26
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@1.90
@@ -70,7 +70,7 @@ jobs:
 
   coverage:
     name: Coverage
-    runs-on: macos-26
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
@@ -110,7 +110,7 @@ jobs:
 
   app:
     name: App bundle
-    runs-on: macos-26
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
