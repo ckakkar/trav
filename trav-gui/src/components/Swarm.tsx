@@ -38,13 +38,15 @@ function flux(rate: number) {
   return Math.min(1, Math.log10(1 + rate / 65536) / Math.log10(257));
 }
 
-/** A soft round glow, drawn once per colour and stamped for every particle. */
-function sprite(color: string) {
+/** A soft round glow, drawn once per colour and stamped for every particle
+ *  (null where the canvas can't draw gradients). */
+function sprite(color: string): HTMLCanvasElement | null {
   const s = 32;
   const c = document.createElement("canvas");
   c.width = c.height = s;
-  const g = c.getContext("2d")!;
-  const r = g.createRadialGradient(s / 2, s / 2, 0, s / 2, s / 2, s / 2);
+  const g = c.getContext("2d");
+  const r = g?.createRadialGradient?.(s / 2, s / 2, 0, s / 2, s / 2, s / 2);
+  if (!g || !r) return null;
   r.addColorStop(0, "#ffffff");
   r.addColorStop(0.18, color);
   r.addColorStop(0.45, color + "55");
@@ -65,11 +67,25 @@ export function Swarm({ torrents, paused }: { torrents: TorrentSummary[]; paused
 
   useEffect(() => {
     if (reduced) return;
-    const cv = canvas.current!;
-    const fv = front.current!;
-    const back = cv.getContext("2d", { alpha: true })!;
-    const fore = fv.getContext("2d", { alpha: true })!;
-    const sprites = PALETTE.map(sprite);
+    // Decoration only: if this canvas can't do what the swarm needs, or
+    // anything here throws, there are simply no particles. It must never take
+    // the window down with it.
+    try {
+      return start();
+    } catch (e) {
+      console.error("Swarm: particles off", e);
+    }
+  }, [reduced]);
+
+  function start(): (() => void) | undefined {
+    const cv = canvas.current;
+    const fv = front.current;
+    const back = cv?.getContext("2d", { alpha: true });
+    const fore = fv?.getContext("2d", { alpha: true });
+    if (!cv || !fv || !back || !fore || typeof back.drawImage !== "function") return;
+    const maybe = PALETTE.map(sprite);
+    if (maybe.some((x) => !x)) return;
+    const sprites = maybe as HTMLCanvasElement[];
 
     // Particle state, in flat arrays.
     const x = new Float32Array(MAX);
@@ -220,8 +236,21 @@ export function Swarm({ torrents, paused }: { torrents: TorrentSummary[]; paused
     let ambientTarget = 0;
     let last = performance.now();
     let raf = 0;
+    let broken = false;
     const tick = (now: number) => {
+      if (broken) return;
       raf = requestAnimationFrame(tick);
+      try {
+        step(now);
+      } catch (e) {
+        broken = true;
+        cancelAnimationFrame(raf);
+        back.clearRect(0, 0, cv.width, cv.height);
+        fore.clearRect(0, 0, fv.width, fv.height);
+        console.error("Swarm: particles off", e);
+      }
+    };
+    const step = (now: number) => {
       if (halt.current || document.hidden) {
         last = now;
         return;
@@ -434,7 +463,7 @@ export function Swarm({ torrents, paused }: { torrents: TorrentSummary[]; paused
       back.clearRect(0, 0, cv.width, cv.height);
       fore.clearRect(0, 0, fv.width, fv.height);
     };
-  }, [reduced]);
+  }
 
   if (reduced) return null;
   return (
