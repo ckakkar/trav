@@ -1689,7 +1689,8 @@ body[data-resizing] .main {
     --cols: 30px minmax(150px, 1fr) minmax(90px, 120px) 84px;
   }
   .c-status,
-  .c-up {
+  .c-up,
+  .trow .c-status {
     display: none;
   }
 }
@@ -1700,6 +1701,17 @@ body[data-resizing] .main {
   text-align: center;
   padding: 64px 24px;
   min-height: 300px;
+}
+/* In the list the message is centred in whatever height there is; in a short
+   list (a small window with the detail panel open) it starts at the top of
+   what's visible instead of below it. */
+.tbody:has(> .empty) {
+  display: grid;
+}
+.tbody > .empty {
+  min-height: 0;
+  align-self: center;
+  padding: 20px 24px;
 }
 .empty-title {
   margin: 10px 0 6px;
@@ -2334,7 +2346,9 @@ body[data-resizing] .main {
 .settings {
   display: grid;
   grid-template-columns: 170px minmax(0, 1fr);
-  min-height: 380px;
+  /* One row that may shrink: the body scrolls instead of running under the footer. */
+  grid-template-rows: minmax(0, 1fr);
+  min-height: min(380px, calc(100dvh - 220px));
   max-height: calc(100dvh - 220px);
   border-top: 1px solid var(--line);
 }
@@ -2410,6 +2424,39 @@ body[data-resizing] .main {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
+}
+/* The theme picker spans the row, its themes in families. */
+.set-row-wide {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+}
+.theme-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.theme-group-title {
+  margin-bottom: 8px;
+  font-family: var(--font-label);
+  font-size: var(--label-size);
+  font-weight: var(--label-weight);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-faint);
+}
+.theme-pick {
+  position: relative;
+}
+.theme-slot {
+  position: absolute;
+  top: -6px;
+  right: -4px;
+  padding: 1px 5px;
+  border-radius: 99px;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-size: 9px;
+  line-height: 1.4;
 }
 .theme-pick {
   display: flex;

@@ -6,7 +6,24 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- Seven more themes. Retro: **Textmode**, a DOS text screen (blue panels in double-line frames, a cyan selection bar, grey dialogs with hard shadows, shaded block progress, a blinking cursor, a function-key line); **Teletext**, a broadcast page (eight colours, a page number, double-height titles, block-graphic progress, the four coloured keys, pages drawn a row at a time, errors that flash); **Hi-Fi**, a '70s stereo receiver (brushed aluminium between walnut cheeks, the list as an amber-lit tuning dial with a scale and a red needle, LED level meters, chrome lever switches); and **Meadow**, the blue-and-green early-2000s desktop. Future: **Glass** (frosted sheets over a slowly moving field of colour), **Instrument** (warm grey hardware, one signal orange, dot-matrix numerals behind a black display, rubber keys and slide switches) and **Quantum** (light in deep space: drifting particles, wide light type, a spectrum on whatever is active, progress as a thread of light with a particle at its head). Each moves in its own way.
+- Match the Mac's appearance (Settings › Interface): pick a theme for Light mode and one for Dark mode, and Trav switches with the Mac. Themes are grouped in Settings as Originals, Retro and Future.
+- The speed graphs can draw as LED columns (Textmode, Teletext, Hi-Fi) or a dot-matrix display (Instrument).
+
 ### Fixed
+- A Settings Save that can't be written (say, the library folder became read-only) no longer half-applies: nothing changes until it's saved, and a retry applies everything, the listen port included.
+- A blank or relative default save folder can no longer be saved, and one left over from before falls back to ~/Downloads, instead of downloads landing wherever Trav happened to be running from.
+- In a short window, Settings scrolls to its lower controls instead of running them under Close and Save.
+- Space, Enter and the arrow keys act on the focused button or tab instead of pausing the selected torrents, and nothing in the list reacts to keys while Create Torrent, Speed limits or an update is open.
+- The command palette keeps the keyboard inside it, closes with Esc from anywhere in it, returns focus where it came from, and keeps the highlighted command in view.
+- VoiceOver names every Settings switch and number field after its row.
+- When adding a torrent fails (for example, its files would collide with another torrent's), the Add dialog stays open with your choices so you can pick another folder and try again.
+- A file priority the engine refuses goes back to what it really is instead of looking changed. A failed Reannounce no longer also says "Reannouncing".
+- ⇧↑/⇧↓ shrink a selection again when you step back toward where it started.
+- With Reduce Motion on, dialogs, menus and toasts simply fade, in every theme.
+- In the narrowest window the list's speed columns stay under their headings, and "No matches" shows in a short list instead of below it.
+- USAGE and the README list every theme, the File menu's Create Torrent, the watch folder and the alternative limits; limits are in KB/s; the IPv6 DHT is supported.
 - In a narrow window (around 900 px wide) the torrent list's last column no longer runs off the edge, in every theme.
 - Trav checks for updates itself, from the app rather than the window, and if the window doesn't respond to an update it finds (it has crashed, or never loaded), offers it in a native dialog. A broken release can always be replaced; 0.3.48's couldn't.
 

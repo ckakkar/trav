@@ -286,3 +286,41 @@ async fn quitting_keeps_running_torrents_running() {
     assert_eq!(status(&paused), Some(TorrentStatus::Paused));
     e.shutdown().await;
 }
+
+/// A Save that can't be written changes nothing: not the live limits, not the
+/// listen port. Retrying once the folder is writable applies it all.
+#[tokio::test]
+async fn failed_settings_save_changes_nothing() {
+    use std::os::unix::fs::PermissionsExt;
+    let tmp = tempfile::tempdir().unwrap();
+    let state = tmp.path().join("state");
+    let h = Engine::start_with(&state, Some(settings(tmp.path())))
+        .await
+        .unwrap();
+    let before = h.settings();
+    let port = h.listen_port();
+    let mut changed = before.clone();
+    changed.download_limit = 1024;
+    changed.listen_port = port.wrapping_add(17).max(1024);
+
+    std::fs::set_permissions(&state, std::fs::Permissions::from_mode(0o555)).unwrap();
+    let result = h.update_settings(changed.clone()).await;
+    let after = h.settings();
+    let bound = h.listen_port();
+    std::fs::set_permissions(&state, std::fs::Permissions::from_mode(0o755)).unwrap();
+    assert!(
+        result.is_err(),
+        "the read-only state folder must make Save fail"
+    );
+    assert_eq!(after, before, "a failed Save must not change live settings");
+    assert_eq!(bound, port);
+
+    h.update_settings(changed.clone()).await.unwrap();
+    assert_eq!(h.settings().download_limit, 1024);
+    assert_ne!(
+        h.listen_port(),
+        port,
+        "a successful retry rebinds the listener"
+    );
+    h.shutdown().await;
+}

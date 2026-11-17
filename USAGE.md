@@ -59,7 +59,7 @@ Click a torrent to select it (⇧/⌘-click for several). **Right-click**, or us
 | Menu | Items |
 |---|---|
 | **Trav** | About, **Check for Updates…**, Settings (⌘,), Hide, Quit (⌘Q) |
-| **File** | Open Torrent File… (⌘O), Add Magnet Link… (⌘U), Close Window (⌘W) |
+| **File** | Open Torrent File… (⌘O), Add Magnet Link… (⌘U), Create Torrent… (⌘N), Close Window (⌘W) |
 | **Edit** | Undo, Cut, Copy, Paste (⌘V also adds magnet links), Select All, Find (⌘F, the filter box) |
 | **View** | Command Palette (⌘K), the lists All … Errors (⌘1 – ⌘7), Show/Hide Details (⌘I), Next Theme (⇧⌘L), Full Screen |
 | **Transfers** | Pause/Resume (⌘.), Pause All (⌥⌘.), Resume All (⌥⌘/), Show in Finder (⌘R), Copy Magnet Link (⇧⌘C), Download in Order, Move to Top/Bottom of Queue, Verify Local Data, Ask Trackers for More Peers, Remove… (⌘⌫), Remove and Move Data to Trash… (⌥⌘⌫) |
@@ -76,7 +76,7 @@ In the list:
 | 1 – 5 | detail tabs |
 | / | filter the list |
 
-**Themes:** Ink (dark) → Paper (light, risograph print) → Phosphor (terminal green), with ⇧⌘L or in Settings › Interface.
+**Themes:** fourteen, in Settings › Interface or one after another with ⇧⌘L. The originals: Ink, Paper, Phosphor. Retro: Pinstripe, Bevel, Meadow, Bitmap, Textmode, Teletext, Hi-Fi. Future: Hologram, Glass, Instrument, Quantum. Turn on **Match the Mac's appearance** to use one theme in Light mode and another in Dark mode; Trav switches when the Mac does.
 
 ## Removing
 
@@ -102,9 +102,11 @@ Open them with **⌘,**. Engine settings are saved with **Save**; Interface and 
 
 | Setting | Default | What it does |
 |---|---|---|
-| Default save folder | `~/Downloads` | where new torrents go unless you pick another |
+| Default save folder | `~/Downloads` | where new torrents go unless you pick another; it must be a full path |
+| Watch folder | off | a `.torrent` saved here is added by itself, then renamed to `.torrent.added` |
 | Listen port | 51413 | TCP and UDP (µTP and the DHT share it); if taken, the next free port is used |
-| Download / upload limit | 0 = no limit | bytes per second, for everything combined |
+| Download / upload limit | 0 = no limit | KB/s, for everything combined (Settings › Bandwidth) |
+| Alternative limits and schedule | off | a second pair of limits, switched on with the turtle in the status bar or on a schedule of hours and days |
 | Keep uploads from slowing downloads | on | with no upload limit set, eases uploads off when they start queueing on your connection (see [Speed](#speed)) |
 | Active downloads | 5 | more than this wait in the queue; 0 = no limit |
 | Peers per torrent / overall | 150 / 600 | connection caps |
@@ -117,7 +119,7 @@ Open them with **⌘,**. Engine settings are saved with **Save**; Interface and 
 | Port forwarding | on | ask your router to open the listen port, by UPnP or NAT-PMP |
 | µTP & hole punching | on | also connect over UDP, and reach peers behind routers and shared addresses through a peer connected to you both (see [Speed](#speed)) |
 | Stop seeding at ratio | 0 = seed forever | e.g. `2` stops once you've uploaded twice the size; resuming a stopped torrent overrides it |
-| Theme, notifications, confirm before removing | | Interface |
+| Theme, Match the Mac's appearance, notifications, confirm before removing | | Interface |
 | Check for updates automatically, open at login, keep the Mac awake while transferring, show speed in the menu bar | on, off, on, on | App |
 
 Engine settings live in `settings.json` in the [library folder](#where-things-live).
@@ -170,7 +172,7 @@ The reason is shown under its name and in the Overview tab. **disk write failed*
 
 ### Files were moved or deleted behind Trav's back
 
-Trav notices on the next start and re-verifies, then downloads whatever is missing. To force it now: right-click › **Verify Local Data**.
+Trav notices on the next start and re-verifies, then downloads whatever is missing. To force it now: right-click › **Force recheck** (or **Transfers › Verify Local Data**).
 
 ### Getting logs
 
@@ -182,6 +184,6 @@ The Peers tab uses µTorrent-style flags: **D** downloading from them · **d** y
 
 ## Limitations
 
-Not supported yet: BitTorrent v2 and the IPv6 DHT (BEP 32).
+Not supported yet: torrents and magnets that are BitTorrent v2 only (Trav says so plainly; hybrid v1 + v2 ones download through their v1 half).
 
 Hole punching needs a peer connected to both sides that supports it (libtorrent-based clients such as qBittorrent and Deluge do), and doesn't get through "symmetric" NATs that use a new outside port for every destination.

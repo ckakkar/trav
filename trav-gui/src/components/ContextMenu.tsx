@@ -2,7 +2,7 @@
 
 import { motion } from "motion/react";
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
-import { MENU, useRegister } from "@/lib/motion";
+import { MENU, useChoreo } from "@/lib/motion";
 
 export interface MenuItem {
   label: string;
@@ -16,7 +16,7 @@ export type MenuEntry = MenuItem | "sep";
 
 export function ContextMenu({ x, y, items, onClose }: { x: number; y: number; items: MenuEntry[]; onClose: () => void }) {
   const ref = useRef<HTMLDivElement>(null);
-  const choreo = MENU[useRegister()];
+  const choreo = useChoreo(MENU);
   const [pos, setPos] = useState({ x, y });
   const [active, setActive] = useState(-1);
   const actionable = items.map((it, i) => (it !== "sep" && !it.disabled ? i : -1)).filter((i) => i >= 0);

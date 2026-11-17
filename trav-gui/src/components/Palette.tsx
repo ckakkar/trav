@@ -2,7 +2,7 @@
 
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { DIALOG, useRegister } from "@/lib/motion";
+import { DIALOG, useChoreo } from "@/lib/motion";
 import { Magnet, Search } from "lucide-react";
 import type { TorrentSummary } from "@/lib/types";
 import { looksLikeMagnet, pct } from "@/lib/format";
@@ -45,21 +45,38 @@ export function Palette({
   const [q, setQ] = useState("");
   const [idx, setIdx] = useState(0);
   const input = useRef<HTMLInputElement>(null);
-  const dialog = DIALOG[useRegister()];
+  const dialog = useChoreo(DIALOG);
 
   // Each opening is a fresh element: re-opening during the exit animation must
   // not resurrect the previous (frozen) input and its stale query.
   const session = useRef(0);
   const wasOpen = useRef(open);
+  // Focus goes back where it came from when the palette closes. Note the
+  // opener while rendering the opening: by the time effects run, the input's
+  // autoFocus has already taken focus.
+  const opener = useRef<HTMLElement | null>(null);
+  if (!wasOpen.current && open && typeof document !== "undefined") {
+    const a = document.activeElement;
+    opener.current = a instanceof HTMLElement && a !== document.body ? a : null;
+  }
   if (wasOpen.current && !open) session.current += 1;
   wasOpen.current = open;
+  const list = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (open) {
       setQ("");
       setIdx(0);
       requestAnimationFrame(() => input.current?.focus());
+    } else if (opener.current) {
+      const back = opener.current;
+      opener.current = null;
+      if (back.isConnected) requestAnimationFrame(() => back.focus());
     }
   }, [open]);
+  // Arrow keys move a choice that stays in view.
+  useEffect(() => {
+    list.current?.querySelector<HTMLElement>(`[data-idx="${idx}"]`)?.scrollIntoView({ block: "nearest" });
+  }, [idx]);
 
   const results = useMemo(() => {
     const out: Command[] = [];
@@ -97,7 +114,19 @@ export function Palette({
           <motion.div
             className="palette"
             role="dialog"
+            aria-modal="true"
             aria-label="Command palette"
+            onKeyDown={(e) => {
+              // Esc closes from anywhere in the palette; Tab stays inside it.
+              if (e.key === "Escape") {
+                e.preventDefault();
+                e.stopPropagation();
+                onClose();
+              } else if (e.key === "Tab") {
+                e.preventDefault();
+                input.current?.focus();
+              }
+            }}
             initial={dialog.initial}
             animate={dialog.animate}
             exit={dialog.exit}
@@ -108,6 +137,11 @@ export function Palette({
               <input
                 ref={input}
                 autoFocus
+                role="combobox"
+                aria-expanded="true"
+                aria-controls="palette-list"
+                aria-activedescendant={results[idx] ? `palette-opt-${idx}` : undefined}
+                aria-label="Command"
                 value={q}
                 placeholder="Type a command, a torrent name, or paste a magnet…"
                 onChange={(e) => setQ(e.target.value)}
@@ -121,18 +155,15 @@ export function Palette({
                   } else if (e.key === "Enter") {
                     e.preventDefault();
                     run(results[idx]);
-                  } else if (e.key === "Escape") {
-                    e.preventDefault();
-                    onClose();
                   }
                 }}
               />
               <kbd>esc</kbd>
             </div>
-            <div className="palette-list" role="listbox">
+            <div className="palette-list" role="listbox" id="palette-list" ref={list}>
               {results.length === 0 && <div className="palette-empty mono faint">no matches</div>}
               {results.map((c, i) => (
-                <button key={c.id} role="option" aria-selected={i === idx} className="palette-item" onMouseEnter={() => setIdx(i)} onClick={() => run(c)}>
+                <button key={c.id} id={`palette-opt-${i}`} data-idx={i} tabIndex={-1} role="option" aria-selected={i === idx} className="palette-item" onMouseEnter={() => setIdx(i)} onClick={() => run(c)}>
                   <span className="palette-icon">{c.icon}</span>
                   <span className="palette-label">{c.label}</span>
                   {c.hint && <span className="palette-hint mono">{c.hint}</span>}

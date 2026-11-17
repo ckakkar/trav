@@ -1,0 +1,669 @@
+/* ── Textmode: a DOS text screen ───────────────────────────────────────────── */
+/* Sixteen colours on a blue screen: double-line frames, a cyan selection bar,
+   grey dialogs with hard black shadows, shaded block progress, a blinking
+   cursor and a function-key line at the bottom. Nothing glides. */
+:root[data-theme="textmode"] {
+  --font-sans: "VT323", "Courier New", Courier, monospace;
+  --font-code: var(--font-sans);
+  --font-data: var(--font-sans);
+  --font-label: var(--font-sans);
+  --font-display: var(--font-sans);
+  --display-weight: 400;
+  --display-tracking: 0;
+  --display-stretch: 100%;
+  --data-size: 12px;
+  --label-size: 11px;
+  --label-weight: 400;
+  --label-case: none;
+  --label-tracking: 0;
+  --radius: 0px;
+  --radius-lg: 0px;
+  --bar-h: 12px;
+  --ease: steps(1, end);
+  --canvas: #0000aa;
+  --bg: #0000aa;
+  --bg-raised: #0000aa;
+  --bg-inset: #000080;
+  --bg-hover: #0000c4;
+  --line: #55ffff;
+  --line-soft: #3f3fd0;
+  --text: #ffffff;
+  --text-dim: #aaaaaa;
+  --text-faint: #8f8fd8;
+  --accent: #ffff55;
+  --accent-hi: #ffffff;
+  --accent-text: #ffff55;
+  --accent-soft: #00aaaa;
+  --accent-line: #55ffff;
+  --accent-ink: #000000;
+  --up: #55ffff;
+  --ok: #55ff55;
+  --warn: #ffff55;
+  --err: #ff5555;
+  --scrim: #00000000;
+  --shadow: 10px 10px 0 #000000b3;
+  --graph: blocks;
+  --graph-cell: 7px;
+  --graph-off: #1d1dbd;
+  --map-have: #55ffff;
+  --map-flight: #ffff55;
+  --map-empty: #000080;
+  --map-flash: #ffffff;
+  /* Text-mode furniture. */
+  --tm-frame: 3px double #55ffff;
+  --tm-frame-white: 3px double #ffffff;
+  --tm-shade: repeating-conic-gradient(#3434c6 0 25%, #0000aa 0 50%) 0 0 / 2px 2px;
+  --tm-grey: #aaaaaa;
+  --tm-cyan: #00aaaa;
+  --tm-green: #00aa00;
+  color-scheme: dark;
+}
+
+:root[data-theme="textmode"] body {
+  font-size-adjust: 0.62;
+  font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: none;
+  font-kerning: none;
+}
+
+:root[data-theme="textmode"] .app {
+  background: #0000aa;
+}
+
+:root[data-theme="textmode"] :is(.sidebar, .detail, .list-region) {
+  background: #0000aa;
+}
+
+/* Panels: blue, framed in cyan double lines. */
+:root[data-theme="textmode"] .sidebar {
+  border: var(--tm-frame);
+  border-right-width: 3px;
+}
+
+:root[data-theme="textmode"] .list-region {
+  border: var(--tm-frame);
+  border-bottom: 0;
+}
+
+:root[data-theme="textmode"] .detail {
+  border: var(--tm-frame);
+  border-top: 0;
+}
+
+:root[data-theme="textmode"] :is(.brand, .toolbar, .tabs) {
+  border-bottom: 1px solid #55ffff;
+}
+
+/* The menu-bar line: grey, black type. */
+:root[data-theme="textmode"] .toolbar {
+  background: var(--tm-grey);
+  color: #000;
+}
+
+:root[data-theme="textmode"] .toolbar :is(.tb-title h1, .tb-sub, .mono, .faint) {
+  color: #000;
+}
+
+:root[data-theme="textmode"] .tb-title h1 {
+  font-size: 24px;
+  letter-spacing: 0;
+  font-weight: 400;
+}
+
+:root[data-theme="textmode"] .brand-mark {
+  font-size: 28px;
+  letter-spacing: 0.04em;
+  color: #ffff55;
+}
+
+/* A blinking block cursor after the name. */
+:root[data-theme="textmode"] .brand-mark::after {
+  content: "";
+  display: inline-block;
+  width: 0.5em;
+  height: 0.12em;
+  margin-left: 0.12em;
+  background: #ffff55;
+  animation: tmBlink 1.06s steps(1, end) infinite;
+}
+
+@keyframes tmBlink {
+  50% {
+    opacity: 0;
+  }
+}
+
+:root[data-theme="textmode"] .brand-sub {
+  color: #55ffff;
+  white-space: nowrap;
+}
+
+:root[data-theme="textmode"] :is(.speed-big, .ov-pct) {
+  font-family: var(--font-data);
+  font-weight: 400;
+}
+
+:root[data-theme="textmode"] .speed-big {
+  font-size: 40px;
+  color: #ffff55;
+}
+
+:root[data-theme="textmode"] .speed-num.up .speed-big {
+  font-size: 26px;
+  color: #55ffff;
+}
+
+:root[data-theme="textmode"] .speedcard {
+  border-top: var(--tm-frame);
+}
+
+/* The selection bar: cyan with black type. */
+:root[data-theme="textmode"] .filter {
+  border-radius: 0;
+}
+
+:root[data-theme="textmode"] .filter-active {
+  border-radius: 0;
+  background: var(--tm-cyan);
+  box-shadow: none;
+}
+
+:root[data-theme="textmode"] .filter[aria-current="true"] {
+  color: #000;
+}
+
+:root[data-theme="textmode"] .filter[aria-current="true"] :is(.filter-icon, .filter-count) {
+  color: #000;
+}
+
+:root[data-theme="textmode"] .filter:hover:not([aria-current="true"]) {
+  color: #ffff55;
+}
+
+:root[data-theme="textmode"] .thead {
+  background: #0000aa;
+  border-bottom: 1px solid #55ffff;
+}
+
+:root[data-theme="textmode"] .th {
+  color: #ffff55;
+}
+
+:root[data-theme="textmode"] .trow {
+  border-bottom-color: transparent;
+}
+
+:root[data-theme="textmode"] .trow:not([data-selected]):hover {
+  background: #0000c4;
+}
+
+:root[data-theme="textmode"] .trow-sel {
+  inset: 0;
+  border-radius: 0;
+  background: var(--tm-cyan);
+  transition: none;
+}
+
+:root[data-theme="textmode"] .trow[data-selected] :is(.tname, .c-idx, .tsub, .mono, .faint, .dim, .bar-pct, .slabel, .c-num) {
+  color: #000;
+}
+
+:root[data-theme="textmode"] .trow[data-focused]::before {
+  top: 0;
+  bottom: 0;
+  width: 1ch;
+  border-radius: 0;
+  background: none;
+  content: "►";
+  color: #ffff55;
+  font-size: 18px;
+  line-height: var(--row-h);
+}
+
+:root[data-theme="textmode"] .trow[data-selected][data-focused]::before {
+  color: #000;
+}
+
+:root[data-theme="textmode"] .tname {
+  font-size: 19px;
+  color: #ffffff;
+}
+
+:root[data-theme="textmode"] :is(.pill, .sdot) {
+  border-radius: 0;
+}
+
+/* Progress: a shaded track (░) filled with solid blocks (█). */
+:root[data-theme="textmode"] .bar {
+  height: 12px;
+  border-radius: 0;
+  background: var(--tm-shade);
+  box-shadow: none !important;
+}
+
+:root[data-theme="textmode"] .bar-fill {
+  border-radius: 0;
+  background: #55ffff;
+  transition: transform 0.6s steps(12, end);
+}
+
+:root[data-theme="textmode"] .bar-head {
+  display: none !important;
+}
+
+:root[data-theme="textmode"] .trow[data-status="downloading"] .bar-fill {
+  background: #ffff55;
+}
+
+:root[data-theme="textmode"] .trow:is([data-tone="seed"], [data-tone="seed-dim"]) .bar-fill {
+  background: #55ff55;
+}
+
+:root[data-theme="textmode"] .trow[data-tone="idle"] .bar-fill {
+  background: #aaaaaa;
+}
+
+:root[data-theme="textmode"] .trow:is([data-tone="warn"], [data-status="checking"]) .bar-fill {
+  background: repeating-linear-gradient(90deg, #ffff55 0 7px, #aa5500 7px 9px);
+}
+
+:root[data-theme="textmode"] .trow[data-tone="err"] .bar-fill {
+  background: #ff5555;
+}
+
+:root[data-theme="textmode"] .trow[data-selected] .bar {
+  background: repeating-conic-gradient(#008080 0 25%, #00aaaa 0 50%) 0 0 / 2px 2px;
+}
+
+:root[data-theme="textmode"] .trow[data-selected] .bar-fill {
+  background: #000080;
+}
+
+:root[data-theme="textmode"] :is(.bar.sm, .bar.xs) {
+  height: 8px;
+}
+
+/* Buttons: grey blocks with a black shadow; the default one is green. */
+:root[data-theme="textmode"] :is(.btn, .chip) {
+  border: 0;
+  border-radius: 0;
+  background: var(--tm-grey);
+  color: #000;
+  box-shadow: 5px 5px 0 #000;
+  font-size: 18px;
+  transition: none;
+}
+
+:root[data-theme="textmode"] :is(.btn, .chip):hover {
+  background: #ffffff;
+  color: #000;
+}
+
+:root[data-theme="textmode"] :is(.btn, .chip):active {
+  scale: 1;
+  translate: 5px 5px;
+  box-shadow: none;
+}
+
+:root[data-theme="textmode"] .btn.primary {
+  background: var(--tm-green);
+  color: #ffffff;
+}
+
+:root[data-theme="textmode"] .btn.primary:hover {
+  background: #55ff55;
+  color: #000;
+  filter: none;
+}
+
+:root[data-theme="textmode"] .btn.ghost {
+  background: transparent;
+  box-shadow: none;
+  color: inherit;
+}
+
+:root[data-theme="textmode"] .btn.ghost:hover {
+  background: #00aaaa;
+  color: #000;
+}
+
+:root[data-theme="textmode"] .btn.danger {
+  background: #aa0000;
+  color: #ffffff;
+}
+
+:root[data-theme="textmode"] .chip[aria-checked="true"] {
+  background: #00aaaa;
+  color: #000;
+}
+
+:root[data-theme="textmode"] .icon-btn {
+  border-radius: 0;
+}
+
+:root[data-theme="textmode"] .icon-btn:hover {
+  background: #00aaaa;
+  color: #000;
+}
+
+:root[data-theme="textmode"] :is(.input, .tb-search, .select) {
+  border: 0;
+  border-radius: 0;
+  background-color: #000080;
+  color: #ffffff;
+  caret-color: #ffff55;
+}
+
+:root[data-theme="textmode"] .toolbar .tb-search {
+  background-color: #0000aa;
+  color: #fff;
+}
+
+:root[data-theme="textmode"] :is(.input:focus, .tb-search:focus-within, .select:focus) {
+  box-shadow: none;
+  background-color: #00aaaa;
+  color: #000;
+}
+
+:root[data-theme="textmode"] .input::placeholder {
+  color: #7f7fd0;
+}
+
+:root[data-theme="textmode"] .check span {
+  border: 0;
+  border-radius: 0;
+  background: #000080;
+}
+
+:root[data-theme="textmode"] .check input:checked + span {
+  background: #55ffff;
+  box-shadow: inset 0 0 0 3px #000080;
+}
+
+:root[data-theme="textmode"] .toggle-track {
+  border: 0;
+  border-radius: 0;
+  background: #000080;
+  transition: none;
+}
+
+:root[data-theme="textmode"] .toggle-thumb {
+  top: 3px;
+  border-radius: 0;
+  background: #7f7fd0;
+  transition: none;
+}
+
+:root[data-theme="textmode"] .toggle input:checked + .toggle-track {
+  background: #00aaaa;
+}
+
+:root[data-theme="textmode"] .toggle input:checked + .toggle-track .toggle-thumb {
+  background: #ffffff;
+}
+
+/* Detail: tabs are words; the selected one is reversed out. */
+:root[data-theme="textmode"] .tab {
+  font-size: 18px;
+}
+
+:root[data-theme="textmode"] .tab[aria-selected="true"] {
+  color: #000;
+  background: #00aaaa;
+}
+
+:root[data-theme="textmode"] .tab-underline {
+  display: none;
+}
+
+:root[data-theme="textmode"] .resizer {
+  background: #0000aa;
+  border-top: var(--tm-frame);
+}
+
+:root[data-theme="textmode"] .ov-name {
+  font-size: 26px;
+  color: #ffff55;
+}
+
+:root[data-theme="textmode"] .ov-pct {
+  font-size: 54px;
+  color: #ffffff;
+}
+
+:root[data-theme="textmode"] :is(.stats, .piecemap, .speed-graph) {
+  border: 1px solid #55ffff;
+  border-radius: 0;
+  background: #0000aa;
+  box-shadow: none;
+}
+
+:root[data-theme="textmode"] .stat {
+  border-color: #3f3fd0;
+}
+
+/* Dialogs: grey, a white double frame inside, a hard shadow, no dimming. */
+:root[data-theme="textmode"] .modal-scrim {
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+:root[data-theme="textmode"] :is(.modal, .palette, .ctx-menu, .recover-card) {
+  border: 0;
+  border-radius: 0;
+  background: var(--tm-grey);
+  color: #000;
+  box-shadow: inset 0 0 0 6px var(--tm-grey), inset 0 0 0 9px #ffffff, inset 0 0 0 10px var(--tm-grey), var(--shadow);
+  --text: #000000;
+  --text-dim: #2a2a2a;
+  --text-faint: #444444;
+  --accent-text: #0000aa;
+  --line: #ffffff;
+  --line-soft: #8a8a8a;
+  --bg: var(--tm-grey);
+  --bg-raised: var(--tm-grey);
+  --bg-inset: #0000aa;
+  --bg-hover: #00aa00;
+}
+
+:root[data-theme="textmode"] :is(.modal, .palette) {
+  padding: 8px;
+}
+
+:root[data-theme="textmode"] .ctx-menu {
+  padding: 12px;
+}
+
+:root[data-theme="textmode"] :is(.modal-head, .modal-foot) {
+  background: transparent;
+  border-color: transparent;
+}
+
+:root[data-theme="textmode"] .modal-title {
+  font-size: 26px;
+  color: #000;
+}
+
+:root[data-theme="textmode"] .eyebrow {
+  color: #0000aa;
+}
+
+:root[data-theme="textmode"] .modal :is(.input, .select) {
+  background-color: #0000aa;
+  color: #ffffff;
+}
+
+:root[data-theme="textmode"] .modal .input:focus {
+  background-color: #00aaaa;
+  color: #000;
+}
+
+:root[data-theme="textmode"] .set-nav {
+  background: transparent;
+  border-right: 1px solid #ffffff;
+}
+
+:root[data-theme="textmode"] :is(.set-nav-item, .palette-item, .ctx-item) {
+  border-radius: 0;
+  font-size: 18px;
+}
+
+/* The pixel face is wide: menu items keep to one line and the menu grows. */
+:root[data-theme="textmode"] .ctx-item {
+  white-space: nowrap;
+}
+
+:root[data-theme="textmode"] .set-nav-item[aria-current="true"],
+:root[data-theme="textmode"] .palette-item[aria-selected="true"],
+:root[data-theme="textmode"] .ctx-item:is(.active, :hover) {
+  color: #000;
+  background: #00aa00;
+  box-shadow: none;
+}
+
+:root[data-theme="textmode"] .palette-input {
+  border-bottom: 1px solid #ffffff;
+}
+
+:root[data-theme="textmode"] .ctx-sep {
+  background: #ffffff;
+}
+
+:root[data-theme="textmode"] .toast {
+  border: 0;
+  border-radius: 0;
+  background: #00aaaa;
+  color: #000;
+  box-shadow: inset 0 0 0 4px #00aaaa, inset 0 0 0 7px #000, var(--shadow);
+  --text: #000;
+  --text-dim: #002a2a;
+  --text-faint: #003a3a;
+}
+
+:root[data-theme="textmode"] .toast-dot {
+  border-radius: 0;
+  box-shadow: none !important;
+}
+
+:root[data-theme="textmode"] .toast-life {
+  border-radius: 0;
+  background: #000;
+}
+
+/* The function-key line. */
+:root[data-theme="textmode"] .statusbar {
+  border-top: 0;
+  background: #00aaaa;
+  color: #000;
+  font-size: 17px;
+  --text-faint: #000;
+  --text-dim: #000;
+}
+
+:root[data-theme="textmode"] .statusbar .sb-btn {
+  color: #000;
+  font-size: 17px;
+}
+
+:root[data-theme="textmode"] .statusbar .sb-btn:hover {
+  color: #ffffff;
+}
+
+:root[data-theme="textmode"] .sdot {
+  border-radius: 0;
+  box-shadow: none !important;
+}
+
+:root[data-theme="textmode"] .sb-item[data-link="online"] .sdot {
+  background: #000;
+}
+
+:root[data-theme="textmode"] .sb-turtle[data-on] {
+  color: #aa0000;
+}
+
+:root[data-theme="textmode"] .empty-title {
+  font-size: 40px;
+  color: #ffff55;
+}
+
+:root[data-theme="textmode"] .empty-title.sm {
+  font-size: 30px;
+}
+
+:root[data-theme="textmode"] .empty-mark {
+  color: #55ffff;
+}
+
+:root[data-theme="textmode"] .launch {
+  background: #000;
+}
+
+:root[data-theme="textmode"] .launch-glow {
+  display: none;
+}
+
+:root[data-theme="textmode"] .launch-word {
+  font-size: 64px;
+  letter-spacing: 0.1em;
+  color: #aaaaaa;
+}
+
+:root[data-theme="textmode"] .dropzone-inner {
+  border: 3px double #ffff55;
+  border-radius: 0;
+  background: #0000aa;
+  box-shadow: 10px 10px 0 #000000b3;
+}
+
+:root[data-theme="textmode"] :focus-visible {
+  outline: 1px solid #ffff55;
+  outline-offset: 1px;
+  box-shadow: none;
+}
+
+:root[data-theme="textmode"] :is(.table, .tab, .filter, .set-nav-item, .palette-item, .ctx-item, .th):focus-visible {
+  outline-offset: -2px;
+}
+
+:root[data-theme="textmode"] ::selection {
+  background: #00aaaa;
+  color: #000;
+}
+
+/* Scrollbars: a shaded track (▒) and a solid block. */
+:root[data-theme="textmode"] ::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+
+:root[data-theme="textmode"] ::-webkit-scrollbar-track {
+  background: var(--tm-shade);
+}
+
+:root[data-theme="textmode"] ::-webkit-scrollbar-thumb {
+  border: 0;
+  border-radius: 0;
+  background: #00aaaa;
+}
+
+.theme-pick[data-pick="textmode"] .swatch {
+  border: 3px double #55ffff !important;
+  border-radius: 0;
+}
+
+.theme-pick[data-pick="textmode"] .swatch i {
+  height: 6px;
+  border-radius: 0;
+}
+
+.theme-pick[data-pick="textmode"] .swatch i:last-child {
+  background: #00aaaa !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root[data-theme="textmode"] .brand-mark::after {
+    animation: none;
+  }
+}

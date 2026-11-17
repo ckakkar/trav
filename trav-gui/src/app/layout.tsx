@@ -3,7 +3,21 @@ import { GeistSans } from "geist/font/sans";
 import { GeistMono } from "geist/font/mono";
 // Paper's face: one variable family, from extra-condensed poster type to text.
 import "@fontsource-variable/archivo/wdth.css";
+// The newer themes' faces, Latin only: Textmode, Teletext, Hi-Fi, Instrument, Quantum.
+import "@fontsource/vt323/latin-400.css";
+import "@fontsource/tiny5/latin-400.css";
+import "@fontsource/michroma/latin-400.css";
+import "@fontsource-variable/doto/wght.css";
+import "@fontsource-variable/unbounded/wght.css";
 import "./globals.css";
+// One stylesheet per newer theme, after the shared one.
+import "./themes/textmode.css";
+import "./themes/teletext.css";
+import "./themes/hifi.css";
+import "./themes/meadow.css";
+import "./themes/glass.css";
+import "./themes/instrument.css";
+import "./themes/quantum.css";
 
 export const metadata: Metadata = {
   title: "Trav",
@@ -16,7 +30,7 @@ export const viewport: Viewport = {
 };
 
 // Apply the saved theme before first paint so there is no flash.
-const boot = `try{var p=JSON.parse(localStorage.getItem("trav.ui.prefs")||"{}");document.documentElement.dataset.theme=p.theme||"ink";document.documentElement.dataset.scanlines=p.scanlines===false?"off":"on"}catch(e){document.documentElement.dataset.theme="ink"}`;
+const boot = `try{var p=JSON.parse(localStorage.getItem("trav.ui.prefs")||"{}");var t=p.theme||"ink";if(p.autoTheme)t=matchMedia("(prefers-color-scheme: dark)").matches?p.darkTheme||"ink":p.lightTheme||"paper";document.documentElement.dataset.theme=t;document.documentElement.dataset.scanlines=p.scanlines===false?"off":"on"}catch(e){document.documentElement.dataset.theme="ink"}`;
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
