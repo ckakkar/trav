@@ -32,7 +32,7 @@
   --line-soft: #c9c2b2;
   --text: #232323;
   --text-dim: #4d4a44;
-  --text-faint: #7a756b;
+  --text-faint: #6b665c;
   --accent: #d6332a;
   --accent-hi: #ff7a70;
   --accent-text: #b8261e;
@@ -304,9 +304,9 @@
   font-size: 9.5px;
   letter-spacing: 0.1em;
   rotate: -3deg;
-  opacity: 0.88;
-  mask-image: radial-gradient(circle at 30% 40%, #000 60%, #000c 75%, #0007 100%);
-  -webkit-mask-image: radial-gradient(circle at 30% 40%, #000 60%, #000c 75%, #0007 100%);
+  /* Inked unevenly, but never fainter than the type needs. */
+  mask-image: radial-gradient(circle at 30% 40%, #000 70%, #000e 100%);
+  -webkit-mask-image: radial-gradient(circle at 30% 40%, #000 70%, #000e 100%);
 }
 
 :root[data-theme="receipt"] .trow[data-status="downloading"] .slabel {
@@ -314,11 +314,11 @@
 }
 
 :root[data-theme="receipt"] .trow:is([data-tone="seed"], [data-tone="seed-dim"]) .slabel {
-  --ink: #2a8a4a;
+  --ink: #1d7a3c;
 }
 
 :root[data-theme="receipt"] .trow:is([data-tone="warn"], [data-status="checking"]) .slabel {
-  --ink: #a8700c;
+  --ink: #875a00;
 }
 
 :root[data-theme="receipt"] .trow[data-tone="err"] .slabel {
@@ -630,7 +630,7 @@
 }
 
 :root[data-theme="receipt"] .eyebrow {
-  color: #7a756b;
+  color: #6b665c;
 }
 
 :root[data-theme="receipt"] .set-nav {
