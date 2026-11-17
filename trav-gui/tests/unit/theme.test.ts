@@ -8,10 +8,10 @@ describe("themes", () => {
   });
 
   it("shows the chosen theme, or the one for the Mac's appearance", () => {
-    expect(effectiveTheme({ theme: "glass" }, true)).toBe("glass");
-    const auto = { theme: "glass" as const, autoTheme: true, lightTheme: "instrument" as const, darkTheme: "quantum" as const };
+    expect(effectiveTheme({ theme: "receipt" }, true)).toBe("receipt");
+    const auto = { theme: "receipt" as const, autoTheme: true, lightTheme: "instrument" as const, darkTheme: "departures" as const };
     expect(effectiveTheme(auto, false)).toBe("instrument");
-    expect(effectiveTheme(auto, true)).toBe("quantum");
+    expect(effectiveTheme(auto, true)).toBe("departures");
   });
 
   it("falls back to Ink for a theme it doesn't know", () => {
@@ -20,15 +20,15 @@ describe("themes", () => {
 
   it("with Match the Mac on, a pick fills the current appearance's slot", () => {
     const auto = { theme: "ink" as const, autoTheme: true, lightTheme: "paper" as const, darkTheme: "ink" as const };
-    expect(chooseTheme(auto, "hifi", true)).toMatchObject({ darkTheme: "hifi", lightTheme: "paper" });
-    expect(chooseTheme(auto, "glass", false)).toMatchObject({ lightTheme: "glass", darkTheme: "ink" });
+    expect(chooseTheme(auto, "comic", true)).toMatchObject({ darkTheme: "comic", lightTheme: "paper" });
+    expect(chooseTheme(auto, "receipt", false)).toMatchObject({ lightTheme: "receipt", darkTheme: "ink" });
     expect(chooseTheme({ theme: "ink" as const }, "bevel", true)).toEqual({ theme: "bevel" });
   });
 
   it("turning Match the Mac on keeps the theme in use for its own appearance", () => {
-    expect(matchTheMac({ theme: "quantum" as const }, true, true)).toMatchObject({ autoTheme: true, darkTheme: "quantum", lightTheme: "paper" });
-    expect(matchTheMac({ theme: "glass" as const }, true, false)).toMatchObject({ autoTheme: true, lightTheme: "glass", darkTheme: "ink" });
-    const on = { theme: "ink" as const, autoTheme: true, lightTheme: "glass" as const, darkTheme: "hifi" as const };
-    expect(matchTheMac(on, false, false)).toMatchObject({ autoTheme: false, theme: "glass" });
+    expect(matchTheMac({ theme: "departures" as const }, true, true)).toMatchObject({ autoTheme: true, darkTheme: "departures", lightTheme: "paper" });
+    expect(matchTheMac({ theme: "receipt" as const }, true, false)).toMatchObject({ autoTheme: true, lightTheme: "receipt", darkTheme: "ink" });
+    const on = { theme: "ink" as const, autoTheme: true, lightTheme: "receipt" as const, darkTheme: "comic" as const };
+    expect(matchTheMac(on, false, false)).toMatchObject({ autoTheme: false, theme: "receipt" });
   });
 });

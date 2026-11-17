@@ -1,0 +1,718 @@
+/* ── Departures: a split-flap station board ───────────────────────────────── */
+/* The window is the board in the hall. Names, figures and statuses are set
+   one character to a flap: dark tiles split across the middle, lighter above
+   the split than below. Headings are wayfinding signs; the chosen filter is
+   the yellow one. Things flip into place. */
+:root[data-theme="departures"] {
+  --font-sans: var(--font-geist-sans), "Helvetica Neue", Arial, sans-serif;
+  --font-code: var(--font-geist-mono), ui-monospace, monospace;
+  --font-data: var(--font-geist-mono), ui-monospace, monospace;
+  --font-label: var(--font-geist-sans), "Helvetica Neue", Arial, sans-serif;
+  --font-display: var(--font-geist-mono), ui-monospace, monospace;
+  --display-weight: 700;
+  --display-tracking: 0;
+  --display-stretch: 100%;
+  --data-size: 12px;
+  --label-size: 10px;
+  --label-weight: 700;
+  --label-case: uppercase;
+  --label-tracking: 0.08em;
+  --radius: 3px;
+  --radius-lg: 6px;
+  --bar-h: 6px;
+  --ease: cubic-bezier(0.3, 0, 0.2, 1);
+  --canvas: #0b0c0d;
+  --bg: #111214;
+  --bg-raised: #17181b;
+  --bg-inset: #0b0c0d;
+  --bg-hover: #1a1b1f;
+  --line: #2a2c30;
+  --line-soft: #1e2023;
+  --text: #f2efe6;
+  --text-dim: #b6b2a7;
+  --text-faint: #7d7a72;
+  --accent: #ffcc1a;
+  --accent-hi: #fff2b8;
+  --accent-text: #ffcc1a;
+  --accent-soft: #ffcc1a14;
+  --accent-line: #ffcc1a66;
+  --accent-ink: #111214;
+  --up: #7fd7ff;
+  --ok: #6fe07a;
+  --warn: #ffcc1a;
+  --err: #ff5240;
+  --scrim: #000000a6;
+  --shadow: 0 30px 70px -20px #000000f2, 0 0 0 1px #000;
+  --graph: blocks;
+  --graph-cell: 4px;
+  --graph-off: #1d1e21;
+  --map-have: #ffcc1a;
+  --map-flight: #f2efe6;
+  --map-empty: #1d1e21;
+  --map-flash: #ffffff;
+  /* One flap: the gap between tiles, a tile's pitch, and the tile itself. */
+  --fl-gap: 0.22em;
+  --fl-pitch: calc(1ch + var(--fl-gap));
+  --fl-tile:
+    linear-gradient(transparent calc(50% - 0.5px), #050505 calc(50% - 0.5px) calc(50% + 0.5px), transparent calc(50% + 0.5px)),
+    linear-gradient(90deg, transparent 0 1px, transparent 1px calc(100% - 2px), #0b0c0d calc(100% - 2px)),
+    linear-gradient(#2a2b2f, #232428 50%, #1b1c1f 50%, #18191b);
+  color-scheme: dark;
+}
+
+:root[data-theme="departures"] body {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Flaps: one character per tile, a blank tile between words. */
+:root[data-theme="departures"] :is(.tname, .trow .num, .slabel, .tb-title h1, .speed-big, .ov-pct, .ov-name, .empty-title, .launch-word, .modal-title, .trow .c-idx) {
+  font-family: var(--font-display);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: var(--fl-gap);
+  padding: 0.18em 0 0.18em calc(var(--fl-gap) / 2);
+  background: var(--fl-tile);
+  background-size: var(--fl-pitch) 100%, var(--fl-pitch) 100%, var(--fl-pitch) 100%;
+  border-radius: 2px;
+  text-shadow: 0 1px 0 #000;
+}
+
+:root[data-theme="departures"] :is(.ov-name, .empty-title, .modal-title) {
+  background-size: var(--fl-pitch) 1lh, var(--fl-pitch) 1lh, var(--fl-pitch) 1lh;
+  line-height: 1.5;
+}
+
+/* Right-aligned figures: the tiles hug the text. */
+:root[data-theme="departures"] .trow .num {
+  justify-self: end;
+  width: fit-content;
+  max-width: 100%;
+  font-size: 11px;
+  color: #f2efe6;
+}
+
+:root[data-theme="departures"] .trow .num :is(.faint, span) {
+  color: inherit;
+}
+
+:root[data-theme="departures"] .trow .c-down {
+  color: #ffcc1a;
+}
+
+:root[data-theme="departures"] .trow .c-up {
+  color: #7fd7ff;
+}
+
+/* The board's housing. */
+:root[data-theme="departures"] .app {
+  background:
+    linear-gradient(180deg, #16171a, #0b0c0d 40%),
+    #0b0c0d;
+}
+
+:root[data-theme="departures"] :is(.sidebar, .detail) {
+  background: #121316;
+}
+
+:root[data-theme="departures"] .sidebar {
+  border-right: 1px solid #000;
+  box-shadow: inset -1px 0 #ffffff0a;
+}
+
+:root[data-theme="departures"] .brand {
+  border-bottom: 3px solid #ffcc1a;
+}
+
+:root[data-theme="departures"] .brand-mark {
+  font-family: var(--font-label);
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  color: #fff;
+}
+
+:root[data-theme="departures"] .brand-sub {
+  font-family: var(--font-label);
+  font-weight: 700;
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #ffcc1a;
+  white-space: nowrap;
+}
+
+/* Wayfinding: filters are signs; the chosen one is yellow with black type. */
+:root[data-theme="departures"] :is(.filter, .filter-active) {
+  border-radius: 3px;
+}
+
+:root[data-theme="departures"] .filter {
+  font-family: var(--font-label);
+  font-weight: 700;
+  color: #f2efe6;
+}
+
+:root[data-theme="departures"] .filter-icon {
+  color: #ffcc1a;
+}
+
+:root[data-theme="departures"] .filter-active {
+  background: #ffcc1a;
+  box-shadow: none;
+}
+
+:root[data-theme="departures"] .filter[aria-current="true"],
+:root[data-theme="departures"] .filter[aria-current="true"] :is(.filter-icon, .filter-count) {
+  color: #111214;
+}
+
+:root[data-theme="departures"] .filter:hover:not([aria-current="true"]) {
+  background: #1d1e22;
+}
+
+/* Throughput: the speed on flaps. */
+:root[data-theme="departures"] .speedcard {
+  border-top: 3px solid #ffcc1a;
+}
+
+:root[data-theme="departures"] .speed-big {
+  font-size: 22px;
+  color: #ffcc1a;
+}
+
+:root[data-theme="departures"] .speed-num.up .speed-big {
+  font-size: 15px;
+  color: #7fd7ff;
+}
+
+:root[data-theme="departures"] :is(.side-eyebrow, .session, .speed-unit, .speed-num > span:first-child) {
+  font-family: var(--font-label);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+/* The board header. */
+:root[data-theme="departures"] .toolbar {
+  background: #0b0c0d;
+  border-bottom: 3px solid #ffcc1a;
+}
+
+:root[data-theme="departures"] .tb-title h1 {
+  font-size: 20px;
+  color: #ffcc1a;
+}
+
+:root[data-theme="departures"] .tb-title :is(.tb-sub, .mono, .faint) {
+  font-family: var(--font-label);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+/* The board: rows of flaps, a thin gap between lines. */
+:root[data-theme="departures"] .list-region {
+  background: #0b0c0d;
+}
+
+:root[data-theme="departures"] .thead {
+  background: #0b0c0d;
+  border-bottom: 1px solid #2a2c30;
+}
+
+:root[data-theme="departures"] .th {
+  font-family: var(--font-label);
+  font-weight: 800;
+  color: #ffcc1a;
+  letter-spacing: 0.12em;
+}
+
+:root[data-theme="departures"] .th.sorted,
+:root[data-theme="departures"] .th.sorted svg {
+  color: #fff;
+}
+
+:root[data-theme="departures"] .trow {
+  border-bottom: 1px solid #000;
+  box-shadow: 0 1px #ffffff08;
+}
+
+:root[data-theme="departures"] .trow:not([data-selected]):hover {
+  background: #121316;
+}
+
+:root[data-theme="departures"] .trow-sel {
+  inset: 0;
+  border-radius: 0;
+  background: #17181b;
+  box-shadow: inset 0 0 0 2px #ffcc1a;
+}
+
+:root[data-theme="departures"] .trow[data-focused]::before {
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 5px;
+  border-radius: 0;
+  background: #ffcc1a;
+}
+
+/* The platform number: a yellow tile. */
+:root[data-theme="departures"] .trow .c-idx {
+  justify-self: start;
+  width: fit-content;
+  margin-left: 8px;
+  padding-left: calc(var(--fl-gap) / 2);
+  color: #111214;
+  background: linear-gradient(transparent calc(50% - 0.5px), #00000059 calc(50% - 0.5px) calc(50% + 0.5px), transparent calc(50% + 0.5px)), linear-gradient(90deg, transparent calc(100% - 2px), #0b0c0d calc(100% - 2px)), linear-gradient(#ffd84a, #ffcc1a 50%, #f0bd08 50%);
+  background-size: var(--fl-pitch) 100%;
+  text-shadow: none;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+:root[data-theme="departures"] .tname {
+  width: fit-content;
+  max-width: 100%;
+  font-size: 12.5px;
+  color: #f2efe6;
+}
+
+:root[data-theme="departures"] .tmeta {
+  font-family: var(--font-label);
+  font-weight: 600;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #8a867c;
+}
+
+/* Statuses: the board's remarks column. */
+:root[data-theme="departures"] .slabel {
+  font-size: 10.5px;
+  color: #f2efe6;
+}
+
+:root[data-theme="departures"] .sdot {
+  display: none;
+}
+
+:root[data-theme="departures"] .trow[data-status="downloading"] .slabel {
+  color: #ffcc1a;
+}
+
+:root[data-theme="departures"] .trow:is([data-tone="seed"], [data-tone="seed-dim"]) .slabel {
+  color: #6fe07a;
+}
+
+:root[data-theme="departures"] .trow[data-tone="err"] .slabel {
+  color: #ff5240;
+  animation: dpBlink 1.2s steps(1, end) infinite;
+}
+
+:root[data-theme="departures"] .trow[data-tone="idle"] .slabel {
+  color: #9b978d;
+}
+
+@keyframes dpBlink {
+  60% {
+    color: #3a1410;
+  }
+}
+
+/* A changed status flips over. */
+:root[data-theme="departures"] .slabel {
+  animation: dpFlip 0.36s steps(4, end) both;
+}
+
+@keyframes dpFlip {
+  from {
+    transform: perspective(300px) rotateX(-90deg);
+  }
+  to {
+    transform: none;
+  }
+}
+
+:root[data-theme="departures"] .trow[data-tone="err"] .slabel {
+  animation: dpFlip 0.36s steps(4, end) both, dpBlink 1.2s steps(1, end) 0.4s infinite;
+}
+
+/* Progress: a row of indicator lamps. */
+:root[data-theme="departures"] .bar {
+  height: 6px;
+  border-radius: 0;
+  background: repeating-linear-gradient(90deg, #1d1e21 0 5px, transparent 5px 7px);
+  box-shadow: none !important;
+}
+
+:root[data-theme="departures"] .bar-fill {
+  border-radius: 0;
+  background: repeating-linear-gradient(90deg, currentColor 0 5px, transparent 5px 7px);
+  color: #ffcc1a;
+  filter: drop-shadow(0 0 3px color-mix(in srgb, currentColor 55%, transparent));
+}
+
+:root[data-theme="departures"] .bar-head {
+  display: none !important;
+}
+
+:root[data-theme="departures"] .trow:is([data-tone="seed"], [data-tone="seed-dim"]) .bar-fill {
+  color: #6fe07a;
+}
+
+:root[data-theme="departures"] .trow[data-tone="idle"] .bar-fill {
+  color: #8a867c;
+  filter: none;
+}
+
+:root[data-theme="departures"] .trow:is([data-tone="warn"], [data-status="checking"]) .bar-fill {
+  color: #fff2b8;
+}
+
+:root[data-theme="departures"] .trow[data-tone="err"] .bar-fill {
+  color: #ff5240;
+}
+
+:root[data-theme="departures"] .bar-pct {
+  font-family: var(--font-display);
+  font-weight: 700;
+  color: #b6b2a7;
+}
+
+/* Controls: signs. The main one is the yellow sign. */
+:root[data-theme="departures"] :is(.btn, .chip) {
+  border: 1px solid #000;
+  border-radius: 3px;
+  background: #1d1e22;
+  color: #f2efe6;
+  font-family: var(--font-label);
+  font-weight: 800;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  box-shadow: inset 0 1px #ffffff12;
+}
+
+:root[data-theme="departures"] :is(.btn, .chip):hover {
+  border-color: #ffcc1a;
+  color: #fff;
+}
+
+:root[data-theme="departures"] .btn.primary {
+  background: #ffcc1a;
+  border-color: #ffcc1a;
+  color: #111214;
+}
+
+:root[data-theme="departures"] .btn.primary:hover {
+  color: #111214;
+  filter: brightness(1.06);
+}
+
+:root[data-theme="departures"] .btn.ghost {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+
+:root[data-theme="departures"] .btn.danger {
+  background: #3a1410;
+  border-color: #ff5240;
+  color: #ffd2cc;
+}
+
+:root[data-theme="departures"] .chip[aria-checked="true"] {
+  background: #ffcc1a;
+  border-color: #ffcc1a;
+  color: #111214;
+}
+
+:root[data-theme="departures"] .icon-btn {
+  border-radius: 3px;
+}
+
+:root[data-theme="departures"] .icon-btn:hover {
+  background: #1d1e22;
+  color: #ffcc1a;
+}
+
+:root[data-theme="departures"] :is(.input, .tb-search, .select) {
+  border: 1px solid #2a2c30;
+  border-radius: 3px;
+  background-color: #0b0c0d;
+  font-family: var(--font-data);
+}
+
+:root[data-theme="departures"] :is(.input:focus, .tb-search:focus-within, .select:focus) {
+  border-color: #ffcc1a;
+  box-shadow: 0 0 0 1px #ffcc1a;
+}
+
+:root[data-theme="departures"] .check span {
+  border: 1px solid #7d7a72;
+  border-radius: 2px;
+}
+
+:root[data-theme="departures"] .check input:checked + span {
+  border-color: #ffcc1a;
+  background: #ffcc1a;
+  box-shadow: inset 0 0 0 2px #111214;
+}
+
+:root[data-theme="departures"] .toggle-track {
+  border-radius: 3px;
+  border-color: #2a2c30;
+  background: #0b0c0d;
+}
+
+:root[data-theme="departures"] .toggle-thumb {
+  border-radius: 2px;
+  background: linear-gradient(#3a3b40, #2a2b2f 50%, #232428 50%);
+}
+
+:root[data-theme="departures"] .toggle input:checked + .toggle-track {
+  border-color: #ffcc1a;
+  background: #2a2208;
+}
+
+:root[data-theme="departures"] .toggle input:checked + .toggle-track .toggle-thumb {
+  background: linear-gradient(#ffd84a, #ffcc1a 50%, #f0bd08 50%);
+}
+
+/* Detail. */
+:root[data-theme="departures"] .tabs {
+  background: #0b0c0d;
+  border-bottom: 3px solid #ffcc1a;
+}
+
+:root[data-theme="departures"] .tab {
+  font-family: var(--font-label);
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 11px;
+  color: #b6b2a7;
+}
+
+:root[data-theme="departures"] .tab[aria-selected="true"] {
+  color: #111214;
+  background: #ffcc1a;
+  border-radius: 3px;
+}
+
+:root[data-theme="departures"] .tab-underline {
+  display: none;
+}
+
+:root[data-theme="departures"] .resizer {
+  background: #0b0c0d;
+  border-top: 0;
+}
+
+:root[data-theme="departures"] .ov-name {
+  font-size: 17px;
+  color: #f2efe6;
+}
+
+:root[data-theme="departures"] .ov-pct {
+  font-size: 30px;
+  color: #ffcc1a;
+}
+
+:root[data-theme="departures"] :is(.stats, .piecemap, .speed-graph) {
+  border: 1px solid #000;
+  border-radius: 4px;
+  background: #0b0c0d;
+  box-shadow: inset 0 1px #ffffff08;
+}
+
+:root[data-theme="departures"] .stat {
+  border-color: #1e2023;
+}
+
+:root[data-theme="departures"] :is(.stat-label, .eyebrow) {
+  font-family: var(--font-label);
+  font-weight: 800;
+  color: #ffcc1a;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+/* Overlays: another board, hung from a yellow rail. */
+:root[data-theme="departures"] .modal-scrim {
+  background: var(--scrim);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+}
+
+:root[data-theme="departures"] :is(.modal, .palette, .ctx-menu, .recover-card) {
+  border: 1px solid #000;
+  border-top: 4px solid #ffcc1a;
+  border-radius: 4px;
+  background: #121316;
+  box-shadow: var(--shadow);
+}
+
+:root[data-theme="departures"] :is(.modal-head, .modal-foot) {
+  background: #0b0c0d;
+}
+
+:root[data-theme="departures"] .modal-head {
+  border-bottom: 1px solid #000;
+}
+
+:root[data-theme="departures"] .modal-foot {
+  border-top: 1px solid #000;
+}
+
+:root[data-theme="departures"] .modal-title {
+  font-size: 18px;
+  color: #ffcc1a;
+}
+
+:root[data-theme="departures"] .set-nav {
+  background: #0b0c0d;
+  border-right-color: #000;
+}
+
+:root[data-theme="departures"] :is(.set-nav-item, .palette-item, .ctx-item) {
+  border-radius: 3px;
+  font-family: var(--font-label);
+  font-weight: 700;
+}
+
+:root[data-theme="departures"] .set-nav-item[aria-current="true"],
+:root[data-theme="departures"] .palette-item[aria-selected="true"],
+:root[data-theme="departures"] .ctx-item.active {
+  color: #111214;
+  background: #ffcc1a;
+  box-shadow: none;
+}
+
+:root[data-theme="departures"] :is(.set-nav-item[aria-current="true"], .palette-item[aria-selected="true"], .ctx-item.active) * {
+  color: inherit;
+}
+
+:root[data-theme="departures"] .ctx-item:hover:not(.active) {
+  background: #1d1e22;
+}
+
+:root[data-theme="departures"] .palette-input {
+  border-bottom-color: #000;
+  background: #0b0c0d;
+}
+
+:root[data-theme="departures"] .ctx-sep {
+  background: #000;
+}
+
+:root[data-theme="departures"] .toast {
+  border: 1px solid #000;
+  border-left: 5px solid #ffcc1a;
+  border-radius: 4px;
+  background: #121316;
+  box-shadow: var(--shadow);
+}
+
+:root[data-theme="departures"] .toast-title {
+  font-family: var(--font-label);
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #ffcc1a;
+}
+
+:root[data-theme="departures"] .toast-life {
+  border-radius: 0;
+  background: #ffcc1a;
+}
+
+:root[data-theme="departures"] .statusbar {
+  border-top: 1px solid #000;
+  background: #0b0c0d;
+  font-family: var(--font-label);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #9b978d;
+}
+
+:root[data-theme="departures"] .sb-item[data-link="online"] .sdot {
+  display: block;
+  background: #6fe07a;
+  box-shadow: 0 0 6px #6fe07a;
+}
+
+:root[data-theme="departures"] .sb-turtle[data-on] {
+  color: #ffcc1a;
+}
+
+:root[data-theme="departures"] .empty-title {
+  font-size: 26px;
+  color: #ffcc1a;
+}
+
+:root[data-theme="departures"] .empty-title.sm {
+  font-size: 20px;
+}
+
+:root[data-theme="departures"] .empty-mark {
+  color: #ffcc1a;
+}
+
+:root[data-theme="departures"] .launch {
+  background: #0b0c0d;
+}
+
+:root[data-theme="departures"] .launch-glow {
+  display: none;
+}
+
+:root[data-theme="departures"] .launch-word {
+  font-size: 38px;
+  color: #ffcc1a;
+}
+
+:root[data-theme="departures"] .dropzone-inner {
+  border: 2px dashed #ffcc1a;
+  border-radius: 6px;
+  background: #121316ee;
+  box-shadow: var(--shadow);
+}
+
+:root[data-theme="departures"] :focus-visible {
+  outline: 2px solid #ffcc1a;
+  outline-offset: 2px;
+}
+
+:root[data-theme="departures"] :is(.table, .tab, .filter, .set-nav-item, .palette-item, .ctx-item, .th):focus-visible {
+  outline-offset: -2px;
+}
+
+:root[data-theme="departures"] ::-webkit-scrollbar-thumb {
+  border-radius: 2px;
+  background: #2a2c30;
+}
+
+.theme-pick[data-pick="departures"] .swatch {
+  border-color: #000 !important;
+  border-radius: 3px;
+  background: linear-gradient(transparent 49%, #000 49% 51%, transparent 51%) 0 0 / 7px 100%, repeating-linear-gradient(90deg, #26272b 0 6px, #0b0c0d 6px 7px) !important;
+}
+
+.theme-pick[data-pick="departures"] .swatch i {
+  height: 5px;
+  border-radius: 0;
+}
+
+.theme-pick[data-pick="departures"] .swatch i:last-child {
+  background: #f2efe6 !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root[data-theme="departures"] .slabel,
+  :root[data-theme="departures"] .trow[data-tone="err"] .slabel {
+    animation: none;
+  }
+}
