@@ -14,8 +14,7 @@
 // Particles shy from the pointer. Nothing runs with Reduce Motion, in a
 // background window or a hidden one.
 
-import { useEffect, useRef } from "react";
-import { useReducedMotion } from "motion/react";
+import { useEffect, useRef, useSyncExternalStore } from "react";
 import type { TorrentSummary } from "@/lib/types";
 
 const MAX = 2400;
@@ -32,6 +31,20 @@ const VIOLET = 1;
 const GOLD = 2;
 const PALE = 3;
 const WHITE = 4;
+
+const REDUCE = "(prefers-reduced-motion: reduce)";
+/** Reduce Motion, following the setting live (turned on while the swarm runs, it stops). */
+function useReduceMotion(): boolean {
+  return useSyncExternalStore(
+    (cb) => {
+      const mq = window.matchMedia?.(REDUCE);
+      mq?.addEventListener("change", cb);
+      return () => mq?.removeEventListener("change", cb);
+    },
+    () => !!window.matchMedia?.(REDUCE).matches,
+    () => true,
+  );
+}
 
 /** 0 (idle) … 1 (about 16 MB/s), on a log scale like the speed readout's glow. */
 function flux(rate: number) {
@@ -63,7 +76,7 @@ export function Swarm({ torrents, paused }: { torrents: TorrentSummary[]; paused
   data.current = torrents;
   const halt = useRef(paused);
   halt.current = paused;
-  const reduced = useReducedMotion();
+  const reduced = useReduceMotion();
 
   useEffect(() => {
     if (reduced) return;
